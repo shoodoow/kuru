@@ -1,5 +1,5 @@
 import type { MessageBlock } from "@nano-agents/shared";
-import { execBytes, execStdin } from "../linux/linux.js";
+import { exec, execBytes, execStdin } from "../linux/linux.js";
 
 // Why: phone attachments arrive as data: URIs. Stuffing megabytes of base64
 // into the prompt (and forcing the model to re-emit them through a write
@@ -11,7 +11,11 @@ export const UPLOADS_ROOT = "/shared/uploads";
 const MAX_FILES_PER_MESSAGE = 5;
 const MAX_TOTAL_BYTES = 10_000_000;
 const MAX_PREVIEW_CHARS = 700_000;
+/** Files up to this size travel inside the message; larger ones are streamed from the computer. */
 const MAX_OUTBOUND_FILE_BYTES = 5_000_000;
+const MAX_REMOTE_FILE_BYTES = 2_000_000_000;
+/** What a streamed file's url holds in the stored message; the phone never sees it. */
+export const REMOTE_URL = "computer:";
 
 /**
  * Sanitizes an attachment filename for shell-safe writes.
@@ -77,8 +81,10 @@ function isComputerPath(url: string, home?: string): boolean {
 /**
  * Converts files on the account computer into real attachment bytes.
  * Why: a path inside the computer is not a URL the phone can open. The agent
- * may send from /shared or from its own home (where its work lives). Store a
- * data URI; large payloads are stripped to blobRef on list and fetched lazily.
+ * may send from /shared or from its own home (where its work lives). A small
+ * file is stored as a data URI. A large one (a finished video, an archive) is
+ * stored as a reference and streamed from the computer when the phone asks,
+ * so it arrives exactly as the agent made it.
  * Input: account id, blocks, and the sending agent's home directory.
  */
 export async function inlineSharedOutputBlocks(
@@ -95,17 +101,25 @@ export async function inlineSharedOutputBlocks(
     if (block.url.includes("\0") || block.url.split("/").includes("..")) {
       throw new Error("Attachment path is invalid.");
     }
-    // Read as the sending agent, so a link pointing into someone else's home
-    // is refused by Linux, and stop one byte past the limit instead of pulling
-    // a file of any size into the core's memory.
-    const bytes = await execBytes(accountId, ["cat", "--", block.url], profileOfHome(home) ?? "root", undefined, {
+    // Everything runs as the sending agent, so a link pointing into someone
+    // else's home is refused by Linux.
+    const user = profileOfHome(home) ?? "root";
+    const mime = block.mime || mimeForName(block.name || block.url);
+    const size = await fileSize(accountId, block.url, user);
+    if (size === null) throw new Error(`Could not read attachment ${block.url}. Check the path exists.`);
+    if (size > MAX_REMOTE_FILE_BYTES) {
+      throw new Error(`Attachment ${block.name} is larger than 2 GB. Send a smaller export.`);
+    }
+    if (size > MAX_OUTBOUND_FILE_BYTES) {
+      // Too large to hold in the message. The file stays where it is, untouched,
+      // and the phone streams it from there (see the /file route).
+      out.push({ ...block, mime, url: `${REMOTE_URL}${block.url}`, savedPath: block.url, remote: true, size });
+      continue;
+    }
+    const bytes = await execBytes(accountId, ["cat", "--", block.url], user, undefined, {
       maxBytes: MAX_OUTBOUND_FILE_BYTES + 1,
     });
-    if (bytes.code !== 0 && !bytes.truncated) throw new Error(`Could not read attachment ${block.url}. Check the path exists.`);
-    if (bytes.truncated || bytes.stdout.length > MAX_OUTBOUND_FILE_BYTES) {
-      throw new Error(`Attachment ${block.name} is larger than 5 MB. Send a smaller export.`);
-    }
-    const mime = block.mime || mimeForName(block.name || block.url);
+    if (bytes.code !== 0 || bytes.truncated) throw new Error(`Could not read attachment ${block.url}. Check the path exists.`);
     out.push({
       ...block,
       mime,
@@ -114,6 +128,17 @@ export async function inlineSharedOutputBlocks(
     });
   }
   return out;
+}
+
+/**
+ * The size of a file on the account computer, as one of its users.
+ * Output: bytes, or null when that user cannot read it or it is not a regular file.
+ */
+export async function fileSize(accountId: string, path: string, user: string): Promise<number | null> {
+  if (path.includes("\0") || path.split("/").includes("..")) return null;
+  const result = await exec(accountId, ["sh", "-c", '[ -f "$1" ] && [ -r "$1" ] && stat -c %s -- "$1"', "size", path], user);
+  const size = Number(result.stdout.trim());
+  return result.code === 0 && Number.isSafeInteger(size) && size >= 0 ? size : null;
 }
 
 const FILE_PLACEHOLDER = /\[file:\s*([^\]\n]*?)\s*\(saved at\s+(\/[^)\n]+?)\)\s*\]/g;

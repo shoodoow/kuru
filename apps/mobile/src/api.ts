@@ -596,11 +596,19 @@ async function fetchBlob(
   messageId: string,
   index: number,
   fetchImpl: typeof fetch,
-): Promise<{ url?: string; previewUrl?: string }> {
-  return readJson(
+): Promise<{ url?: string; previewUrl?: string; headers?: Record<string, string> }> {
+  const found = await readJson<{ url?: string; previewUrl?: string; streamPath?: string }>(
     fetchImpl,
     `${baseUrl}/conversations/${conversationId}/blob/${messageId}/${index}?accountId=${accountId}`,
   );
+  if (!found.streamPath) return found;
+  // A large file is streamed from the agent's computer. The player and the
+  // downloader make their own requests, so they are handed the session too.
+  const cookie = readAuthCookie();
+  return {
+    url: `${baseUrl}${found.streamPath}?accountId=${accountId}`,
+    headers: cookie ? { Cookie: cookie } : undefined,
+  };
 }
 
 /**

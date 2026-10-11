@@ -143,6 +143,44 @@ describe("materializeBlocks", () => {
   });
 });
 
+describe("large attachments", () => {
+  it("keeps a file over the inline limit on the computer and streams any part of it unchanged", async () => {
+    const { execStream } = await import("../linux/linux.js");
+    const account = await createAccount(db, { name: "Large upload" });
+    // Six megabytes with a known marker in the middle.
+    await exec(account.id, [
+      "sh",
+      "-c",
+      "head -c 3000000 /dev/zero > /shared/big.mp4 && printf 'MARKER' >> /shared/big.mp4 && head -c 3000000 /dev/zero >> /shared/big.mp4",
+    ]);
+    const [block] = (await inlineSharedOutputBlocks(account.id, [{ kind: "file", url: "/shared/big.mp4", name: "big.mp4" }])) as {
+      url: string;
+      remote?: boolean;
+      size?: number;
+      savedPath?: string;
+      mime?: string;
+    }[];
+    expect(block).toMatchObject({ remote: true, size: 6_000_006, savedPath: "/shared/big.mp4", mime: "video/mp4" });
+    expect(block!.url.startsWith("data:")).toBe(false);
+
+    // The phone is handed a reference, not the path.
+    const [wire] = stripBloatedBlocks("msg-1", [block]) as { url: string; blobRef?: unknown }[];
+    expect(wire).toMatchObject({ url: "", blobRef: { messageId: "msg-1", index: 0 } });
+
+    const part = await execStream(account.id, ["sh", "-c", 'tail -c "+$2" -- "$1" | head -c "$3"', "send", "/shared/big.mp4", "3000001", "6"]);
+    const chunks: Buffer[] = [];
+    for await (const chunk of part.output) chunks.push(chunk as Buffer);
+    expect(Buffer.concat(chunks).toString()).toBe("MARKER");
+  });
+
+  it("refuses a path that does not exist", async () => {
+    const account = await createAccount(db, { name: "Missing upload" });
+    await expect(inlineSharedOutputBlocks(account.id, [{ kind: "file", url: "/shared/nope.bin", name: "nope.bin" }])).rejects.toThrow(
+      /Could not read/,
+    );
+  });
+});
+
 describe("fileBlocksFromText", () => {
   it("turns copied file placeholders into attachments", async () => {
     const { fileBlocksFromText, mimeForName } = await import("./uploads.js");

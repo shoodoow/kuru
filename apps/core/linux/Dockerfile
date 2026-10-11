@@ -27,6 +27,7 @@ RUN apt-get update \
     pcmanfm \
     fonts-dejavu-core \
     imagemagick \
+    ffmpeg \
     socat \
     netcat-openbsd \
     iptables \

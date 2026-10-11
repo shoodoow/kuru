@@ -368,6 +368,10 @@ export const fileBlockSchema = z.object({
   savedPath: z.string().max(500).optional(),
   // Set by listMessages when url exceeds the inline budget (see blobRefSchema).
   blobRef: blobRefSchema.optional(),
+  // A file too large to hold in the message: it stays on the agent's computer
+  // at savedPath and is streamed from there on request. Set by the core only.
+  remote: z.boolean().optional(),
+  size: z.number().int().nonnegative().optional(),
 });
 
 export const widgetBlockSchema = z.object({
@@ -595,3 +599,100 @@ export const defaultModelSchema = z.object({
   modelId: z.string().trim().min(1).max(200),
 });
 export type DefaultModel = z.infer<typeof defaultModelSchema>;
+
+// --- Chart widget ---
+
+export const chartTypes = ["bar", "line", "pie"] as const;
+export type ChartType = (typeof chartTypes)[number];
+export type ChartData = {
+  type: ChartType;
+  title: string;
+  /** One label per point: a category, a date, a slice name. */
+  labels: string[];
+  /** One or more sets of values, each as long as `labels`. A pie uses the first. */
+  series: { name: string; values: number[] }[];
+  /** Shown with every value: "$", "%", "ms". Currency signs go in front. */
+  unit: string;
+};
+
+const MAX_CHART_POINTS = 60;
+const MAX_CHART_SERIES = 6;
+
+/**
+ * Reads a chart widget's props into one clean shape, or null when there is nothing to draw.
+ * Why: the core checks a chart before sending it and the phone draws it, and
+ * both must agree on what counts as valid. Models also write the same chart
+ * several ways (`values`, `series`, or `data` as label/value pairs), so every
+ * common form is accepted here instead of bouncing the call.
+ * Input: the widget's props. Output: the chart, or null.
+ */
+export function chartData(props: Record<string, unknown>): ChartData | null {
+  const text = (value: unknown): string => (typeof value === "string" || typeof value === "number" ? String(value).trim() : "");
+  const numbers = (value: unknown): number[] =>
+    Array.isArray(value) ? value.map((entry) => (typeof entry === "string" ? Number(entry) : entry)).filter((entry): entry is number => typeof entry === "number" && Number.isFinite(entry)) : [];
+  const type = chartTypes.find((name) => name === text(props.type).toLowerCase()) ?? "bar";
+  let labels = Array.isArray(props.labels) ? props.labels.map(text) : [];
+  let series: ChartData["series"] = [];
+  if (Array.isArray(props.series)) {
+    series = props.series
+      .filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null)
+      .map((entry) => ({ name: text(entry.name) || text(entry.label), values: numbers(entry.values ?? entry.data) }));
+  } else if (Array.isArray(props.values)) {
+    series = [{ name: "", values: numbers(props.values) }];
+  }
+  // `data: [{ label, value }]`, the other shape models reach for.
+  const pairs = Array.isArray(props.data) ? props.data.filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null) : [];
+  if (series.length === 0 && pairs.length > 0) {
+    labels = pairs.map((entry) => text(entry.label) || text(entry.name) || text(entry.x));
+    series = [{ name: "", values: pairs.map((entry) => Number(entry.value ?? entry.y)).map((value) => (Number.isFinite(value) ? value : 0)) }];
+  }
+  series = series.filter((entry) => entry.values.length > 0).slice(0, MAX_CHART_SERIES);
+  const points = Math.min(MAX_CHART_POINTS, Math.max(0, ...series.map((entry) => entry.values.length)));
+  if (points === 0) return null;
+  return {
+    type,
+    title: text(props.title),
+    labels: Array.from({ length: points }, (_unused, index) => labels[index] || String(index + 1)),
+    // Short series are padded so every one lines up with the labels.
+    series: series.map((entry) => ({ name: entry.name, values: Array.from({ length: points }, (_unused, index) => entry.values[index] ?? 0) })),
+    unit: text(props.unit).slice(0, 6),
+  };
+}
+
+/** A value as a chart shows it: short, with the unit ("$1.2k", "45%", "3.4M"). */
+export function chartValue(value: number, unit = ""): string {
+  const size = Math.abs(value);
+  const short =
+    size >= 1_000_000_000 ? `${trimNumber(value / 1_000_000_000)}B`
+    : size >= 1_000_000 ? `${trimNumber(value / 1_000_000)}M`
+    : size >= 10_000 ? `${trimNumber(value / 1_000)}k`
+    : trimNumber(value);
+  if (!unit) return short;
+  return /^[$€£¥₹]$/.test(unit) ? (value < 0 ? `-${unit}${short.slice(1)}` : `${unit}${short}`) : `${short}${unit.length > 1 ? " " : ""}${unit}`;
+}
+
+function trimNumber(value: number): string {
+  const size = Math.abs(value);
+  return String(Number(value.toFixed(size >= 100 ? 0 : size >= 10 ? 1 : 2)));
+}
+
+/**
+ * Round numbers for a chart's value axis.
+ * Input: the lowest and highest value, and whether the axis must include zero
+ * (bars are measured from it; a line may start higher so a trend stays visible).
+ * Output: the axis ends and the values to draw a line at, three or four of them.
+ */
+export function chartScale(low: number, high: number, fromZero = true): { min: number; max: number; ticks: number[] } {
+  const bottom = fromZero ? Math.min(0, low) : low;
+  const top = fromZero ? Math.max(0, high) : high;
+  const span = top - bottom || Math.abs(top) || 1;
+  const rough = span / 3;
+  const power = 10 ** Math.floor(Math.log10(rough));
+  const step = [1, 2, 2.5, 5, 10].map((factor) => factor * power).find((size) => size >= rough) ?? rough;
+  const min = Math.floor(bottom / step) * step;
+  let max = Math.ceil(top / step) * step;
+  if (max === min) max = min + step;
+  const ticks: number[] = [];
+  for (let value = min; value <= max + step / 2; value += step) ticks.push(Number(value.toPrecision(12)));
+  return { min: Number(min.toPrecision(12)), max: Number(max.toPrecision(12)), ticks };
+}

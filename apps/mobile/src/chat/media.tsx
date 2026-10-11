@@ -20,7 +20,10 @@ import type { MessageBlock } from "../api";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { IconCloseLight, IconDownload, IconDownloadLight, IconFullscreen, IconPlay } from "../ui/icons";
 
-export type FetchBlob = (messageId: string, index: number) => Promise<{ url?: string; previewUrl?: string }>;
+export type FetchBlob = (
+  messageId: string,
+  index: number,
+) => Promise<{ url?: string; previewUrl?: string; headers?: Record<string, string> }>;
 export type ImageBlock = Extract<MessageBlock, { kind: "image" }>;
 export type FileBlock = Extract<MessageBlock, { kind: "file" }>;
 
@@ -327,20 +330,25 @@ async function materializeFile(
   fetchBlob: FetchBlob | undefined,
   keep = false,
   download = false,
-): Promise<{ uri: string; mime?: string; local: boolean } | null> {
+): Promise<{ uri: string; mime?: string; local: boolean; headers?: Record<string, string> } | null> {
   let url = block.url;
+  let headers: Record<string, string> | undefined;
   if (!url && block.blobRef && fetchBlob) {
-    url = (await fetchBlob(block.blobRef.messageId, block.blobRef.index)).url ?? "";
+    const found = await fetchBlob(block.blobRef.messageId, block.blobRef.index);
+    url = found.url ?? "";
+    headers = found.headers;
   }
   if (!url) return null;
   const data = /^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/.exec(url);
-  if (!data && download && /^https?:\/\//i.test(url)) {
+  // A file streamed from the agent's computer needs the session to fetch, so
+  // only the player (`keep`) uses its address; everything else gets a copy.
+  if (!data && (download || (headers && !keep)) && /^https?:\/\//i.test(url)) {
     const target = new File(Paths.cache, block.name.replace(/[^A-Za-z0-9._-]+/g, "_") || "attachment");
     if (target.exists) target.delete();
-    const saved = await File.downloadFileAsync(url, target);
+    const saved = await File.downloadFileAsync(url, target, headers ? { headers } : undefined);
     return { uri: saved.uri, mime: block.mime, local: true };
   }
-  if (!data) return { uri: url, mime: block.mime, local: false };
+  if (!data) return { uri: url, mime: block.mime, local: false, headers };
   const mime = block.mime ?? data[1];
   let name = block.name.replace(/[^A-Za-z0-9._-]+/g, "_") || "attachment";
   // The player picks its decoder from the extension, so a bare name gets one.
@@ -403,8 +411,11 @@ export async function saveFileBlock(block: FileBlock, fetchBlob?: FetchBlob): Pr
 /** Reads a file block as text, for the in-app viewer. */
 export async function readFileText(block: FileBlock, fetchBlob?: FetchBlob): Promise<string> {
   let url = block.url;
+  let headers: Record<string, string> | undefined;
   if (!url && block.blobRef && fetchBlob) {
-    url = (await fetchBlob(block.blobRef.messageId, block.blobRef.index)).url ?? "";
+    const found = await fetchBlob(block.blobRef.messageId, block.blobRef.index);
+    url = found.url ?? "";
+    headers = found.headers;
   }
   if (!url) throw new Error("This file has no content.");
   const base64 = /^data:[^,]*;base64,([A-Za-z0-9+/=]+)$/.exec(url);
@@ -415,12 +426,12 @@ export async function readFileText(block: FileBlock, fetchBlob?: FetchBlob): Pro
     return new TextDecoder().decode(bytes);
   }
   if (url.startsWith("data:")) return decodeURIComponent(url.slice(url.indexOf(",") + 1));
-  const response = await fetch(url);
+  const response = await fetch(url, headers ? { headers } : undefined);
   if (!response.ok) throw new Error(`The file did not load (${response.status}).`);
   return response.text();
 }
 
-function InlineVideo({ uri, fullScreen }: { uri: string; fullScreen: number }) {
+function InlineVideo({ uri, headers, fullScreen }: { uri: string; headers?: Record<string, string>; fullScreen: number }) {
   const view = useRef<VideoView>(null);
   // Each press of the full-screen button bumps the count; the short wait lets a
   // just-mounted player attach before it is asked to go full screen.
@@ -429,7 +440,8 @@ function InlineVideo({ uri, fullScreen }: { uri: string; fullScreen: number }) {
     const timer = setTimeout(() => void view.current?.enterFullscreen().catch(() => {}), 250);
     return () => clearTimeout(timer);
   }, [fullScreen]);
-  const player = useVideoPlayer(uri, (created) => {
+  // With headers the player streams from the core and asks for the parts it needs.
+  const player = useVideoPlayer(headers ? { uri, headers } : uri, (created) => {
     created.play();
   });
   return (
@@ -453,7 +465,8 @@ function InlineVideo({ uri, fullScreen }: { uri: string; fullScreen: number }) {
  * Input: a video file block + blob fetcher. Output: poster, then the player.
  */
 export function VideoBlock({ block, fetchBlob }: { block: FileBlock; fetchBlob?: FetchBlob }) {
-  const [uri, setUri] = useState<string | null>(null);
+  const [source, setSource] = useState<{ uri: string; headers?: Record<string, string> } | null>(null);
+  const uri = source?.uri ?? null;
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -465,7 +478,7 @@ export function VideoBlock({ block, fetchBlob }: { block: FileBlock; fetchBlob?:
     setFailed(false);
     void materializeFile(block, fetchBlob, true)
       .then((file) => {
-        if (file) setUri(file.uri);
+        if (file) setSource({ uri: file.uri, headers: file.headers });
         else setFailed(true);
       })
       .catch(() => setFailed(true))
@@ -483,7 +496,7 @@ export function VideoBlock({ block, fetchBlob }: { block: FileBlock; fetchBlob?:
   return (
     <View style={styles.mediaWrap}>
       {uri ? (
-        <InlineVideo uri={uri} fullScreen={fullScreen} />
+        <InlineVideo uri={uri} headers={source?.headers} fullScreen={fullScreen} />
       ) : (
         <Pressable style={styles.poster} onPress={start} accessibilityRole="button" accessibilityLabel={`Play ${block.name}`}>
           <View style={styles.playDisk}>{busy ? <ActivityIndicator color="#FFFFFF" /> : <IconPlay />}</View>

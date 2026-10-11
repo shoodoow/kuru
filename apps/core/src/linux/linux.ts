@@ -361,6 +361,32 @@ export async function execBytes(
  * Input: account id, command argv, stdin bytes, optional user/env.
  * Output: the stdout bytes and the exit code.
  */
+/**
+ * Runs a command and hands back its output as it is produced.
+ * Why: a large file sent to the phone must not pass through the core's memory
+ * the way `exec` output does. Input: account id, argv, the Linux user.
+ * Output: the command's stdout as a stream, and `stop` to end it early.
+ */
+export async function execStream(
+  accountId: string,
+  command: string[],
+  user = "root",
+): Promise<{ output: PassThrough; stop: () => void }> {
+  const container = await accountContainer(accountId);
+  const running = await container.exec({ Cmd: command, User: user, AttachStdout: true, AttachStderr: true });
+  const stream = await running.start({ hijack: true, stdin: false });
+  const output = new PassThrough();
+  const errors = new PassThrough();
+  errors.resume();
+  swallowBrokenPipe(output);
+  swallowBrokenPipe(errors);
+  stream.on("error", () => output.end());
+  stream.on("end", () => output.end());
+  stream.on("close", () => output.end());
+  container.modem.demuxStream(stream, output, errors);
+  return { output, stop: () => stream.destroy() };
+}
+
 export async function execStdin(
   accountId: string,
   command: string[],

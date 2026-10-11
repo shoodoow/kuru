@@ -21,6 +21,8 @@ import { blocksToText, saveReaction, withWidgetProps } from "../../rooms/send-me
 import { isUnsetAgent } from "../../roster/roster.js";
 import { attach, publish, type StreamEvent } from "../../rooms/stream.js";
 import { runTurn } from "../../rooms/turn.js";
+import { fileSize, mimeForName } from "../../rooms/uploads.js";
+import { execStream } from "../../linux/linux.js";
 import { dispatcherToolNames } from "../../turn/tools/registry.js";
 import { buildChatContextInfo } from "../../turn/usage/chat-context.js";
 import { logger, pathParam, queryAccountId, UUID, type AppContext, type Guard } from "../context.js";
@@ -64,11 +66,65 @@ export function conversationsRoutes(ctx: AppContext, guard: Guard): Router {
     const block = Number.isInteger(index) ? blocks[index] : undefined;
     const url = typeof block?.url === "string" ? (block.url as string) : "";
     const preview = typeof block?.previewUrl === "string" ? (block.previewUrl as string) : "";
+    if (row && block?.remote === true) {
+      // The bytes are on the agent's computer; the phone streams them from the route below.
+      res.json({ streamPath: `/conversations/${conversationId}/file/${row.id}/${index}` });
+      return;
+    }
     if (!row || !block || (url === "" && preview === "")) {
       res.status(404).json({ error: "Attachment not found." });
       return;
     }
     res.json({ url: url !== "" ? url : undefined, previewUrl: preview !== "" ? preview : undefined });
+  });
+  // Streams one large attachment straight from the agent's computer, as the
+  // agent made it. Range requests are honoured so a video can start and seek
+  // without the whole file. The path comes from the stored message, never
+  // from the request, and the file is read as the agent that sent it.
+  conversations.get("/:conversationId/file/:messageId/:index", guard, async (req, res) => {
+    const accountId = queryAccountId(req);
+    const row = await getMessage(ctx.db, accountId, pathParam(req, "conversationId"), pathParam(req, "messageId"));
+    const index = Number(pathParam(req, "index"));
+    const blocks = Array.isArray(row?.payload) ? (row.payload as Record<string, unknown>[]) : [];
+    const block = Number.isInteger(index) ? blocks[index] : undefined;
+    const path = block?.remote === true && typeof block.savedPath === "string" ? block.savedPath : "";
+    const [sender] = row?.agentId
+      ? await ctx.db
+          .select({ linuxProfile: agents.linuxProfile })
+          .from(agents)
+          .where(and(eq(agents.id, row.agentId), eq(agents.accountId, accountId)))
+      : [];
+    const size = path && sender?.linuxProfile ? await fileSize(accountId, path, sender.linuxProfile) : null;
+    if (!path || !sender?.linuxProfile || size === null) {
+      res.status(404).json({ error: "This file is no longer on the agent's computer." });
+      return;
+    }
+    const range = byteRange(req.headers.range, size);
+    if (range === "invalid") {
+      res.status(416).set("Content-Range", `bytes */${size}`).end();
+      return;
+    }
+    const start = range?.start ?? 0;
+    const length = range ? range.end - range.start + 1 : size;
+    const name = typeof block?.name === "string" ? block.name : "file";
+    res.status(range ? 206 : 200).set({
+      "Content-Type": typeof block?.mime === "string" && block.mime ? block.mime : mimeForName(name),
+      "Content-Length": String(length),
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "private, max-age=3600",
+      ...(range ? { "Content-Range": `bytes ${start}-${start + length - 1}/${size}` } : {}),
+    });
+    if (req.method === "HEAD" || length === 0) {
+      res.end();
+      return;
+    }
+    const file = await execStream(
+      accountId,
+      ["sh", "-c", 'tail -c "+$2" -- "$1" | head -c "$3"', "send", path, String(start + 1), String(length)],
+      sender.linuxProfile,
+    );
+    res.on("close", file.stop);
+    file.output.pipe(res);
   });
   conversations.post("/:conversationId/reactions", guard, async (req, res) => {
     const accountId = queryAccountId(req);
@@ -327,4 +383,22 @@ export function conversationsRoutes(ctx: AppContext, guard: Guard): Router {
     res.json(rows);
   });
   return conversations;
+}
+
+/**
+ * Reads a Range header for a file of `size` bytes.
+ * Output: the first and last byte to send, undefined when there is no usable
+ * header (send it all), or "invalid" when the range lies outside the file.
+ */
+export function byteRange(header: string | undefined, size: number): { start: number; end: number } | undefined | "invalid" {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header?.trim() ?? "");
+  if (!match || (match[1] === "" && match[2] === "")) return undefined;
+  if (match[1] === "") {
+    // "-500": the last 500 bytes.
+    const tail = Math.min(Number(match[2]), size);
+    return tail > 0 ? { start: size - tail, end: size - 1 } : "invalid";
+  }
+  const start = Number(match[1]);
+  const end = match[2] === "" ? size - 1 : Math.min(Number(match[2]), size - 1);
+  return start < size && start <= end ? { start, end } : "invalid";
 }

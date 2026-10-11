@@ -63,10 +63,10 @@ describe("notify policy", () => {
     expect(second.id).toBe(first.id);
     expect(second).toMatchObject({ title: "Still working", urgency: "action-needed", status: "pending" });
 
-    const pending = await listPendingNotifications(db, 50);
+    const pending = await listPendingNotifications(db, 50, account.id);
     expect(pending.map((row) => row.id)).toContain(first.id);
     await markNotificationSent(db, first.id);
-    expect((await listPendingNotifications(db, 50)).map((row) => row.id)).not.toContain(first.id);
+    expect((await listPendingNotifications(db, 50, account.id)).map((row) => row.id)).not.toContain(first.id);
 
     const other = await saveNotification(db, {
       accountId: account.id,

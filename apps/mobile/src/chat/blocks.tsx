@@ -7,6 +7,7 @@ import { Avatar } from "../ui/Avatar";
 import { IconCheck, IconClose, IconMonitor, IconShield } from "../ui/icons";
 import { FileCard } from "./FileViewer";
 import { CopyButton, HorizontalTableScroll, MarkdownText } from "./MarkdownText";
+import { ChartWidget } from "./ChartWidget";
 import { ImageGroup, VideoBlock, isVideoBlock, openFileBlock, type FetchBlob, type ImageBlock } from "./media";
 
 export { openFileBlock };
@@ -228,19 +229,7 @@ function WidgetBody({
     );
   }
   if (widget === "chart") {
-    const values = Array.isArray(props.values) ? (props.values as number[]) : [];
-    const max = Math.max(1, ...values);
-    return (
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>{String(props.title ?? "Chart")}</Text>
-        {values.map((value, index) => (
-          <View key={index} style={styles.barRow}>
-            <View style={[styles.bar, { flex: Math.max(0.05, value / max) }]} />
-            <Text style={styles.barValue}>{String(value)}</Text>
-          </View>
-        ))}
-      </View>
-    );
+    return <ChartWidget props={props} />;
   }
   if (widget === "approval") {
     const approvalId = typeof props.approvalId === "string" ? props.approvalId : undefined;
@@ -869,9 +858,6 @@ function createStyles(colors: ColorPalette) {
   agentOpenText: { color: colors.bg, fontSize: 16, fontWeight: "600" },
   cardTitle: { color: colors.text, fontWeight: "700", fontSize: 15 },
   cardLine: { color: colors.text, fontSize: 14, lineHeight: 20 },
-  barRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  bar: { height: 10, borderRadius: 5, backgroundColor: colors.link },
-  barValue: { color: colors.muted, fontSize: 12, width: 40 },
   handoverDetail: { color: colors.muted, fontSize: 14, lineHeight: 20 },
   handoverBtn: {
     flexDirection: "row",

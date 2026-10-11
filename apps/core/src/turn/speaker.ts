@@ -442,20 +442,32 @@ export async function speakOnce(
   // Models copy the "[file: name (saved at /path)]" form history shows them.
   // Deliver those as real attachments instead of a line of text.
   const parsedReply = fileBlocksFromText(raw);
-  let attachments: Awaited<ReturnType<typeof inlineSharedOutputBlocks>> = [];
-  if (parsedReply.files.length > 0) {
-    attachments = await inlineSharedOutputBlocks(
-      accountId,
-      parsedReply.files.map((file) => ({ kind: "file" as const, url: file.url, name: file.name })),
-      agent.linuxProfile ? accountHome(accountId, agent.linuxProfile) : undefined,
-    ).catch(() => []);
+  const attachments: Awaited<ReturnType<typeof inlineSharedOutputBlocks>> = [];
+  const unsent: string[] = [];
+  // One file at a time, so one that cannot be sent does not sink the others.
+  for (const file of parsedReply.files) {
+    try {
+      attachments.push(
+        ...(await inlineSharedOutputBlocks(
+          accountId,
+          [{ kind: "file" as const, url: file.url, name: file.name }],
+          agent.linuxProfile ? accountHome(accountId, agent.linuxProfile) : undefined,
+        )),
+      );
+    } catch {
+      unsent.push(file.name);
+    }
   }
-  const text = attachments.length > 0 ? parsedReply.text : raw;
+  // A file that could not be attached is named plainly; the raw placeholder
+  // with its path on the agent's computer means nothing to the person.
+  const text = [parsedReply.text, ...unsent.map((name) => `_${name} could not be sent here: it is too large or could not be read._`)]
+    .filter(Boolean)
+    .join("\n\n");
   // Plain text is a reply. Only a truly empty ending gets the stall line.
   const bodyText = text || (attachments.length > 0 ? "" : stallMessage());
   const payload = [
     ...(bodyText ? [{ kind: "text" as const, markdown: bodyText }] : []),
-    ...attachments.filter((block) => block.kind === "file" && block.url.startsWith("data:")),
+    ...attachments.filter((block) => block.kind === "file" && (block.url.startsWith("data:") || block.remote)),
   ];
   const [wrapped] = await db
     .insert(messages)

@@ -1,4 +1,4 @@
-import type { MessageBlock } from "@nano-agents/shared";
+import { chartData, type MessageBlock } from "@nano-agents/shared";
 import { reactionSchema, sendMessageInputSchema } from "@nano-agents/agent-tools";
 import { and, asc, eq } from "drizzle-orm";
 import type { Store } from "../db/client.js";
@@ -73,6 +73,14 @@ export function widgetAsText(widget: string, props: Record<string, unknown>): st
       picked ? ` They picked: ${picked}.` : widget === "question" ? " Not answered yet." : "",
       ")",
     ].join("");
+  }
+  if (widget === "chart") {
+    // The numbers are kept so the agent can still talk about what it showed.
+    const chart = chartData(props);
+    const rows = (chart?.series ?? []).map(
+      (entry) => `${entry.name ? `${entry.name}: ` : ""}${chart!.labels.map((label, index) => `${label} ${entry.values[index]}`).join(", ")}`,
+    );
+    return `(Shown to the person as a ${chart?.type ?? "bar"} chart${title ? `: "${title.slice(0, 200)}"` : ""}${rows.length > 0 ? `. ${rows.join("; ").slice(0, 600)}` : ""})`;
   }
   return `(Shown to the person as a ${widget} card${title ? `: "${title.slice(0, 200)}"` : ""})`;
 }

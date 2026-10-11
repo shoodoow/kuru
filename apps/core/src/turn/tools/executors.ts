@@ -2,6 +2,7 @@
  * Tool execute bodies for the dispatcher registry.
  * DB: per tool — messages, delegations, agents, routines, notifications.
  */
+import { chartData } from "@nano-agents/shared";
 import { hitLine, mergeRanked, searchFacts, searchMessages, searchSummaries, searchTerms } from "../../memory/search.js";
 import { prompt } from "../../prompt/prompts.js";
 import { isRequestableToolSet, toolNamesInSet, toolSetGuidance } from "./tool-sets.js";
@@ -162,6 +163,14 @@ export async function executeSendMessage(ctx: ToolContext, input: Record<string,
       };
     }
     throw error;
+  }
+  // A chart with nothing to draw would reach the person as an empty card.
+  const emptyChart = parsed.blocks.some((block) => block.kind === "widget" && block.widget === "chart" && !chartData(block.props));
+  if (emptyChart) {
+    return {
+      error:
+        'The chart has no numbers to draw. Use props: { "type": "bar" | "line" | "pie", "title": "...", "labels": ["Mon", "Tue"], "values": [12, 18] }. For several lines or bar groups use "series": [{ "name": "2025", "values": [...] }] in place of "values".',
+    };
   }
   const asksSecret = parsed.blocks.some((block) => block.kind === "widget" && block.widget === "secret");
   const asksDesktopHandover = parsed.blocks.some(

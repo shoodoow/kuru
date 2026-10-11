@@ -456,6 +456,9 @@ export function stripBloatedBlocks(messageId: string, blocks: unknown): unknown 
     const record = block as Record<string, unknown>;
     const url = typeof record.url === "string" ? record.url : "";
     const preview = typeof record.previewUrl === "string" ? record.previewUrl : "";
+    // A file streamed from the agent's computer: the phone gets a reference
+    // to ask for it by, never the path it is kept at.
+    if (record.remote === true) return { ...record, url: "", blobRef: { messageId, index } };
     const heavy = (value: string) => value.startsWith("data:") && value.length > INLINE_BLOB_BUDGET;
     if (!heavy(url) && !heavy(preview)) return block;
     return {
