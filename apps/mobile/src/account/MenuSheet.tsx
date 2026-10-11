@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type ViewStyle } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type ViewStyle } from "react-native";
 import type { ProviderSetting } from "../api";
 import type { AccountUsage, PluginList, RosterAgent } from "../api";
+import type { SavedAccount } from "../auth";
 import { UsagePage } from "./UsagePage";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { useAppearance, useResolvedScheme, type AppearanceChoice } from "../theme/appearance";
@@ -18,6 +19,8 @@ export type SignedAccount = {
   id: string;
   name: string;
   email: string;
+  /** The picture on their Google account, when it has one. */
+  image?: string | null;
 };
 
 export type MenuPage = "menu" | "account" | "signup" | "providers" | "plugins" | "plugin-custom" | "appearance" | "usage";
@@ -30,7 +33,6 @@ export type MenuPage = "menu" | "account" | "signup" | "providers" | "plugins" |
 export function MenuSheet({
   page,
   account,
-  accounts,
   notifications,
   autoReview,
   autoTimeZone,
@@ -38,6 +40,9 @@ export function MenuSheet({
   providers,
   plugins,
   agents,
+  onError,
+  serverUrl,
+  onChangeServer,
   onLoadUsage,
   onPage,
   onNotifications,
@@ -54,7 +59,9 @@ export function MenuSheet({
   onSaveCustomPlugin,
   onSignInCustomPlugin,
   onGoogle,
+  accounts,
   onSwitch,
+  onAdd,
   onSignOut,
   onDelete,
 }: {
@@ -62,13 +69,17 @@ export function MenuSheet({
   onSaveDefaultModel?: (provider: ProviderSetting["provider"], modelId: string) => void | Promise<unknown>;
   page: MenuPage;
   account: SignedAccount | null;
-  accounts: SignedAccount[];
   notifications: boolean;
   autoReview: boolean;
   autoTimeZone: boolean;
   timeZone: string;
   providers: ProviderSetting[];
   plugins: PluginList | null;
+  /** Shows a failure in the banner at the top of the sheet. */
+  onError: (error: unknown) => void;
+  /** The server the app talks to, and the action that points it at another. */
+  serverUrl: string;
+  onChangeServer: (typed: string) => Promise<void>;
   /** The roster, for the faces on the usage page. */
   agents: RosterAgent[];
   onLoadUsage: (days: number) => Promise<AccountUsage>;
@@ -85,9 +96,12 @@ export function MenuSheet({
   onSaveCustomPlugin: (name: string, url: string, secret: string) => void | Promise<unknown>;
   onSignInCustomPlugin: (name: string, url: string) => void;
   onGoogle: () => void;
-  onSwitch: (id: string) => void;
-  onSignOut: () => void;
-  onDelete: (id: string) => void;
+  /** Every account signed in on this phone. */
+  accounts: SavedAccount[];
+  onSwitch: (slot: string) => Promise<void>;
+  onAdd: () => Promise<void>;
+  onSignOut: () => Promise<void>;
+  onDelete: () => Promise<void>;
 }) {
   useResolvedScheme();
   const scrollStyle = useSheetScrollStyle();
@@ -115,20 +129,23 @@ export function MenuSheet({
       ) : null}
       {page === "account" && account ? (
         <AccountPage
+          onError={onError}
           account={account}
           accounts={accounts}
-          onAdd={() => onPage("signup")}
+          serverUrl={serverUrl}
           onSwitch={onSwitch}
+          onAdd={onAdd}
           onSignOut={onSignOut}
-          onDelete={() => onDelete(account.id)}
+          onDelete={onDelete}
           scrollStyle={scrollStyle}
         />
       ) : null}
       {page === "signup" ? (
         <SignupPage
-          accounts={accounts}
+          onError={onError}
+          serverUrl={serverUrl}
+          onChangeServer={onChangeServer}
           onGoogle={onGoogle}
-          onSwitch={onSwitch}
           scrollStyle={scrollStyle}
         />
       ) : null}
@@ -199,7 +216,7 @@ function MenuPageView({
   return (
     <ScrollView style={scrollStyle} contentInsetAdjustmentBehavior="automatic" nestedScrollEnabled contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
       <CardButton onPress={onAccount}>
-        <Avatar id={account.id} size={44} person label={account.name} />
+        <Avatar id={account.id} size={44} person label={account.name} photo={account.image} />
         <View style={styles.cardBody}>
           <Text style={styles.name}>{account.name}</Text>
           <Text style={styles.email}>{account.email}</Text>
@@ -409,83 +426,194 @@ function ProviderPage({
   );
 }
 
+/**
+ * The accounts signed in on this phone, and the ways out of the one in use.
+ * Every account keeps its own sign-in, so tapping another one switches at
+ * once. An account lives on its server: "delete" removes it there with
+ * everything it owns. Both ways out ask first.
+ */
 function AccountPage({
   account,
   accounts,
-  onAdd,
+  serverUrl,
   onSwitch,
+  onAdd,
   onSignOut,
   onDelete,
+  onError,
   scrollStyle,
 }: {
+  /** Shows a failure in the banner at the top of the sheet. */
+  onError: (error: unknown) => void;
   account: SignedAccount;
-  accounts: SignedAccount[];
-  onAdd: () => void;
-  onSwitch: (id: string) => void;
-  onSignOut: () => void;
-  onDelete: () => void;
+  accounts: SavedAccount[];
+  serverUrl: string;
+  onSwitch: (slot: string) => Promise<void>;
+  onAdd: () => Promise<void>;
+  onSignOut: () => Promise<void>;
+  onDelete: () => Promise<void>;
+  scrollStyle: ViewStyle;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const host = (url: string): string => url.replace(/^https?:\/\//, "");
+
+  function run(kind: string, action: () => Promise<void>): void {
+    setBusy(kind);
+    void action()
+      .catch(onError)
+      .finally(() => setBusy(null));
+  }
+
+  function confirmSignOut(): void {
+    Alert.alert("Sign out?", `${account.email} will be signed out on this phone. Its agents and chats stay on the server.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Sign out", style: "destructive", onPress: () => run("out", onSignOut) },
+    ]);
+  }
+
+  function confirmDelete(): void {
+    Alert.alert(
+      "Delete this account?",
+      `This deletes ${account.email} for good: every agent, chat and file, what the agents remember, and their computer. It cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete everything", style: "destructive", onPress: () => run("delete", onDelete) },
+      ],
+    );
+  }
+
+  return (
+    <ScrollView style={scrollStyle} contentInsetAdjustmentBehavior="automatic" nestedScrollEnabled contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <Text style={styles.section}>Accounts on this phone</Text>
+      <View style={styles.group}>
+        {accounts.map((row) => {
+          const current = row.id === account.id;
+          return (
+            <SettingsRow key={row.slot || "first"} onPress={() => (current || busy ? undefined : run(`switch-${row.slot}`, () => onSwitch(row.slot)))}>
+              <Avatar id={row.id} size={36} person label={row.name} photo={row.image} />
+              <View style={styles.cardBody}>
+                <Text style={styles.rowLabel} numberOfLines={1}>
+                  {row.name}
+                </Text>
+                <Text style={styles.hint} numberOfLines={1}>
+                  {row.server === serverUrl ? row.email : `${row.email} · ${host(row.server)}`}
+                </Text>
+              </View>
+              {current ? <IconCheck /> : busy === `switch-${row.slot}` ? <Text style={styles.trailingText}>Switching…</Text> : null}
+            </SettingsRow>
+          );
+        })}
+        <SettingsRow onPress={() => (busy ? undefined : run("add", onAdd))}>
+          <Text style={styles.rowLabel}>{busy === "add" ? "Opening Google…" : "+  Add account"}</Text>
+        </SettingsRow>
+      </View>
+      <Text style={styles.caption}>Signed in to {host(serverUrl)}. Tap an account to switch to it.</Text>
+      <PrimaryButton variant="secondary" label="Sign out" disabled={busy !== null} busy={busy === "out"} onPress={confirmSignOut} />
+      <Pressable
+        accessibilityRole="button"
+        disabled={busy !== null}
+        onPress={confirmDelete}
+        style={(state) => pressableStyle(styles.dangerButton, state)}
+      >
+        <IconTrash />
+        <Text style={styles.dangerText}>{busy === "delete" ? "Deleting…" : "Delete account"}</Text>
+      </Pressable>
+      <Text style={styles.caption}>Deleting removes the account and all of its data from the server. This can't be undone.</Text>
+    </ScrollView>
+  );
+}
+
+function SignupPage({
+  serverUrl,
+  onChangeServer,
+  onGoogle,
+  onError,
+  scrollStyle,
+}: {
+  onError: (error: unknown) => void;
+  serverUrl: string;
+  onChangeServer: (typed: string) => Promise<void>;
+  onGoogle: () => void;
   scrollStyle: ViewStyle;
 }) {
   return (
-    <ScrollView style={scrollStyle} contentInsetAdjustmentBehavior="automatic" nestedScrollEnabled contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-      <View style={styles.card}>
-        <Avatar id={account.id} size={44} person label={account.name} />
-        <View style={styles.cardBody}>
-          <Text style={styles.name}>{account.name}</Text>
-          <Text style={styles.email}>{account.email}</Text>
-        </View>
-      </View>
-      <Text style={styles.section}>Switch Account</Text>
-      <View style={styles.group}>
-        {accounts.map((row) => (
-          <SettingsRow key={row.id} onPress={() => onSwitch(row.id)}>
-            <Text style={styles.rowLabel}>{row.email}</Text>
-            {row.id === account.id ? <IconCheck /> : null}
-          </SettingsRow>
-        ))}
-        <SettingsRow onPress={onAdd}>
-          <Text style={styles.rowLabel}>+  Add Account</Text>
-        </SettingsRow>
-      </View>
-      <Pressable accessibilityRole="button" onPress={onSignOut} style={(state) => pressableStyle(styles.dangerButton, state)}>
-        <Text style={styles.dangerText}>Sign Out</Text>
-      </Pressable>
-      <Pressable accessibilityRole="button" onPress={onDelete} style={(state) => pressableStyle(styles.dangerButton, state)}>
-        <IconTrash />
-        <Text style={styles.dangerText}>Delete Account</Text>
-      </Pressable>
-      <Text style={styles.caption}>Removes this account from the phone. This can't be undone here.</Text>
+    <ScrollView
+      style={scrollStyle}
+      contentInsetAdjustmentBehavior="automatic"
+      nestedScrollEnabled
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={styles.scroll}
+      showsVerticalScrollIndicator={false}
+    >
+      <Text style={styles.hint}>Google creates your account. Chats and groups use that account id.</Text>
+      <PrimaryButton label="Continue with Google" onPress={onGoogle} />
+      <ServerCard serverUrl={serverUrl} onChange={onChangeServer} onError={onError} />
     </ScrollView>
   );
 }
 
 /**
- * Starts Google sign-in on the core.
- * Input: accounts already on this phone, and the Google and switch handlers.
- * Output: the sign-in page. The account id comes back from the Google session.
+ * Shows which server the app talks to and lets the person point it at their own.
+ * Why: anyone can run this project's server, so one published app has to work
+ * with any of them. Accounts live on a server, so changing it starts sign-in over.
+ * Input: the address in use and the action that checks and saves a new one.
  */
-function SignupPage({
-  accounts,
-  onGoogle,
-  onSwitch,
-  scrollStyle,
+function ServerCard({
+  serverUrl,
+  onChange,
+  onError,
 }: {
-  accounts: SignedAccount[];
-  onGoogle: () => void;
-  onSwitch: (id: string) => void;
-  scrollStyle: ViewStyle;
+  serverUrl: string;
+  onChange: (typed: string) => Promise<void>;
+  onError: (error: unknown) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function apply(value: string): void {
+    setBusy(true);
+    void onChange(value)
+      .then(() => {
+        setEditing(false);
+        setTyped("");
+      })
+      .catch(onError)
+      .finally(() => setBusy(false));
+  }
+
   return (
-    <ScrollView style={scrollStyle} contentInsetAdjustmentBehavior="automatic" nestedScrollEnabled contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-      <Text style={styles.hint}>Google creates your account. Chats and groups use that account id.</Text>
-      <PrimaryButton label="Continue with Google" onPress={onGoogle} />
-      {accounts.length > 0 ? <Text style={styles.section}>On this phone</Text> : null}
-      {accounts.map((row) => (
-        <CardButton key={row.id} onPress={() => onSwitch(row.id)}>
-          <Text style={styles.rowLabel}>{row.email}</Text>
-        </CardButton>
-      ))}
-    </ScrollView>
+    <>
+      <Text style={styles.section}>Server</Text>
+      <View style={styles.group}>
+        <SettingsRow onPress={() => setEditing((open) => !open)}>
+          <Text style={styles.rowLabel} numberOfLines={1}>
+            {serverUrl.replace(/^https?:\/\//, "")}
+          </Text>
+          <View style={styles.trailing}>
+            <Text style={styles.trailingText}>{editing ? "Cancel" : "Change"}</Text>
+          </View>
+        </SettingsRow>
+      </View>
+      {editing ? (
+        <>
+          <TextInput
+            value={typed}
+            onChangeText={setTyped}
+            placeholder="https://agents.example.com"
+            placeholderTextColor={colors.muted}
+            keyboardAppearance="dark"
+            keyboardType="url"
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={styles.serverInput}
+          />
+          <PrimaryButton label="Use this server" disabled={typed.trim().length === 0} busy={busy} onPress={() => apply(typed)} />
+          <PrimaryButton variant="secondary" label="Use the default server" disabled={busy} onPress={() => apply("")} />
+          <Text style={styles.hint}>Running your own server? Enter its address. Your account and agents live on the server you sign in to.</Text>
+        </>
+      ) : null}
+    </>
   );
 }
 
@@ -493,6 +621,7 @@ function createStyles(colors: ColorPalette) {
   return StyleSheet.create({
   sheet: { flex: 1, backgroundColor: colors.sheet },
   scroll: { padding: 14, paddingBottom: 28, gap: 10 },
+  serverInput: { backgroundColor: colors.card, color: colors.text, borderRadius: 14, height: 48, paddingHorizontal: 14, fontSize: 16 },
   card: {
     flexDirection: "row",
     alignItems: "center",

@@ -2,7 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getDb } from "../db/client.js";
 import { agents, conversations, messages } from "../db/schema.js";
-import { saveProviderKey } from "../keys/keys.js";
+import { listProviderKeys, saveProviderKey } from "../keys/keys.js";
 import {
   createAccount,
   createAgent,
@@ -20,14 +20,16 @@ import {
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
 const db = getDb(databaseUrl);
 
+// Closed once for the whole file: both groups of tests below use the connection.
+afterAll(async () => {
+  await db.$client.end();
+});
+
 describe("roster", () => {
   beforeAll(async () => {
     await db.execute(sql`select 1`);
   });
 
-  afterAll(async () => {
-    await db.$client.end();
-  });
 
   it("stores an agent with a null linux profile and keeps flags and accounts apart", async () => {
     const first = await createAccount(db, { name: "North" });
@@ -190,5 +192,38 @@ describe("roster", () => {
         modelId: "gpt-5",
       }),
     ).resolves.toMatchObject({ name: "Max" });
+  });
+});
+
+describe("checking a default model before saving it", () => {
+  const listed = async () => ({ ok: true as const, models: ["xiaomi/mimo-v2.6-flash", "gpt-5"] });
+
+  it("refuses a key the provider rejects, and a model id that neither is listed nor works", async () => {
+    const account = await createAccount(db, { name: "Checked setup" });
+    await expect(
+      saveProviderKey(db, account.id, { provider: "openai", secret: "sk-bad" }, async () => ({ ok: false, error: "api.openai.com refused that key." })),
+    ).rejects.toThrow("refused that key");
+    expect((await listProviderKeys(db, account.id)).some((key) => key.configured)).toBe(false);
+
+    await saveProviderKey(db, account.id, { provider: "openai", secret: "sk-good" }, listed);
+    const tried: string[] = [];
+    await expect(
+      setDefaultModel(db, account.id, { provider: "openai", modelId: "gpt-55" }, listed, async (_provider, modelId) => {
+        tried.push(modelId);
+        return "model not found";
+      }),
+    ).rejects.toThrow(/no model called "gpt-55"/);
+    expect(tried).toEqual(["gpt-55"]);
+  });
+
+  it("accepts a listed id without spending a request, and an unlisted spelling that works", async () => {
+    const account = await createAccount(db, { name: "Checked setup 2" });
+    await saveProviderKey(db, account.id, { provider: "openai", secret: "sk-good" }, listed);
+    const never = async () => {
+      throw new Error("a listed model must not be tried");
+    };
+    expect(await setDefaultModel(db, account.id, { provider: "openai", modelId: "MiMo-V2.6-Flash" }, listed, never)).toMatchObject({ modelId: "MiMo-V2.6-Flash" });
+    // Not on the list at all, but the provider answers to it.
+    expect(await setDefaultModel(db, account.id, { provider: "openai", modelId: "my-alias" }, listed, async () => null)).toMatchObject({ modelId: "my-alias" });
   });
 });

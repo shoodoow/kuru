@@ -32,10 +32,10 @@ import {
   onPushTap,
   scheduleLocalNotification,
 } from "../push";
-import { authClient } from "../auth";
+import { activeSlot, authClient, authClientFor, forgetSlot, newSlot, rememberAccount, savedAccounts, useSlot, type SavedAccount } from "../auth";
 import { installOAuthReturnHandler } from "../auth-oauth-return";
 import * as WebBrowser from "expo-web-browser";
-import { coreBaseUrl } from "../core-url";
+import { coreBaseUrl, defaultCoreUrl, normalizeCoreUrl, saveCoreUrl } from "../core-url";
 import { pluginSlug } from "../account/PluginsPage";
 import type { Bubble } from "../chat/ChatScreen";
 import type { RoomActivityPhase } from "../chat/room-activity";
@@ -46,7 +46,8 @@ import { cameraPickerOptions, imageLibraryPickerOptions } from "../media/imagePi
 import type { GroupFace } from "../ui/GroupCluster";
 import type { ToastMessage } from "../ui/Toast";
 
-configureAuthCookie(authClient.getCookie);
+// Asked for on each request, so it is the session of the server in use now.
+configureAuthCookie(() => authClient.getCookie());
 const core = createCore();
 
 /**
@@ -165,7 +166,9 @@ function closeSheets(): void {
  * Output: the phone screens for those actions.
  */
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [accounts, setAccounts] = useState<SignedAccount[]>([]);
+  const [accounts, setAccounts] = useState<SavedAccount[]>(() => savedAccounts());
+  // The account whose data is on screen, readable by code that runs between renders.
+  const accountIdRef = useRef("");
   const [accountId, setAccountId] = useState("");
   const [agents, setAgents] = useState<RosterAgent[]>([]);
   const [providers, setProviders] = useState<ProviderSetting[]>([]);
@@ -220,6 +223,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [desktopAgent, setDesktopAgent] = useState<RosterAgent | null>(null);
   const [notifications, setNotifications] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
+  const [serverUrl, setServerUrl] = useState(() => coreBaseUrl());
+  // False until the saved sign-in has been checked, so a signed-in person never sees the welcome page flash by.
+  const [restored, setRestored] = useState(false);
   const [inbox, setInbox] = useState<InboxStatus | null>(null);
   const [autoReview, setAutoReview] = useState(true);
   const [defaultModel, setDefaultModel] = useState<DefaultModelSetting | null>(null);
@@ -239,8 +245,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
    */
   const show = useCallback((error: unknown): void => {
     const text = error instanceof Error ? error.message : "The request failed.";
-    setNote(text);
-    // Sheets have no error line of their own, so the banner carries it there.
+    // The red line belongs to the chat list. While a sheet covers that list
+    // the line would sit hidden underneath it, so only the banner speaks.
+    if (pathnameRef.current === "/") setNote(text);
     notify(text, "error");
   }, [notify]);
 
@@ -254,10 +261,33 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const signed = session.data?.user;
     const accountIdFromSession = signed && "accountId" in signed ? String(signed.accountId ?? "") : "";
     if (!signed || !accountIdFromSession) {
+      // The server answered and knows no session for this slot: the sign-in
+      // has expired or was ended. A request that failed says nothing either way.
+      if (!session.error && savedAccounts().some((row) => row.slot === activeSlot())) {
+        forgetSlot(activeSlot());
+        setAccounts(savedAccounts());
+      }
       return;
     }
-    const next = { id: accountIdFromSession, name: signed.name, email: signed.email };
-    setAccounts([next]);
+    const replaced = rememberAccount({
+      slot: activeSlot(),
+      server: coreBaseUrl(),
+      id: accountIdFromSession,
+      name: signed.name,
+      email: signed.email,
+      image: signed.image ?? null,
+    });
+    // The same account signed in a second time: the older sign-in is ended,
+    // unless it is this very session kept twice, which ending would sign out here too.
+    const current = authClient.getCookie();
+    for (const old of replaced) {
+      const client = authClientFor(old.server, old.slot);
+      if (client.getCookie() !== current) void client.signOut().catch(() => {});
+    }
+    setAccounts(savedAccounts());
+    // Another account's chats and keys must not show under this one.
+    if (accountIdRef.current && accountIdRef.current !== accountIdFromSession) clearAccountData();
+    accountIdRef.current = accountIdFromSession;
     setAccountId(accountIdFromSession);
     const [roster, configured, settings] = await Promise.all([
       core.listAgents(accountIdFromSession),
@@ -297,6 +327,158 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /** Drops everything loaded for one account, so nothing of it shows under another. */
+  function clearAccountData(): void {
+    setAgents([]);
+    setProviders([]);
+    setPlugins(null);
+    setGroups([]);
+    setInbox(null);
+    setMessages([]);
+    setConversationId("");
+    setLastChat(null);
+    setProfile(null);
+    setDesktopAgent(null);
+    setProposals([]);
+    setToolApprovals([]);
+    setRoutines([]);
+    setPendingCount(0);
+    setDefaultModel(null);
+    setSetupNeeded(false);
+    setContextRing(null);
+    setDraft("");
+    draftsRef.current.clear();
+    setNote("");
+  }
+
+  /**
+   * Leaves the account in use: clears what was loaded for it and returns to the
+   * welcome page.
+   * Why: sign-out used to clear the account id and the roster only. Chats,
+   * provider keys, plugins and pending approvals stayed in memory.
+   */
+  function forgetAccount(): void {
+    clearAccountData();
+    accountIdRef.current = "";
+    setAccounts(savedAccounts());
+    setAccountId("");
+    setMenu(null);
+    closeSheets();
+  }
+
+  /**
+   * After leaving an account, moves to another one still signed in on this
+   * phone, or to the welcome page when there is none.
+   */
+  async function fallBack(): Promise<void> {
+    accountIdRef.current = "";
+    clearAccountData();
+    // A slot whose sign-in has expired is dropped by the refresh, so this ends.
+    for (let tries = 0; tries < 6 && savedAccounts().length > 0; tries += 1) {
+      const next = savedAccounts()[0]!;
+      saveCoreUrl(next.server);
+      setServerUrl(coreBaseUrl());
+      useSlot(next.slot);
+      await refreshSession().catch(() => {});
+      if (accountIdRef.current) return;
+      // Could not be checked (offline): stop here and keep the list as it is.
+      if (savedAccounts().some((row) => row.slot === next.slot)) break;
+    }
+    forgetAccount();
+  }
+
+  /**
+   * Makes another account on this phone the one in use.
+   * Why: each account keeps its own session, so this needs no trip to Google.
+   * Input: the account's slot. Output: nothing. Throws when that sign-in has expired.
+   */
+  async function switchAccount(slot: string): Promise<void> {
+    const entry = savedAccounts().find((row) => row.slot === slot);
+    if (!entry || (slot === activeSlot() && entry.server === coreBaseUrl() && accountIdRef.current === entry.id)) return;
+    saveCoreUrl(entry.server);
+    setServerUrl(coreBaseUrl());
+    useSlot(slot);
+    await refreshSession();
+    if (accountIdRef.current !== entry.id) {
+      await fallBack();
+      throw new Error(`The sign-in for ${entry.email} has expired. Add the account again.`);
+    }
+  }
+
+  /**
+   * Signs in one more account and keeps the others signed in.
+   * The new sign-in goes to a slot of its own; if it is cancelled, the app
+   * stays on the account it was on.
+   */
+  async function addAccount(): Promise<void> {
+    if (savedAccounts().length >= 5) {
+      throw new Error("Five accounts are signed in on this phone. Sign out of one to add another.");
+    }
+    const previous = activeSlot();
+    useSlot(newSlot());
+    try {
+      await signInWithGoogle();
+    } catch (error) {
+      useSlot(previous);
+      throw error;
+    }
+  }
+
+  /** Ends the session of the account in use, on the server and on this phone. */
+  async function signOut(): Promise<void> {
+    // The phone is signed out even when the server cannot be told.
+    await authClient.signOut().catch(() => {});
+    forgetSlot(activeSlot());
+    await fallBack();
+  }
+
+  /**
+   * Deletes the signed-in account on the server, with everything it owns.
+   * Why: this used to take the account off a list on the screen and delete
+   * nothing, so the person was signed straight back in on the next start.
+   * Output: nothing. Throws when the server did not delete it, and the person stays signed in.
+   */
+  async function deleteAccount(): Promise<void> {
+    const id = accountId.trim();
+    if (!id) return;
+    await core.deleteAccount(id);
+    // The server has already dropped the session; this clears the copy kept on the phone.
+    await authClient.signOut().catch(() => {});
+    forgetSlot(activeSlot());
+    await fallBack();
+  }
+
+  /**
+   * Points the app at another server.
+   * Why: people run their own server, so the address cannot be fixed in the
+   * build. The new address is checked before it is kept, and whoever is
+   * signed in is signed out of this phone's view first, because accounts
+   * belong to a server.
+   * Input: what the person typed, or "" for the build's own server.
+   * Output: nothing. Throws a sentence the screen can show when it will not work.
+   */
+  async function changeServer(typed: string): Promise<void> {
+    const next = typed.trim() ? normalizeCoreUrl(typed) : defaultCoreUrl();
+    if (!next) throw new Error("That is not a web address. Try something like https://agents.example.com.");
+    if (next === coreBaseUrl()) return;
+    try {
+      const probe = await fetch(`${next}/api/auth/get-session`, { credentials: "omit" });
+      if (!probe.ok) throw new Error(`status ${probe.status}`);
+    } catch (error) {
+      throw new Error(
+        `No server answered at ${next}${error instanceof Error && error.message.startsWith("status") ? ` (${error.message})` : ""}. Check the address${next.startsWith("http://") ? "; this app may only allow https" : ""}.`,
+      );
+    }
+    saveCoreUrl(next);
+    setServerUrl(coreBaseUrl());
+    // An account already signed in on that server is used; otherwise a fresh slot waits for a sign-in.
+    useSlot(savedAccounts().find((row) => row.server === coreBaseUrl())?.slot ?? newSlot());
+    clearAccountData();
+    accountIdRef.current = "";
+    setAccountId("");
+    await refreshSession().catch(() => {});
+  }
+
   /**
    * Signs in with Google and keeps the account id the core creates.
    * Input: none. Google returns the session.
@@ -305,7 +487,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   async function signInWithGoogle(): Promise<void> {
     const base = coreBaseUrl();
     try {
-      const probe = await fetch(`${base}/api/auth/get-session`);
+      const probe = await fetch(`${base}/api/auth/get-session`, { credentials: "omit" });
       if (!probe.ok) {
         throw new Error(`Core auth returned ${probe.status}.`);
       }
@@ -313,7 +495,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       throw new Error(
         error instanceof Error && error.message.includes("Core auth")
           ? error.message
-          : `Cannot reach core at ${base}. Set EXPO_PUBLIC_CORE_URL in apps/mobile/.env (e.g. https://api.example.com), stop Metro, run pnpm --filter mobile start:clear, then reload Expo Go. Still seeing an old 192.168… URL? Clear Expo Go app data or reinstall.`,
+          : `Cannot reach the server at ${base}. Check the server address on this screen.`,
       );
     }
     const callbackURL = authCallbackURL();
@@ -347,7 +529,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     hydrateMarkThumbCache();
-    void refreshSession().catch(show);
+    void refreshSession()
+      .catch(show)
+      // The account last used has expired, but another is still signed in.
+      .then(() => (accountIdRef.current || savedAccounts().length === 0 ? undefined : fallBack()))
+      .finally(() => setRestored(true));
   }, [show]);
 
   useEffect(() => {
@@ -434,25 +620,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       void openGroup(conversationId).catch(show);
     });
   }, [show]);
-
-  /**
-   * Loads the roster for one signed-in account.
-   * Input: the account id chosen in the switcher.
-   * Output: nothing. The inbox shows that account's agents.
-   */
-  async function switchAccount(id: string): Promise<void> {
-    setAccountId(id);
-    const roster = await core.listAgents(id);
-    setAgents(roster);
-    setProviders(await core.listProviders(id));
-    setDefaultModel((await core.getSettings(id).catch(() => null))?.defaultModel ?? null);
-    setSetupNeeded(!roster.some((agent) => agent.kind === "support"));
-    setMenu("menu");
-    setNote("");
-    await loadGroups(id, roster);
-    const pending = await core.listNotifications(id).catch(() => []);
-    setPendingCount(pending.length);
-  }
 
   /**
    * Hires an agent and opens a direct chat on the signed-in account.
@@ -1345,9 +1512,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     secret: string,
     baseUrl: string | null,
   ): Promise<void> {
-    await core.saveProvider(accountId, { provider, secret, baseUrl });
+    const saved = await core.saveProvider(accountId, { provider, secret, baseUrl });
     setProviders(await core.listProviders(accountId));
-    notify("Provider saved");
+    // A server with no model list is saved unchecked, and the person is told so.
+    notify(saved.note ?? "Provider checked and saved");
   }
 
   /**
@@ -1507,24 +1675,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     openNewRoom,
     openDesktop,
     leaveChat,
-    switchAccount,
     createChat,
     askForAgent,
     createGroup,
-    signOut() {
-      void authClient.signOut().catch(show);
-      setAccountId("");
-      setAgents([]);
-      setMenu("signup");
-    },
-    deleteAccount(id: string) {
-      setAccounts((rows) => rows.filter((row) => row.id !== id));
-      if (accountId === id) {
-        setAccountId("");
-        setAgents([]);
-        setMenu("signup");
-      }
-    },
+    serverUrl,
+    changeServer,
+    restored,
+    signOut,
+    deleteAccount,
+    switchAccount,
+    addAccount,
     removePlugin(id: string) {
       void core.deleteMcpPlugin(accountId, id).then(refreshPlugins).catch(show);
     },
@@ -1544,7 +1704,7 @@ export function useSession(): SessionValue {
 }
 
 type SessionValue = {
-  accounts: SignedAccount[];
+  accounts: SavedAccount[];
   accountId: string;
   account: SignedAccount | null;
   agents: RosterAgent[];
@@ -1622,12 +1782,22 @@ type SessionValue = {
   openNewRoom: () => void;
   openDesktop: (agent: RosterAgent) => void;
   leaveChat: (roomId: string) => void;
-  switchAccount: (id: string) => Promise<void>;
   createChat: (name: string, look?: AgentMark) => Promise<void>;
   askForAgent: (support: RosterAgent, name: string) => Promise<void>;
   createGroup: (title: string, agentIds: string[]) => Promise<void>;
-  signOut: () => void;
-  deleteAccount: (id: string) => void;
+  signOut: () => Promise<void>;
+  /** Deletes the signed-in account on the server, for good. */
+  deleteAccount: () => Promise<void>;
+  /** Makes another account signed in on this phone the one in use. */
+  switchAccount: (slot: string) => Promise<void>;
+  /** Signs in one more account, keeping the others signed in. */
+  addAccount: () => Promise<void>;
+  /** True once the saved sign-in has been checked at start-up. */
+  restored: boolean;
+  /** The server the app talks to. */
+  serverUrl: string;
+  /** Points the app at another server; "" goes back to the build's own. */
+  changeServer: (typed: string) => Promise<void>;
   removePlugin: (id: string) => void;
 };
 

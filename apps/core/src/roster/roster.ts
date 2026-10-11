@@ -9,7 +9,8 @@ import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { config } from "../config.js";
 import type { getDb, Store } from "../db/client.js";
 import { accounts, agents, conversations, members } from "../db/schema.js";
-import { listProviderKeys } from "../keys/keys.js";
+import { ProviderCheckError, unknownModel, type ProviderCheck } from "../keys/check-provider.js";
+import { keyFor, listProviderKeys } from "../keys/keys.js";
 import { createLinux } from "../linux/linux.js";
 import { noted } from "../log/logger.js";
 import { resolveGatewayContextWindow } from "../model/gateway-models.js";
@@ -236,11 +237,33 @@ export async function defaultModelFor(db: Database, accountId: string): Promise<
  * Input: db, account id, provider and model id. Output: what was saved.
  * Throws when the account holds no key for that provider.
  */
-export async function setDefaultModel(db: Database, accountId: string, input: unknown) {
+export async function setDefaultModel(
+  db: Database,
+  accountId: string,
+  input: unknown,
+  /** Asks the provider for its models, so a mistyped model id is caught now. Left out, the id is taken as typed. */
+  check?: (provider: string, apiKey: string, baseUrl: string | null) => Promise<ProviderCheck>,
+  /**
+   * Sends the model one tiny request and returns what went wrong, or null.
+   * Used only for an id the provider does not list: providers accept spellings
+   * they do not list, and the only sure test of one is to use it.
+   */
+  tryModel?: (provider: string, modelId: string, apiKey: string, baseUrl: string | null) => Promise<string | null>,
+) {
   const data = defaultModelSchema.parse(input);
   const keys = await listProviderKeys(db, accountId);
   if (!keys.some((key) => key.provider === data.provider && key.configured)) {
     throw new MissingProviderKeyError(data.provider);
+  }
+  if (check) {
+    const key = await keyFor(db, accountId, data.provider);
+    const checked = await check(data.provider, key.apiKey, key.baseUrl);
+    if (checked.ok === false) throw new ProviderCheckError(checked.error);
+    const unknown = checked.ok ? unknownModel(data.modelId, checked.models) : null;
+    if (unknown) {
+      const failure = tryModel ? await tryModel(data.provider, data.modelId, key.apiKey, key.baseUrl) : "not tried";
+      if (failure !== null) throw new ProviderCheckError(unknown);
+    }
   }
   await db
     .update(accounts)

@@ -3,6 +3,7 @@ import { Pressable, Text, View } from "react-native";
 import { useNavigation } from "expo-router";
 import { InboxScreen } from "../src/inbox/InboxScreen";
 import { SetupGuide } from "../src/inbox/SetupGuide";
+import { WelcomeScreen } from "../src/inbox/WelcomeScreen";
 import { useSession } from "../src/session/SessionProvider";
 import { Avatar } from "../src/ui/Avatar";
 import { IconPlus, IconSearch } from "../src/ui/icons";
@@ -18,6 +19,8 @@ export default function InboxRoute() {
 
   useLayoutEffect(() => {
     navigation.setOptions({
+      // The welcome page has the screen to itself.
+      headerShown: Boolean(session.account),
       headerLeft: () => (
         <Pressable
           accessibilityLabel="Account"
@@ -33,7 +36,13 @@ export default function InboxRoute() {
           }}
           style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}
         >
-          <Avatar id={sessionRef.current.account?.id ?? "account"} size={30} person label={sessionRef.current.account?.name} />
+          <Avatar
+            id={sessionRef.current.account?.id ?? "account"}
+            size={30}
+            person
+            label={sessionRef.current.account?.name}
+            photo={sessionRef.current.account?.image}
+          />
         </Pressable>
       ),
       headerRight: () => (
@@ -80,13 +89,32 @@ export default function InboxRoute() {
     });
   }, [navigation, searching, session.pendingCount, session.account]);
 
+  // Nobody signed in: say hello and put sign-in on the page.
+  if (!session.account) {
+    if (!session.restored) return <View style={{ flex: 1, backgroundColor: colors.bg }} />;
+    return (
+      <>
+        <WelcomeScreen
+          serverUrl={session.serverUrl}
+          onSignIn={() => session.signInWithGoogle()}
+          onChangeServer={() => session.openAccount("signup")}
+        />
+        <Toast />
+      </>
+    );
+  }
+
   // A new account has no agent to talk to until a provider and a model are chosen.
   if (session.account && session.setupNeeded) {
     return (
-      <SetupGuide
-        providers={session.providers}
-        onFinish={(provider, secret, baseUrl, modelId) => session.finishSetup(provider, secret, baseUrl, modelId)}
-      />
+      <>
+        <SetupGuide
+          providers={session.providers}
+          onFinish={(provider, secret, baseUrl, modelId) => session.finishSetup(provider, secret, baseUrl, modelId)}
+          onError={session.show}
+        />
+        <Toast />
+      </>
     );
   }
 

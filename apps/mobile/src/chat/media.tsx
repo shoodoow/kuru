@@ -426,7 +426,7 @@ export async function readFileText(block: FileBlock, fetchBlob?: FetchBlob): Pro
     return new TextDecoder().decode(bytes);
   }
   if (url.startsWith("data:")) return decodeURIComponent(url.slice(url.indexOf(",") + 1));
-  const response = await fetch(url, headers ? { headers } : undefined);
+  const response = await fetch(url, headers ? { headers, credentials: "omit" } : undefined);
   if (!response.ok) throw new Error(`The file did not load (${response.status}).`);
   return response.text();
 }

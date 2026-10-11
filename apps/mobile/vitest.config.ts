@@ -7,6 +7,7 @@ export default defineConfig({
     include: ["src/**/*.test.ts"],
     alias: {
       "expo-constants": fileURLToPath(new URL("./src/test/expo-constants.ts", import.meta.url)),
+      "expo-secure-store": fileURLToPath(new URL("./src/test/expo-secure-store.ts", import.meta.url)),
     },
   },
 });

@@ -103,12 +103,13 @@ function AvatarInner({
   mood = "idle",
   alive = true,
 }: AvatarProps) {
-  if (!person && photo) {
+  // An agent's own picture, or the person's picture from their Google account (always a circle).
+  if (photo) {
     return (
       <Image
         source={{ uri: photo }}
         contentFit="cover"
-        style={{ width: size, height: size, borderRadius: round ? size / 2 : size * 0.32 }}
+        style={{ width: size, height: size, borderRadius: round || person ? size / 2 : size * 0.32 }}
       />
     );
   }

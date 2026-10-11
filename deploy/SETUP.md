@@ -20,6 +20,8 @@ Replace `api.example.com` with your public hostname (this repo’s dev example u
 
 **Rule:** `BETTER_AUTH_URL` and `EXPO_PUBLIC_CORE_URL` must be the **same public HTTPS origin**. Never put a LAN IP in Google OAuth redirect URIs.
 
+`EXPO_PUBLIC_CORE_URL` is the address a build starts with, not a fixed one. On the sign-in screen, **Server → Change** points the app at any other server, so people who run their own can use a published build without rebuilding it. Each server keeps its own sign-in on the phone, and each server needs its own Google OAuth credentials.
+
 ---
 
 ## Prerequisites

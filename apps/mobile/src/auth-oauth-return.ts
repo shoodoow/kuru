@@ -1,10 +1,10 @@
-import { getSetCookie, normalizeCookieName } from "@better-auth/expo/client";
+import { getSetCookie } from "@better-auth/expo/client";
 import * as Linking from "expo-linking";
+import { activeCookieKey } from "./auth";
 import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";
 import { Platform } from "react-native";
 
-const COOKIE_KEY = normalizeCookieName("nano-agents_cookie");
 
 /**
  * Android often leaves the Chrome custom tab open after OAuth even though Expo
@@ -29,9 +29,13 @@ export function installOAuthReturnHandler(onSignedIn: () => void): () => void {
       return;
     }
     try {
-      const prev = await SecureStore.getItemAsync(COOKIE_KEY);
+      // The sign-in belongs to the account being signed in right now. This
+      // used to be one fixed place, so adding a second account overwrote the
+      // first one's sign-in and both then opened the same account.
+      const key = activeCookieKey();
+      const prev = await SecureStore.getItemAsync(key);
       const next = getSetCookie(cookieParam, prev ?? undefined);
-      await SecureStore.setItemAsync(COOKIE_KEY, next);
+      await SecureStore.setItemAsync(key, next);
     } catch {
       return;
     }

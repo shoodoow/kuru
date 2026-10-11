@@ -9,6 +9,8 @@ export type OAuthSecret = {
   expiresAt: number;
   tokenEndpoint: string;
   clientId: string;
+  /** The server the token is for; sent again on every refresh. Absent on sign-ins saved before it was recorded. */
+  resource?: string;
 };
 
 export function sealOAuth(value: OAuthSecret): string {

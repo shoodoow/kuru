@@ -540,6 +540,25 @@ export async function removeAccountContainers(options?: { testOnly?: boolean }):
 }
 
 /**
+ * Removes one account's computer and its disk.
+ * Why: used when the account itself is deleted, so nothing the agents made
+ * outlives it. Found by the account label, not by name, since the name comes
+ * from an email that may have changed.
+ * Input: the account id. Output: nothing; a computer that never existed is fine.
+ */
+export async function removeAccountComputer(accountId: string): Promise<void> {
+  const containers = await docker.listContainers({ all: true, filters: { label: [`nano.account=${accountId}`] } });
+  for (const container of containers) {
+    await docker.getContainer(container.Id).remove({ force: true });
+  }
+  try {
+    await docker.getVolume(`nano-account-${accountId}`).remove();
+  } catch {
+    // There was no disk, or it went with the container.
+  }
+}
+
+/**
  * Docker-safe container name for one account email.
  * Input: the person's sign-in email. Output: nano-<sanitized-email>.
  */

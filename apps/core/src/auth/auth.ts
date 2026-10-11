@@ -54,7 +54,9 @@ export function createAuth(db: Database) {
       provider: "pg",
       schema: { user, session, account, verification },
     }),
-    socialProviders: googleId && googleSecret ? { google: { clientId: googleId, clientSecret: googleSecret } } : {},
+    // Google always shows its account chooser, so "use another account" on the
+    // phone can pick a different one instead of silently reusing the last.
+    socialProviders: googleId && googleSecret ? { google: { clientId: googleId, clientSecret: googleSecret, prompt: "select_account" } } : {},
     // The Expo browser drops the state cookie set on the redirect to Google. The callback still matches the state stored in the verification table.
     account: {
       skipStateCookieCheck: true,

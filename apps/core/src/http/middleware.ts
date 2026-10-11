@@ -4,6 +4,7 @@ import { rateLimit } from "express-rate-limit";
 import { localBrowserOrigins } from "../auth/auth.js";
 import { config } from "../config.js";
 import { RoomCapacityError } from "../rooms/rooms.js";
+import { ProviderCheckError } from "../keys/check-provider.js";
 import { AgentNameError, MissingProviderKeyError, ProtectedAgentError } from "../roster/roster.js";
 import { logger, type Guard } from "./context.js";
 
@@ -106,6 +107,11 @@ export function onError(error: unknown, _req: Request, res: Response, _next: Nex
     error instanceof MissingProviderKeyError
   ) {
     res.status(409).json({ error: error.message });
+    return;
+  }
+  // A key, address or model id the provider does not accept: the phone shows the sentence as it is.
+  if (error instanceof ProviderCheckError) {
+    res.status(400).json({ error: error.message });
     return;
   }
   if (error instanceof Error && error.name === "ZodError") {

@@ -91,6 +91,7 @@ export async function runAgentLoop(
     voiceAgentId: input.agentId,
     hiddenTurn: input.hiddenTurn ?? false,
     enabledToolSets: new Set(input.toolSets ?? []),
+    ...(mode === "dispatcher" ? { pluginGates: new Map<string, string>(), pluginLoaders: new Map<string, string>() } : {}),
   };
   const tools = await buildFullToolSet(mode, toolCtx);
   if (input.allowedTools) {
@@ -114,7 +115,10 @@ export async function runAgentLoop(
           hiddenTurn: Boolean(toolCtx.hiddenTurn),
         })),
     activeTools: () =>
-      activeDispatcherTools(Object.keys(tools), toolCtx.enabledToolSets ?? new Set(), new Set(input.blockedTools ?? [])),
+      activeDispatcherTools(Object.keys(tools), toolCtx.enabledToolSets ?? new Set(), new Set(input.blockedTools ?? []), {
+        gates: toolCtx.pluginGates,
+        loaders: toolCtx.pluginLoaders,
+      }),
     restrictStep:
       mode === "dispatcher"
         ? (finishedSteps: number, _hardCap: number, stepToolNames: string[][]) =>

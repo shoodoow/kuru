@@ -41,6 +41,8 @@ export type ProviderSetting = {
   provider: "openai" | "anthropic" | "xai" | "local";
   baseUrl: string | null;
   configured: boolean;
+  /** Set on save when the server could not be checked (it has no model list). */
+  note?: string;
 };
 
 export type RosterAgent = {
@@ -301,6 +303,8 @@ export type CoreClient = {
   ) => () => void;
   registerDevice: (accountId: string, input: { expoPushToken: string; platform?: string | null }) => Promise<{ id: string }>;
   listNotifications: (accountId: string) => Promise<PendingNotification[]>;
+  /** Deletes the account and everything it owns on the server, for good. */
+  deleteAccount: (accountId: string) => Promise<void>;
   /** Tokens, turns and background jobs for the last 7, 30 or 90 days. */
   usage: (accountId: string, days: number) => Promise<AccountUsage>;
   /** Unread counts and busy agents for the inbox list. */
@@ -356,7 +360,23 @@ export function configureAuthCookie(reader: () => string): void {
  * Input: an optional core base URL, and an optional fetch implementation.
  * Output: roster, chat, and mention helpers. The client never talks to Docker.
  */
-export function createCore(baseUrl = coreBaseUrl(), fetchImpl: typeof fetch = fetch): CoreClient {
+export function createCore(baseUrl?: string, fetchImpl: typeof fetch = fetch): CoreClient {
+  if (baseUrl !== undefined) return buildCore(baseUrl, fetchImpl);
+  // No address given: follow the one in force, which the person can change on
+  // the sign-in screen. Screens keep one client for their whole life, so the
+  // lookup happens on each call, not once.
+  const built = new Map<string, CoreClient>();
+  return new Proxy({} as CoreClient, {
+    get(_target, property) {
+      const url = coreBaseUrl();
+      let client = built.get(url);
+      if (!client) built.set(url, (client = buildCore(url, fetchImpl)));
+      return client[property as keyof CoreClient];
+    },
+  });
+}
+
+function buildCore(baseUrl: string, fetchImpl: typeof fetch): CoreClient {
   return {
     listAgents: (accountId) => listAgents(baseUrl, accountId, fetchImpl),
     hireAgent: (accountId, input) => hireAgent(baseUrl, accountId, input, fetchImpl),
@@ -388,6 +408,9 @@ export function createCore(baseUrl = coreBaseUrl(), fetchImpl: typeof fetch = fe
       subscribeMessages(baseUrl, accountId, conversationId, onEvent, fetchImpl, opts),
     registerDevice: (accountId, input) => registerDevice(baseUrl, accountId, input, fetchImpl),
     listNotifications: (accountId) => listNotifications(baseUrl, accountId, fetchImpl),
+    deleteAccount: async (accountId) => {
+      await readJson<unknown>(fetchImpl, `${baseUrl}/accounts/${accountId}`, { method: "DELETE" });
+    },
     usage: (accountId, days) => readJson<AccountUsage>(fetchImpl, `${baseUrl}/accounts/${accountId}/usage?days=${days}`),
     inboxStatus: (accountId) => readJson<InboxStatus>(fetchImpl, `${baseUrl}/accounts/${accountId}/inbox`),
     markRead: (accountId, conversationId) =>
@@ -477,6 +500,7 @@ async function deleteMcpPlugin(baseUrl: string, accountId: string, slug: string,
   const cookie = readAuthCookie();
   const response = await fetchImpl(`${baseUrl}/accounts/${accountId}/mcp/${slug}`, {
     method: "DELETE",
+    credentials: "omit",
     headers: { ...(cookie ? { cookie } : {}) },
   });
   if (!response.ok && response.status !== 204) {
@@ -824,7 +848,7 @@ function subscribeMessages(
         const cookie = readAuthCookie();
         const response = await fetchImpl(
           `${baseUrl}/conversations/${conversationId}/stream?accountId=${accountId}${cursor > 0 ? `&cursor=${cursor}` : ""}`,
-          { headers: { ...(cookie ? { cookie } : {}) }, signal: controller?.signal as never },
+          { credentials: "omit", headers: { ...(cookie ? { cookie } : {}) }, signal: controller?.signal as never },
         );
         if (!response.ok || !response.body) return;
         attempts = 0;
@@ -1094,6 +1118,7 @@ async function deleteRoutine(
   const cookie = readAuthCookie();
   const response = await fetchImpl(`${baseUrl}/agents/${agentId}/routines/${routineId}?accountId=${accountId}`, {
     method: "DELETE",
+    credentials: "omit",
     headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
   });
   if (!response.ok) {
@@ -1397,6 +1422,11 @@ async function readJson<T>(fetchImpl: typeof fetch, url: string, init?: RequestI
   const cookie = readAuthCookie();
   const response = await fetchImpl(url, {
     ...init,
+    // The session travels in the header below and nowhere else. Without this
+    // the phone also sends whatever sign-in its own cookie store last saw,
+    // which wins over the header: with two accounts signed in, requests for
+    // one went out as the other and the server rightly refused them.
+    credentials: "omit",
     headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}), ...init?.headers },
   });
   if (!response.ok) {

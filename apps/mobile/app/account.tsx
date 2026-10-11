@@ -58,7 +58,6 @@ export default function AccountRoute() {
       <MenuSheet
         page={session.menu ?? "menu"}
         account={session.account}
-        accounts={session.accounts}
         notifications={session.notifications}
         autoReview={session.autoReview}
         autoTimeZone={session.autoTimeZone}
@@ -66,6 +65,9 @@ export default function AccountRoute() {
         providers={session.providers}
         plugins={session.plugins}
         agents={session.agents}
+        onError={session.show}
+        serverUrl={session.serverUrl}
+        onChangeServer={session.changeServer}
         onLoadUsage={(days) => core.usage(session.accountId.trim(), days)}
         onPage={(page) => {
           session.setMenu(page);
@@ -88,7 +90,9 @@ export default function AccountRoute() {
         onSaveCustomPlugin={(name, url, secret) => session.saveCustomPlugin(name, url, secret).catch(session.show)}
         onSignInCustomPlugin={(name, url) => void session.signInCustomPlugin(name, url).catch(session.show)}
         onGoogle={() => void session.signInWithGoogle().catch(session.show)}
-        onSwitch={(id) => void session.switchAccount(id).catch(session.show)}
+        accounts={session.accounts}
+        onSwitch={session.switchAccount}
+        onAdd={session.addAccount}
         onSignOut={session.signOut}
         onDelete={session.deleteAccount}
       />

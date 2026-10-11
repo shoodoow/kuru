@@ -26,9 +26,12 @@ const providerChoices: { provider: Provider; label: string; keyFrom: string }[] 
 export function SetupGuide({
   providers,
   onFinish,
+  onError,
 }: {
   providers: ProviderSetting[];
   onFinish: (provider: Provider, secret: string, baseUrl: string | null, modelId: string) => Promise<void>;
+  /** Shows a failure (a refused key, a wrong address or model) in the banner at the top. */
+  onError: (error: unknown) => void;
 }) {
   const saved = providers.find((row) => row.configured);
   const [provider, setProvider] = useState<Provider>(saved?.provider ?? "openai");
@@ -126,7 +129,11 @@ export function SetupGuide({
         onPress={() => {
           setError(null);
           return onFinish(provider, secret.trim(), provider === "local" ? baseUrl.trim() : null, modelId.trim()).catch(
-            (failure: unknown) => setError(failure instanceof Error ? failure.message : "Could not finish setup."),
+            (failure: unknown) => {
+              // Said twice on purpose: the banner is seen at once, the line stays for rereading.
+              onError(failure);
+              setError(failure instanceof Error ? failure.message : "Could not finish setup.");
+            },
           );
         }}
       />

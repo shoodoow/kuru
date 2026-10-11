@@ -8,6 +8,13 @@ import { IconToastDone, IconToastWarn } from "./icons";
 export type ToastMessage = { id: number; at: number; text: string; tone: "success" | "error" };
 
 const SHOWN_MS = 2200;
+/**
+ * How long a message stays up. A success is a glance; an error is often a
+ * whole sentence about what to fix, so it gets time to be read.
+ */
+function shownFor(toast: ToastMessage): number {
+  return toast.tone === "success" ? SHOWN_MS : Math.min(9000, Math.max(4000, toast.text.length * 55));
+}
 
 /**
  * A short banner that drops in under the header and leaves by itself.
@@ -24,7 +31,7 @@ export function Toast({ tones = ["success", "error"] }: { tones?: ToastMessage["
   const wanted = toast && tones.includes(toast.tone) ? toast : null;
   useEffect(() => {
     // A screen opened later must not replay a toast that already ran.
-    if (!wanted || Date.now() - wanted.at > SHOWN_MS) return;
+    if (!wanted || Date.now() - wanted.at > shownFor(wanted)) return;
     setShown(wanted);
     if (process.env.EXPO_OS === "ios") {
       void Haptics.notificationAsync(
@@ -34,7 +41,7 @@ export function Toast({ tones = ["success", "error"] }: { tones?: ToastMessage["
     Animated.timing(fade, { toValue: 1, duration: 180, useNativeDriver: true }).start();
     const timer = setTimeout(() => {
       Animated.timing(fade, { toValue: 0, duration: 220, useNativeDriver: true }).start(() => setShown(null));
-    }, SHOWN_MS);
+    }, shownFor(wanted));
     return () => clearTimeout(timer);
   }, [wanted?.id]);
   if (!shown) return null;
@@ -49,7 +56,7 @@ export function Toast({ tones = ["success", "error"] }: { tones?: ToastMessage["
       ]}
     >
       {shown.tone === "success" ? <IconToastDone /> : <IconToastWarn />}
-      <Text style={styles.text} numberOfLines={3}>
+      <Text style={styles.text} numberOfLines={6}>
         {shown.text}
       </Text>
     </Animated.View>
@@ -73,6 +80,8 @@ function createStyles(colors: ColorPalette) {
       paddingHorizontal: 16,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.line,
+      // Above everything on its screen, form fields included.
+      elevation: 12,
       boxShadow: "0 8px 20px rgba(0, 0, 0, 0.3)",
       zIndex: 10,
     },

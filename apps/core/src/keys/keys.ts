@@ -1,3 +1,4 @@
+import { ProviderCheckError, type ProviderCheck } from "./check-provider.js";
 import { config } from "../config.js";
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes, scryptSync } from "node:crypto";
 import { providerKeySchema } from "@nano-agents/shared";
@@ -31,7 +32,13 @@ export async function listProviderKeys(db: Database, accountId: string): Promise
  * Input: a database client, the account id, and the provider, secret, and optional base URL.
  * Output: the saved provider without the secret. A blank secret keeps the previous secret.
  */
-export async function saveProviderKey(db: Database, accountId: string, input: unknown): Promise<StoredKey> {
+export async function saveProviderKey(
+  db: Database,
+  accountId: string,
+  input: unknown,
+  /** Asks the provider whether the key and address work. Left out, nothing is checked. */
+  check?: (provider: string, apiKey: string, baseUrl: string | null) => Promise<ProviderCheck>,
+): Promise<StoredKey & { note?: string }> {
   const data = providerKeySchema.parse(input);
   const [existing] = await db
     .select()
@@ -42,6 +49,9 @@ export async function saveProviderKey(db: Database, accountId: string, input: un
   if (baseUrl) {
     assertSafeProviderUrl(baseUrl);
   }
+  // A key or address that does not work is refused here, not saved to fail later in a chat.
+  const checked = check ? await check(data.provider, plain, baseUrl) : undefined;
+  if (checked?.ok === false) throw new ProviderCheckError(checked.error);
   const secret = seal(plain);
   if (existing) {
     await db
@@ -51,7 +61,12 @@ export async function saveProviderKey(db: Database, accountId: string, input: un
   } else {
     await db.insert(providerKeys).values({ accountId, provider: data.provider, secret, baseUrl });
   }
-  return { provider: data.provider, baseUrl, configured: plain.length > 0 || data.provider === "local" };
+  return {
+    provider: data.provider,
+    baseUrl,
+    configured: plain.length > 0 || data.provider === "local",
+    ...(checked?.ok === null ? { note: checked.note } : {}),
+  };
 }
 
 function assertSafeProviderUrl(value: string): void {

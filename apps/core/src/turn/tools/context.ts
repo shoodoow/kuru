@@ -45,6 +45,13 @@ export type ToolContext = {
   loaded?: Set<string>;
   /** Optional tool sets on for this turn (see tool-sets.ts). Mutated by enable_tools. */
   enabledToolSets?: Set<string>;
+  /**
+   * Set by the chat agent's loop to let large plugins load on request: each of
+   * their tools mapped to the set that shows it, and each "load" tool mapped
+   * to the set it turns on. Absent for workers, which get every tool.
+   */
+  pluginGates?: Map<string, string>;
+  pluginLoaders?: Map<string, string>;
   /** Paths, URLs and skills this agent already looked at this turn; handed to workers so they skip them. */
   touched?: Set<string>;
   /** A worker or teammate was started this turn; the loop ends once the person has a bubble. */

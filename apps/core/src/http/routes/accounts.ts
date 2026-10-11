@@ -1,13 +1,18 @@
+import { generateText } from "ai";
 import { Router, type Request, type Response } from "express";
+import { config } from "../../config.js";
 import { handBack, profileOnAccount, takeOver } from "../../desktop/desktop.js";
+import { checkProvider } from "../../keys/check-provider.js";
+import { getModel } from "../../model/get-model.js";
 import { listProviderKeys, saveProviderKey } from "../../keys/keys.js";
 import { saveSecret } from "../../keys/secrets.js";
 import { createProfile } from "../../linux/linux.js";
 import { startGoogleOAuth } from "../../mcp/google-oauth.js";
 import { startMcpOAuth } from "../../mcp/mcp-oauth.js";
 import { listAccountPlugins } from "../../mcp/plugins.js";
-import { deleteMcpServer, listMcpServers, saveMcpServer } from "../../mcp/store.js";
+import { deleteMcpServer, listMcpServers, mcpRowsForAccount, refreshStaleMcpTools, saveMcpServer } from "../../mcp/store.js";
 import { inboxStatus } from "../../rooms/inbox.js";
+import { deleteAccount } from "../../roster/delete-account.js";
 import { createRoom, listConversations } from "../../rooms/rooms.js";
 import { accountUsage } from "../../turn/usage/account-usage.js";
 import { createAgent, defaultModelFor, ensureSupportAgentQuietly, listAgents, setDefaultModel } from "../../roster/roster.js";
@@ -20,16 +25,37 @@ import { mintScreenToken } from "../screen-token.js";
 import { decideToolApprovalHttp } from "../wake.js";
 
 /**
+ * Sends a model one tiny request to learn whether the id works with this key.
+ * Output: null when it answered, otherwise what the provider said.
+ */
+async function tryModel(provider: string, modelId: string, apiKey: string, baseUrl: string | null): Promise<string | null> {
+  try {
+    await generateText({
+      model: getModel(provider, modelId, apiKey, baseUrl),
+      prompt: "Reply with OK.",
+      maxOutputTokens: 16,
+      maxRetries: 0,
+      abortSignal: AbortSignal.timeout(20_000),
+    });
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : "The model did not answer.";
+  }
+}
+
+/**
  * Routes under /accounts/:accountId: keys, plugins, agents, rooms, settings, approvals, screens, uploads.
  * Input: the request context and the session guard. Output: the router.
  */
 export function accountsRoutes(ctx: AppContext, guard: Guard): Router {
   const accounts = Router();
+  // Tests save made-up keys and must not call real providers.
+  const providerCheck = config.isTest() ? undefined : checkProvider;
   accounts.get("/:accountId/providers", guard, async (req, res) => {
     res.json(await listProviderKeys(ctx.db, pathParam(req, "accountId")));
   });
   accounts.put("/:accountId/providers", guard, async (req, res) => {
-    res.json(await saveProviderKey(ctx.db, pathParam(req, "accountId"), req.body));
+    res.json(await saveProviderKey(ctx.db, pathParam(req, "accountId"), req.body, providerCheck));
   });
   accounts.post("/:accountId/secrets", guard, async (req, res) => {
     // Write-only vault: the name echoes back, the value never does.
@@ -39,8 +65,18 @@ export function accountsRoutes(ctx: AppContext, guard: Guard): Router {
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid secret." });
     }
   });
+  // Deletes the account and everything it owns, for good.
+  accounts.delete("/:accountId", guard, async (req, res) => {
+    const removed = await deleteAccount(ctx.db, pathParam(req, "accountId"), config.skillsDir() || undefined);
+    res.status(removed ? 204 : 404).end();
+  });
   accounts.get("/:accountId/plugins", guard, async (req, res) => {
-    res.json(await listAccountPlugins(ctx.db, pathParam(req, "accountId")));
+    const accountId = pathParam(req, "accountId");
+    // Opening the page is a good moment to notice tools a server gained or dropped.
+    void mcpRowsForAccount(ctx.db, accountId)
+      .then((rows) => refreshStaleMcpTools(ctx.db, rows, true))
+      .catch(() => undefined);
+    res.json(await listAccountPlugins(ctx.db, accountId));
   });
   accounts.post("/:accountId/plugins/google/start", guard, async (req, res) => {
     try {
@@ -126,7 +162,7 @@ export function accountsRoutes(ctx: AppContext, guard: Guard): Router {
   // what creates the default agent, which then writes its first message.
   accounts.put("/:accountId/default-model", guard, async (req, res) => {
     const accountId = pathParam(req, "accountId");
-    const saved = await setDefaultModel(ctx.db, accountId, req.body);
+    const saved = await setDefaultModel(ctx.db, accountId, req.body, providerCheck, tryModel);
     await ensureSupportAgentQuietly(ctx.db, accountId, ctx.generate);
     res.json(saved);
   });

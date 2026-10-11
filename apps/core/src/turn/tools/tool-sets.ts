@@ -39,11 +39,17 @@ export function activeDispatcherTools(
   allNames: string[],
   enabled: ReadonlySet<string>,
   blocked: ReadonlySet<string> = new Set(),
+  plugins?: { gates?: ReadonlyMap<string, string>; loaders?: ReadonlyMap<string, string> },
 ): string[] {
   const allOn = requestableToolSetNames.every((set) => enabled.has(set));
   return allNames.filter((name) => {
     if (blocked.has(name)) return false;
     if (name === "enable_tools") return !allOn;
+    // A large plugin shows one "load" tool until it is loaded, then its real tools.
+    const loads = plugins?.loaders?.get(name);
+    if (loads) return !enabled.has(loads);
+    const plugin = plugins?.gates?.get(name);
+    if (plugin) return enabled.has(plugin);
     const set = gatedBy.get(name);
     return !set || enabled.has(set);
   });

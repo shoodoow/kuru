@@ -281,8 +281,10 @@ export function DesktopScreen({
           <WebView
             ref={webRef}
             source={webSource}
-            sharedCookiesEnabled
-            thirdPartyCookiesEnabled
+            // Kept apart from the app's own cookie store: sharing it left this
+            // account's session behind, where it was then sent with requests
+            // made for a different signed-in account.
+            sharedCookiesEnabled={false}
             originWhitelist={["http://*", "https://*"]}
             injectedJavaScriptBeforeContentLoaded={injected}
             // Planting the cookie again once the page is loaded is what makes
