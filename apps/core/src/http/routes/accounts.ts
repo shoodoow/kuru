@@ -9,6 +9,7 @@ import { listAccountPlugins } from "../../mcp/plugins.js";
 import { deleteMcpServer, listMcpServers, saveMcpServer } from "../../mcp/store.js";
 import { inboxStatus } from "../../rooms/inbox.js";
 import { createRoom, listConversations } from "../../rooms/rooms.js";
+import { accountUsage } from "../../turn/usage/account-usage.js";
 import { createAgent, defaultModelFor, ensureSupportAgentQuietly, listAgents, setDefaultModel } from "../../roster/roster.js";
 import { listProposals } from "../../skills/proposals.js";
 import { getAccountSettings, isTimeZone, listToolApprovals, rememberTimezone, setAutoReview } from "../../turn/auto-review.js";
@@ -83,6 +84,10 @@ export function accountsRoutes(ctx: AppContext, guard: Guard): Router {
   // What the inbox list shows beside each chat: unread count and whether work is running.
   accounts.get("/:accountId/inbox", guard, async (req, res) => {
     res.json(await inboxStatus(ctx.db, pathParam(req, "accountId")));
+  });
+  // Tokens, turns and background jobs for the whole account, by day and by agent.
+  accounts.get("/:accountId/usage", guard, async (req, res) => {
+    res.json(await accountUsage(ctx.db, pathParam(req, "accountId"), Number(req.query.days)));
   });
   accounts.post("/:accountId/conversations", guard, async (req, res) => {
     const accountId = pathParam(req, "accountId");

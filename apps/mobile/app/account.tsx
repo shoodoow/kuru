@@ -2,10 +2,13 @@ import { useEffect, useLayoutEffect } from "react";
 import { useNavigation } from "expo-router";
 import { HeaderBackButton } from "expo-router/react-navigation";
 import { MenuSheet, type MenuPage } from "../src/account/MenuSheet";
+import { createCore } from "../src/api";
 import { useSession } from "../src/session/SessionProvider";
 import { colors } from "../src/theme/tokens";
 import { View } from "react-native";
 import { Toast } from "../src/ui/Toast";
+
+const core = createCore();
 
 const TITLES: Record<MenuPage, string> = {
   menu: "Account",
@@ -15,6 +18,7 @@ const TITLES: Record<MenuPage, string> = {
   plugins: "Plugins",
   "plugin-custom": "Your MCP",
   appearance: "Appearance",
+  usage: "Usage",
 };
 
 /** The menu page behind this one. Null means the account screen itself should close. */
@@ -61,6 +65,8 @@ export default function AccountRoute() {
         timeZone={session.timeZone}
         providers={session.providers}
         plugins={session.plugins}
+        agents={session.agents}
+        onLoadUsage={(days) => core.usage(session.accountId.trim(), days)}
         onPage={(page) => {
           session.setMenu(page);
           if (page === "plugins") void session.refreshPlugins().catch(session.show);

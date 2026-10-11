@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type ViewStyle } from "react-native";
 import type { ProviderSetting } from "../api";
-import type { PluginList } from "../api";
+import type { AccountUsage, PluginList, RosterAgent } from "../api";
+import { UsagePage } from "./UsagePage";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { useAppearance, useResolvedScheme, type AppearanceChoice } from "../theme/appearance";
 import { CustomPluginPage, PluginsPage } from "./PluginsPage";
@@ -19,7 +20,7 @@ export type SignedAccount = {
   email: string;
 };
 
-export type MenuPage = "menu" | "account" | "signup" | "providers" | "plugins" | "plugin-custom" | "appearance";
+export type MenuPage = "menu" | "account" | "signup" | "providers" | "plugins" | "plugin-custom" | "appearance" | "usage";
 
 /**
  * Shows the account menu, the account switcher, or signup.
@@ -36,6 +37,8 @@ export function MenuSheet({
   timeZone,
   providers,
   plugins,
+  agents,
+  onLoadUsage,
   onPage,
   onNotifications,
   onAutoReview,
@@ -66,6 +69,9 @@ export function MenuSheet({
   timeZone: string;
   providers: ProviderSetting[];
   plugins: PluginList | null;
+  /** The roster, for the faces on the usage page. */
+  agents: RosterAgent[];
+  onLoadUsage: (days: number) => Promise<AccountUsage>;
   onPage: (page: MenuPage) => void;
   onNotifications: (value: boolean) => void;
   onAutoReview: (value: boolean) => void;
@@ -100,6 +106,7 @@ export function MenuSheet({
           onAutoTimeZone={onAutoTimeZone}
           onApprovals={onApprovals}
           onComputer={onComputer}
+          onUsage={() => onPage("usage")}
           onProviders={() => onPage("providers")}
           onPlugins={() => onPage("plugins")}
           onAppearance={() => onPage("appearance")}
@@ -139,6 +146,7 @@ export function MenuSheet({
         <CustomPluginPage onSave={onSaveCustomPlugin} onSignIn={onSignInCustomPlugin} scrollStyle={scrollStyle} />
       ) : null}
       {page === "appearance" ? <AppearancePage scrollStyle={scrollStyle} /> : null}
+      {page === "usage" ? <UsagePage agents={agents} onLoad={onLoadUsage} scrollStyle={scrollStyle} /> : null}
       {page === "providers" ? (
         <ProviderPage
           providers={providers}
@@ -164,6 +172,7 @@ function MenuPageView({
   onAutoTimeZone,
   onApprovals,
   onComputer,
+  onUsage,
   onProviders,
   onPlugins,
   onAppearance,
@@ -180,6 +189,7 @@ function MenuPageView({
   onAutoTimeZone: (value: boolean) => void;
   onApprovals: () => void;
   onComputer: () => void;
+  onUsage: () => void;
   onProviders: () => void;
   onPlugins: () => void;
   onAppearance: () => void;
@@ -196,8 +206,11 @@ function MenuPageView({
         </View>
         <IconChevron />
       </CardButton>
-      <CardButton onPress={onApprovals}>
-        <Text style={styles.rowLabel}>Usage</Text>
+      <CardButton onPress={onUsage}>
+        <View style={styles.cardBody}>
+          <Text style={styles.rowLabel}>Usage</Text>
+          <Text style={styles.hint}>Tokens, turns and background work, by agent</Text>
+        </View>
         <IconChevron />
       </CardButton>
       <CardButton onPress={onProviders}>

@@ -233,6 +233,16 @@ export type PendingNotification = {
   createdAt: string;
 };
 
+type UsageTotals = { inputTokens: number; outputTokens: number; cacheReadTokens: number; turns: number; jobs: number };
+/** What the account's agents used over a period, by day and by agent. */
+export type AccountUsage = {
+  days: number;
+  timezone: string;
+  totals: UsageTotals;
+  daily: ({ day: string } & UsageTotals)[];
+  agents: ({ agentId: string; name: string; provider: string; modelId: string } & UsageTotals)[];
+};
+
 /** What the inbox list shows beside each chat. */
 export type InboxStatus = {
   rooms: { id: string; kind: string; ownerAgentId: string; unread: number; working: boolean }[];
@@ -291,6 +301,8 @@ export type CoreClient = {
   ) => () => void;
   registerDevice: (accountId: string, input: { expoPushToken: string; platform?: string | null }) => Promise<{ id: string }>;
   listNotifications: (accountId: string) => Promise<PendingNotification[]>;
+  /** Tokens, turns and background jobs for the last 7, 30 or 90 days. */
+  usage: (accountId: string, days: number) => Promise<AccountUsage>;
   /** Unread counts and busy agents for the inbox list. */
   inboxStatus: (accountId: string) => Promise<InboxStatus>;
   /** Tells the server the person has this chat open, so its messages count as seen. */
@@ -376,6 +388,7 @@ export function createCore(baseUrl = coreBaseUrl(), fetchImpl: typeof fetch = fe
       subscribeMessages(baseUrl, accountId, conversationId, onEvent, fetchImpl, opts),
     registerDevice: (accountId, input) => registerDevice(baseUrl, accountId, input, fetchImpl),
     listNotifications: (accountId) => listNotifications(baseUrl, accountId, fetchImpl),
+    usage: (accountId, days) => readJson<AccountUsage>(fetchImpl, `${baseUrl}/accounts/${accountId}/usage?days=${days}`),
     inboxStatus: (accountId) => readJson<InboxStatus>(fetchImpl, `${baseUrl}/accounts/${accountId}/inbox`),
     markRead: (accountId, conversationId) =>
       readJson<unknown>(fetchImpl, `${baseUrl}/conversations/${conversationId}/read?accountId=${accountId}`, { method: "POST" }),
