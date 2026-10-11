@@ -53,7 +53,7 @@ describe("web guards and extraction", () => {
 
   it("identifies as a browser and guards non-page content", () => {
     expect(BROWSER_USER_AGENT).toContain("Chrome/");
-    expect(BROWSER_USER_AGENT).not.toMatch(/nano-agents/);
+    expect(BROWSER_USER_AGENT).not.toMatch(/kuru/);
     expect(unsupportedMimeMessage("image/png")).toMatch(/Unsupported fetched image/);
     expect(unsupportedMimeMessage("application/zip")).toMatch(/Unsupported fetched file/);
     expect(unsupportedMimeMessage("text/html; charset=utf-8")).toBeNull();

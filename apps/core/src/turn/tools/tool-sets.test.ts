@@ -1,4 +1,4 @@
-import { toolNamesInSet } from "@nano-agents/agent-tools";
+import { toolNamesInSet } from "@kuru/agent-tools";
 import { describe, expect, it } from "vitest";
 import { activeDispatcherTools, allowedForKind, initialToolSets, isRequestableToolSet } from "./tool-sets.js";
 

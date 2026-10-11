@@ -1,4 +1,4 @@
-import { dispatcherToolNames, groupCreateInputSchema, toolsForSurface, workerToolNames } from "@nano-agents/agent-tools";
+import { dispatcherToolNames, groupCreateInputSchema, toolsForSurface, workerToolNames } from "@kuru/agent-tools";
 import { describe, expect, it } from "vitest";
 import { profileToolNames } from "../../computer/profile-tools.js";
 

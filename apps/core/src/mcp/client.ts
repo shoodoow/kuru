@@ -237,7 +237,7 @@ async function openSession(url: string, bearer: string, fetchImpl: FetchImpl): P
     bearer,
     undefined,
     "initialize",
-    { protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "nano-agents", version: "0" } },
+    { protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "kuru", version: "0" } },
     (response) => {
       id = response.headers.get("mcp-session-id") || undefined;
     },

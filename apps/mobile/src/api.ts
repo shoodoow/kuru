@@ -11,7 +11,7 @@ import {
   type MarkShape,
   type MarkStyle,
   type MessageBlock,
-} from "@nano-agents/shared";
+} from "@kuru/shared";
 import { coreBaseUrl } from "./core-url";
 
 export type { MessageBlock };

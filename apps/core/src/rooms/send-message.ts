@@ -1,5 +1,5 @@
-import { chartData, type MessageBlock } from "@nano-agents/shared";
-import { reactionSchema, sendMessageInputSchema } from "@nano-agents/agent-tools";
+import { chartData, type MessageBlock } from "@kuru/shared";
+import { reactionSchema, sendMessageInputSchema } from "@kuru/agent-tools";
 import { and, asc, eq } from "drizzle-orm";
 import type { Store } from "../db/client.js";
 import { agents, conversations, members, messages, type notifications, reactions, type runs } from "../db/schema.js";

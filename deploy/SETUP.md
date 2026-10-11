@@ -1,4 +1,4 @@
-# Nano Agents — setup on a new machine
+# Kuru — setup on a new machine
 
 This guide covers **production-style hosting on a VPS** (recommended) and **development on your laptop** with a **Cloudflare Tunnel** so phones can reach the API without a static home IP.
 
@@ -38,8 +38,8 @@ Replace `api.example.com` with your public hostname (this repo’s dev example u
 ## 1. Clone and install
 
 ```bash
-git clone <your-repo-url> nano-agents
-cd nano-agents
+git clone <your-repo-url> kuru
+cd kuru
 pnpm install
 ```
 
@@ -338,7 +338,7 @@ Laptop + tunnel is fine for **personal dev**; for anything shared or always-on, 
 On a server the core can run from an image instead of `pnpm --filter core dev`:
 
 ```bash
-docker build -t nano-agents-linux:1 apps/core/linux   # the agents' computer image
+docker build -t kuru-linux:1 apps/core/linux   # the agents' computer image
 export POSTGRES_PASSWORD="$(openssl rand -hex 24)"    # keep it; the database volume remembers it
 docker compose --profile core up -d --build
 ```

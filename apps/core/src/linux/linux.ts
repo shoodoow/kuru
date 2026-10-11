@@ -8,7 +8,7 @@ import { sharedDb } from "../db/client.js";
 import { agents, user } from "../db/schema.js";
 import { ACCOUNT_NETWORK, applyFirewall, applyHostFirewall, ensureAccountNetwork } from "./firewall.js";
 
-const image = "nano-agents-linux:1";
+const image = "kuru-linux:1";
 const memoryBytes = 10 * 1024 * 1024 * 1024;
 const storageSize = "50G";
 const toolchainRepairs = new Map<string, Promise<void>>();

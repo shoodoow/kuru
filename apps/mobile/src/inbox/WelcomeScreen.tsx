@@ -1,4 +1,4 @@
-import { randomSurpriseMark } from "@nano-agents/shared";
+import { randomSurpriseMark } from "@kuru/shared";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

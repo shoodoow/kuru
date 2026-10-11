@@ -1,4 +1,4 @@
-import { localSkillCatalog, readLocalSkill } from "./local.js";
+import { adoptHostSkills, localSkillCatalog, readLocalSkill } from "./local.js";
 import {
   mergeSkillCatalogs,
   readSkillForAccount,
@@ -14,20 +14,23 @@ export type AgentSkillContext = {
 };
 
 /**
- * Skills this agent can load: host shared/account, then container-local overrides.
- * Why: shared procedures ship with the product; per-agent installs live only
- * inside the account container under `~/.agents/skills`.
+ * Skills this agent can load: the server's default skills, then the account's own.
+ * Why: the skills every account starts with ship with the product; everything
+ * that belongs to one account lives on that account's computer, in
+ * `/shared/skills` (all its agents) and `~/.agents/skills` (one agent).
  */
 export async function skillCatalogForAgent(ctx: AgentSkillContext): Promise<SkillSummary[]> {
+  if (ctx.skillsRoot) await adoptHostSkills(ctx.skillsRoot, ctx.accountId);
   const host = ctx.skillsRoot ? skillCatalogForAccount(ctx.skillsRoot, ctx.accountId) : [];
   const local = ctx.linuxProfile ? await localSkillCatalog(ctx.accountId, ctx.linuxProfile) : [];
   return mergeSkillCatalogs(host, local);
 }
 
 /**
- * Loads one skill body. Container-local wins, then host account, then shared.
+ * Loads one skill body. The account computer's copy wins over a default skill of the same name.
  */
 export async function readSkillForAgent(ctx: AgentSkillContext, name: string): Promise<string> {
+  if (ctx.skillsRoot) await adoptHostSkills(ctx.skillsRoot, ctx.accountId);
   if (ctx.linuxProfile) {
     const local = await readLocalSkill(ctx.accountId, ctx.linuxProfile, name);
     if (local !== null) return local;

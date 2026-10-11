@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Nano Agents",
+    "name": "Kuru",
     "slug": "nano-agents",
     "scheme": "nano-agents",
     "version": "1.0.0",
@@ -15,7 +15,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.nanoagents.app",
       "infoPlist": {
-        "NSPhotoLibraryAddUsageDescription": "Allow Nano Agents to save photos and videos from chats."
+        "NSPhotoLibraryAddUsageDescription": "Allow Kuru to save photos and videos from chats."
       }
     },
     "android": {
@@ -45,8 +45,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Nano Agents to attach photos to messages.",
-          "cameraPermission": "Allow Nano Agents to take photos for messages."
+          "photosPermission": "Allow Kuru to attach photos to messages.",
+          "cameraPermission": "Allow Kuru to take photos for messages."
         }
       ]
     ]

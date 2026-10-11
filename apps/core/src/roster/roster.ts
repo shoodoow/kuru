@@ -4,7 +4,7 @@ import {
   agentProfileSchema,
   defaultModelSchema,
   randomSurpriseMark,
-} from "@nano-agents/shared";
+} from "@kuru/shared";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { config } from "../config.js";
 import type { getDb, Store } from "../db/client.js";

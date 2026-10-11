@@ -6,7 +6,7 @@
 
 ## Reporting a vulnerability
 
-Do not open a public issue. Use [GitHub private security advisories](https://github.com/shoodoow/nano-agents/security/advisories/new)
+Do not open a public issue. Use [GitHub private security advisories](https://github.com/shoodoow/kuru/security/advisories/new)
 for this repository and include:
 
 - affected commit / version

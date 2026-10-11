@@ -1,5 +1,5 @@
-import { delegateSchema, spawnWorkerInputSchema, subagentCreateSchema, workerRefSchema } from "@nano-agents/agent-tools";
-import { randomSurpriseMark } from "@nano-agents/shared";
+import { delegateSchema, spawnWorkerInputSchema, subagentCreateSchema, workerRefSchema } from "@kuru/agent-tools";
+import { randomSurpriseMark } from "@kuru/shared";
 import {
   packWorkerJobDescription,
   unpackWorkerJobDescription,
@@ -7,7 +7,7 @@ import {
   type WorkerKind,
 } from "./worker-kinds.js";
 
-import { workerToolNames as agentWorkerToolNames } from "@nano-agents/agent-tools";
+import { workerToolNames as agentWorkerToolNames } from "@kuru/agent-tools";
 import { generateText, isStepCount, type ModelMessage } from "ai";
 import { and, count, desc, eq, inArray, lt } from "drizzle-orm";
 import type { Store } from "../db/client.js";

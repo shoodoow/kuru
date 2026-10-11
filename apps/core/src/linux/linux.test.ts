@@ -134,7 +134,7 @@ describe("linux", () => {
     // must leave it alone while removing the test one.
     const spare = await docker.createContainer({
       name: "nano-spare-check",
-      Image: "nano-agents-linux:1",
+      Image: "kuru-linux:1",
       Labels: { "nano.account": "spare" },
     });
     await removeAccountContainers({ testOnly: true });

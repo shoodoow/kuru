@@ -1,4 +1,4 @@
-import { memberAddSchema, messageCreateSchema, roomCreateSchema, sendMessageInputSchema } from "@nano-agents/shared";
+import { memberAddSchema, messageCreateSchema, roomCreateSchema, sendMessageInputSchema } from "@kuru/shared";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { getDb, Store } from "../db/client.js";
 import {
@@ -15,7 +15,7 @@ import {
   runs,
   summaryItems,
 } from "../db/schema.js";
-import type { MessageBlock } from "@nano-agents/shared";
+import type { MessageBlock } from "@kuru/shared";
 import { materializeBlocks } from "./uploads.js";
 
 type Database = ReturnType<typeof getDb>;

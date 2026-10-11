@@ -24,7 +24,7 @@ import {
   type Routine,
   type ToolApproval,
 } from "../api";
-import { blocksFromMaybeWidgetText, expandWidgetMarkupBlocks, type AgentMark } from "@nano-agents/shared";
+import { blocksFromMaybeWidgetText, expandWidgetMarkupBlocks, type AgentMark } from "@kuru/shared";
 import {
   configureForegroundBanners,
   ensureLocalNotificationsReady,
@@ -304,11 +304,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await core.rememberTimezone(accountIdFromSession, zone).catch(() => {});
     }
     setMenu(null);
-    closeSheets();
-    // Only leave for the inbox when some other screen is up (sign-in return).
-    // On a cold start the inbox is already showing; replacing it there threw
-    // away the list that had just drawn and built it a second time.
-    if (pathnameRef.current !== "/") {
+    // Closing a sheet already lands on the chat list. Replacing the list in
+    // the same moment, while the sheet was still sliding away, left a blank
+    // screen after an account switch. The list is replaced only when some
+    // other full screen is up and there is nothing to close (sign-in return).
+    // On a cold start the list is already showing and is left alone.
+    if (router.canDismiss()) {
+      router.dismissAll();
+    } else if (pathnameRef.current !== "/") {
       router.replace("/");
     }
     setNote("");
@@ -398,7 +401,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     saveCoreUrl(entry.server);
     setServerUrl(coreBaseUrl());
     useSlot(slot);
-    await refreshSession();
+    try {
+      await refreshSession();
+    } catch (error) {
+      // The account changed but its chats did not load. Say so; an empty list
+      // with no word of why reads as a broken app.
+      throw new Error(`Switched to ${entry.email}, but its chats did not load: ${error instanceof Error ? error.message : "the server did not answer"}. Pull down to try again.`);
+    }
     if (accountIdRef.current !== entry.id) {
       await fallBack();
       throw new Error(`The sign-in for ${entry.email} has expired. Add the account again.`);
@@ -1681,6 +1690,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     serverUrl,
     changeServer,
     restored,
+    reload: refreshSession,
     signOut,
     deleteAccount,
     switchAccount,
@@ -1788,6 +1798,8 @@ type SessionValue = {
   signOut: () => Promise<void>;
   /** Deletes the signed-in account on the server, for good. */
   deleteAccount: () => Promise<void>;
+  /** Reads the signed-in account, its agents and its chats again from the server. */
+  reload: () => Promise<void>;
   /** Makes another account signed in on this phone the one in use. */
   switchAccount: (slot: string) => Promise<void>;
   /** Signs in one more account, keeping the others signed in. */

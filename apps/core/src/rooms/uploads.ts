@@ -1,4 +1,4 @@
-import type { MessageBlock } from "@nano-agents/shared";
+import type { MessageBlock } from "@kuru/shared";
 import { exec, execBytes, execStdin } from "../linux/linux.js";
 
 // Why: phone attachments arrive as data: URIs. Stuffing megabytes of base64

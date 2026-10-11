@@ -39,6 +39,7 @@ services:
       # The core creates and drives each account's container through Docker.
       # Whoever controls this socket controls the host.
       - /var/run/docker.sock:/var/run/docker.sock
+      # Account skills from an older version. Each account's are moved onto its computer when first read.
       - skills:/app/skills/accounts
     depends_on:
       postgres:

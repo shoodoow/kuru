@@ -24,14 +24,14 @@ const TEXT_MAX_CHARS = 15_000;
 /**
  * Browser identity for static fetches (proven pattern from opencode's webfetch:
  * a real browser UA + Accept-Language passes bot walls that flag script UAs
- * like curl/wget defaults). The previous `nano-agents/1` UA was flagged by
+ * like curl/wget defaults). The previous `nano-agents/1` (now `kuru/1`) UA was flagged by
  * Cloudflare and JS-heavy marketing pages, turning one cheap fetch into a
  * 300k-token browser worker escalation.
  */
 export const BROWSER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
 /** Alternate UA for the Cloudflare-challenge retry (opencode retries as "opencode"). */
-export const FALLBACK_USER_AGENT = "nano-agents/1";
+export const FALLBACK_USER_AGENT = "kuru/1";
 const ACCEPT_HEADERS = "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,text/markdown;q=0.8,text/plain;q=0.7,*/*;q=0.1";
 const ACCEPT_LANGUAGE = "Accept-Language: en-US,en;q=0.9";
 

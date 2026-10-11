@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("./local.js", () => ({
+  adoptHostSkills: vi.fn(),
   localSkillCatalog: vi.fn(),
   readLocalSkill: vi.fn(),
 }));

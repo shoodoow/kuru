@@ -3,7 +3,7 @@ import { Platform, StyleSheet, View } from "react-native";
 import { Image } from "expo-image";
 import { Asset } from "expo-asset";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
-import { markStyleGender, type MarkGender, type MarkMaterial, type MarkShape, type MarkStyle } from "@nano-agents/shared";
+import { markStyleGender, type MarkGender, type MarkMaterial, type MarkShape, type MarkStyle } from "@kuru/shared";
 import { hydrateMarkThumbsFromDisk, persistMarkThumb } from "./mark-thumb-disk";
 import { ShapeGlyph } from "./ShapeGlyph";
 

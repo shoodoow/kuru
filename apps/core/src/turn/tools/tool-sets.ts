@@ -11,7 +11,7 @@ import {
   toolSetNames,
   toolsForSurface,
   type ToolSetName,
-} from "@nano-agents/agent-tools";
+} from "@kuru/agent-tools";
 import { prompt } from "../../prompt/prompts.js";
 
 const gatedBy = new Map<string, ToolSetName>(

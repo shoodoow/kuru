@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { config } from "../../config.js";
 import { approve, reject } from "../../skills/proposals.js";
 import { pathParam, queryAccountId, type AppContext, type Guard } from "../context.js";
 
@@ -10,7 +9,7 @@ import { pathParam, queryAccountId, type AppContext, type Guard } from "../conte
 export function proposalsRoutes(ctx: AppContext, guard: Guard): Router {
   const proposals = Router();
   proposals.post("/:proposalId/approve", guard, async (req, res) => {
-    const updated = await approve(ctx.db, queryAccountId(req), pathParam(req, "proposalId"), config.skillsDir());
+    const updated = await approve(ctx.db, queryAccountId(req), pathParam(req, "proposalId"));
     if (!updated) {
       res.status(404).json({ error: "Proposal not found." });
       return;

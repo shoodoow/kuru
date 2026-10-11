@@ -1,4 +1,4 @@
-import type { AgentCreate } from "@nano-agents/shared";
+import type { AgentCreate } from "@kuru/shared";
 import type { agents } from "./schema.js";
 
 type AgentRow = typeof agents.$inferInsert;

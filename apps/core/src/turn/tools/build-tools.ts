@@ -1,5 +1,5 @@
 import { jsonSchema, tool, type Schema, type ToolSet } from "ai";
-import { toolsForSurface, type ToolDefinition } from "@nano-agents/agent-tools";
+import { toolsForSurface, type ToolDefinition } from "@kuru/agent-tools";
 import type { getDb } from "../../db/client.js";
 import { readHistory } from "../../memory/memory.js";
 import { readSkillForAgent } from "../../skills/agent-skills.js";

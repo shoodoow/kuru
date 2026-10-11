@@ -1,6 +1,8 @@
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { readFile } from "../computer/computer.js";
-import { accountHome, accountShared, exec } from "../linux/linux.js";
-import { parseSkillFrontmatter, type SkillSummary } from "./skills.js";
+import { accountHome, accountShared, exec, execStdin } from "../linux/linux.js";
+import { accountSkillRoot, parseSkillFrontmatter, type SkillSummary } from "./skills.js";
 
 /** Canonical path used by `npx skills add -g` for universal agents. */
 const LOCAL_SKILLS_SEGMENT = ".agents/skills";
@@ -15,6 +17,54 @@ const lastPublished = new Map<string, number>();
  */
 export function sharedSkillsRoot(accountId: string): string {
   return `${accountShared(accountId)}/skills`;
+}
+
+/**
+ * Saves one skill into the account computer's shared skills folder.
+ * Why: the server's skills directory holds only the skills every account
+ * starts with. A skill that belongs to one account (one that came with a
+ * plugin, one the person approved) lives on that account's computer, beside
+ * the skills its agents install, so the account's skills are all in one place.
+ * Input: account id and the full SKILL.md text; `keep` leaves a skill of the
+ * same name as it is. Output: the skill's name. Runs as root; agents can read it.
+ */
+export async function writeSharedSkill(accountId: string, markdown: string, keep = false): Promise<{ name: string }> {
+  const { name } = parseSkillFrontmatter(markdown);
+  if (!/^[A-Za-z0-9-]+$/.test(name)) {
+    throw new Error("A skill name may only use letters, digits and dashes.");
+  }
+  const directory = `${sharedSkillsRoot(accountId)}/${name}`;
+  const body = markdown.endsWith("\n") ? markdown : `${markdown}\n`;
+  const script = `${keep ? '[ -f "$1/SKILL.md" ] && exit 0; ' : ""}mkdir -p "$1" && cat > "$1/SKILL.md" && chmod -R a+rX "$1/.."`;
+  const result = await execStdin(accountId, ["sh", "-c", script, "sh", directory], Buffer.from(body));
+  if (result.code !== 0) {
+    throw new Error(result.stdout.toString("utf8") || `The skill ${name} could not be saved.`);
+  }
+  return { name };
+}
+
+/**
+ * Moves skills an older version kept on the server onto the account computer.
+ * Why: account skills used to be written under `accounts/<account id>` in the
+ * server's skills directory. They are moved once, the first time the account's
+ * skills are read, and the server folder is removed. A computer that cannot be
+ * reached leaves the folder alone, where it is still read, for the next try.
+ * Input: the server's skills directory and the account id. Output: nothing.
+ */
+export async function adoptHostSkills(skillsRoot: string, accountId: string): Promise<void> {
+  const old = accountSkillRoot(skillsRoot, accountId);
+  if (!existsSync(old)) return;
+  try {
+    for (const entry of readdirSync(old, { withFileTypes: true })) {
+      const file = join(old, entry.name, "SKILL.md");
+      if (!entry.isDirectory() || !existsSync(file)) continue;
+      // A skill of the same name already on the computer is the newer one.
+      await writeSharedSkill(accountId, readFileSync(file, "utf8"), true);
+    }
+    rmSync(old, { recursive: true, force: true });
+  } catch {
+    // Not moved this time. The folder stays and is read from the server as before.
+  }
 }
 
 /**

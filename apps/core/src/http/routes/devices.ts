@@ -1,4 +1,4 @@
-import { deviceSchema } from "@nano-agents/shared";
+import { deviceSchema } from "@kuru/shared";
 import { eq } from "drizzle-orm";
 import { Router } from "express";
 import { devices } from "../../db/schema.js";

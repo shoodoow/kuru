@@ -177,7 +177,7 @@ async function registerClient(registrationEndpoint: string, fetchImpl: FetchImpl
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      client_name: "nano-agents",
+      client_name: "Kuru",
       redirect_uris: [pluginCallbackUrl()],
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],

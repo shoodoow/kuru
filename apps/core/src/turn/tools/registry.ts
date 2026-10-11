@@ -2,7 +2,7 @@
  * AI SDK tool map for dispatcher/delegate turns: tool({ description, inputSchema, execute }).
  */
 import { tool, type ToolSet } from "ai";
-import { dispatcherToolNames as agentDispatcherToolNames } from "@nano-agents/agent-tools";
+import { dispatcherToolNames as agentDispatcherToolNames } from "@kuru/agent-tools";
 import type { AgentMode } from "../types.js";
 import type { ToolContext } from "./context.js";
 import { buildDispatcherToolSet } from "./build-tools.js";

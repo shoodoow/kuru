@@ -1,10 +1,10 @@
-import { config } from "../config.js";
 import { and, eq } from "drizzle-orm";
 import type { getDb } from "../db/client.js";
 import { accountGoogleOauth, mcpServers } from "../db/schema.js";
 import { seal } from "../keys/keys.js";
 import { catalogPlugin, PLUGIN_CATALOG, scopesCover, type CatalogPlugin, type PluginMark, type PluginSkill } from "./catalog.js";
-import { bumpAccountPromptVersions, writeAccountSkill } from "../skills/install.js";
+import { bumpAccountPromptVersions } from "../skills/install.js";
+import { writeSharedSkill } from "../skills/local.js";
 import { readSecret } from "./credential.js";
 
 type Database = ReturnType<typeof getDb>;
@@ -97,7 +97,7 @@ export async function applyGoogleConnection(
     await db.insert(accountGoogleOauth).values({ accountId, secret: sealed, scopes: grantedScopes });
   }
   await upsertGooglePlugin(db, accountId, plugin, scopesCover(grantedScopes, plugin.scopes) ? null : "Google did not grant every permission this plugin needs.");
-  installCatalogSkills(db, accountId, plugin.id);
+  await installCatalogSkills(db, accountId, plugin.id);
   return plugin;
 }
 
@@ -108,19 +108,18 @@ export async function installGooglePluginIfGranted(db: Database, accountId: stri
   const [google] = await db.select().from(accountGoogleOauth).where(eq(accountGoogleOauth.accountId, accountId));
   if (!google || !scopesCover(google.scopes, plugin.scopes)) return false;
   await upsertGooglePlugin(db, accountId, plugin, null);
-  installCatalogSkills(db, accountId, plugin.id);
+  await installCatalogSkills(db, accountId, plugin.id);
   return true;
 }
 
-/** Copies this plugin's skills into the account folder. A missing skills directory does not undo the connection. */
-function installCatalogSkills(db: Database, accountId: string, pluginId: string): void {
+/** Saves this plugin's skills on the account's computer. A computer that cannot be reached does not undo the connection. */
+async function installCatalogSkills(db: Database, accountId: string, pluginId: string): Promise<void> {
   const plugin = catalogPlugin(pluginId);
-  const root = config.skillsDir();
-  if (!plugin?.skills.length || !root) return;
+  if (!plugin?.skills.length) return;
   try {
     for (const skill of plugin.skills) {
       const markdown = `---\nname: ${skill.name}\ndescription: ${skill.description}\n---\n\n${skill.body}\n`;
-      writeAccountSkill(root, accountId, markdown);
+      await writeSharedSkill(accountId, markdown);
     }
     void bumpAccountPromptVersions(db, accountId);
   } catch {

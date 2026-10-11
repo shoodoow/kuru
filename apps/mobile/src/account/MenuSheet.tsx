@@ -170,6 +170,7 @@ export function MenuSheet({
           defaultModel={defaultModel}
           onSaveDefaultModel={onSaveDefaultModel}
           onSave={onSaveProvider}
+          onError={onError}
           scrollStyle={scrollStyle}
         />
       ) : null}
@@ -334,8 +335,11 @@ function ProviderPage({
   defaultModel,
   onSaveDefaultModel,
   onSave,
+  onError,
   scrollStyle,
 }: {
+  /** Shows a failure in the banner at the top of the sheet. */
+  onError: (error: unknown) => void;
   defaultModel?: { provider: ProviderSetting["provider"]; modelId: string } | null;
   onSaveDefaultModel?: (provider: ProviderSetting["provider"], modelId: string) => void | Promise<unknown>;
   providers: ProviderSetting[];
@@ -347,11 +351,29 @@ function ProviderPage({
   const [baseUrl, setBaseUrl] = useState("");
   const configured = providers.find((row) => row.provider === provider);
   const [modelId, setModelId] = useState("");
+  // Why the last save was refused, and which button it belongs under.
+  const [failure, setFailure] = useState<{ from: "key" | "model"; text: string } | null>(null);
 
   useEffect(() => {
     setSecret("");
     setBaseUrl(configured?.baseUrl ?? "");
+    setFailure(null);
   }, [configured?.baseUrl, provider]);
+
+  /**
+   * Runs a save and keeps the provider's refusal on the page.
+   * Why: a wrong key used to answer only with a banner that left after a few
+   * seconds. The sentence says what to fix, so it stays under the button.
+   */
+  function run(from: "key" | "model", action: () => void | Promise<unknown>): Promise<unknown> {
+    setFailure(null);
+    return Promise.resolve()
+      .then(action)
+      .catch((error: unknown) => {
+        onError(error);
+        setFailure({ from, text: error instanceof Error ? error.message : "Could not save." });
+      });
+  }
   useEffect(() => {
     setModelId(defaultModel?.provider === provider ? defaultModel.modelId : "");
   }, [defaultModel?.provider, defaultModel?.modelId, provider]);
@@ -395,8 +417,9 @@ function ProviderPage({
       <PrimaryButton
         label="Save provider"
         disabled={!ready}
-        onPress={() => onSave(provider, secret, provider === "local" ? baseUrl.trim() : null)}
+        onPress={() => run("key", () => onSave(provider, secret, provider === "local" ? baseUrl.trim() : null))}
       />
+      {failure?.from === "key" ? <Text style={styles.error}>{failure.text}</Text> : null}
       {onSaveDefaultModel && configured?.configured ? (
         <>
           <Text style={styles.hint}>
@@ -418,8 +441,9 @@ function ProviderPage({
             label="Use as default model"
             variant="secondary"
             disabled={modelId.trim().length === 0}
-            onPress={() => onSaveDefaultModel(provider, modelId.trim())}
+            onPress={() => run("model", () => onSaveDefaultModel(provider, modelId.trim()))}
           />
+          {failure?.from === "model" ? <Text style={styles.error}>{failure.text}</Text> : null}
         </>
       ) : null}
     </ScrollView>
@@ -636,6 +660,7 @@ function createStyles(colors: ColorPalette) {
   email: { color: colors.muted, fontSize: 14 },
   rowLabel: { color: colors.text, fontSize: 16, flex: 1 },
   hint: { color: colors.muted, fontSize: 13, lineHeight: 18 },
+  error: { color: colors.danger, fontSize: 14, lineHeight: 19, marginHorizontal: 6 },
   section: { color: colors.muted, fontSize: 13, marginTop: 8, marginLeft: 6 },
   group: { backgroundColor: colors.card, borderRadius: 16, borderCurve: "continuous", overflow: "hidden" },
   groupRow: {

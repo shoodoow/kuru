@@ -1,7 +1,7 @@
 import { ProviderCheckError, type ProviderCheck } from "./check-provider.js";
 import { config } from "../config.js";
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes, scryptSync } from "node:crypto";
-import { providerKeySchema } from "@nano-agents/shared";
+import { providerKeySchema } from "@kuru/shared";
 import { and, eq } from "drizzle-orm";
 import type { getDb } from "../db/client.js";
 import { providerKeys } from "../db/schema.js";

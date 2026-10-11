@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
 import type { MessageBlock, RosterAgent } from "../api";
-import { blocksFromMaybeWidgetText } from "@nano-agents/shared";
+import { blocksFromMaybeWidgetText } from "@kuru/shared";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { Avatar } from "../ui/Avatar";
 import { IconCheck, IconClose, IconMonitor, IconShield } from "../ui/icons";

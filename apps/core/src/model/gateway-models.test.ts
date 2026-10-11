@@ -35,4 +35,10 @@ describe("gateway model lookup", () => {
     expect(lookupContextWindowInIndex(index, "openai", "gpt-4o")).toBe(128_000);
     expect(lookupContextWindowInIndex(index, "openai", "openai/gpt-4o")).toBe(128_000);
   });
+
+  it("finds a model whose id was typed in another case, with or without its vendor", () => {
+    const index = new Map([["xiaomi/mimo-v2.6-flash", 1_048_576]]);
+    expect(lookupContextWindowInIndex(index, "local", "MiMo-V2.6-Flash")).toBe(1_048_576);
+    expect(lookupContextWindowInIndex(index, "local", "Xiaomi/MiMo-V2.6-Flash")).toBe(1_048_576);
+  });
 });

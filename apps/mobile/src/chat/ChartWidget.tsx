@@ -1,4 +1,4 @@
-import { chartData, chartScale, chartValue, type ChartData } from "@nano-agents/shared";
+import { chartData, chartScale, chartValue, type ChartData } from "@kuru/shared";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import Svg, { Circle, G, Line, Path, Rect } from "react-native-svg";

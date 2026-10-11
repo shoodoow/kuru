@@ -1,7 +1,7 @@
 /**
  * Per-account MCP server records (URL + sealed bearer). Stdio stays out of tenant config.
  */
-import { mcpServerInputSchema } from "@nano-agents/shared";
+import { mcpServerInputSchema } from "@kuru/shared";
 import { and, eq } from "drizzle-orm";
 import type { getDb } from "../db/client.js";
 import { mcpServers } from "../db/schema.js";

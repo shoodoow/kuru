@@ -1,4 +1,4 @@
-import { routineCreateInputSchema, subagentCreateSchema } from "@nano-agents/agent-tools";
+import { routineCreateInputSchema, subagentCreateSchema } from "@kuru/agent-tools";
 import { Router } from "express";
 import { createProfile } from "../../linux/linux.js";
 import { buildInstructions } from "../../prompt/build-instructions.js";

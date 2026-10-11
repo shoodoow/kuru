@@ -15,7 +15,7 @@
   "dependencies": {
     "@better-auth/expo": "1.6.23",
     "@expo/vector-icons": "^15.1.1",
-    "@nano-agents/shared": "workspace:*",
+    "@kuru/shared": "workspace:*",
     "better-auth": "1.6.23",
     "expo": "57.0.25",
     "expo-asset": "~57.0.18",

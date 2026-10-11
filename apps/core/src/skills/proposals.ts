@@ -1,11 +1,9 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { proposalSchema } from "@nano-agents/shared";
+import { proposalSchema } from "@kuru/shared";
 import { and, eq, sql } from "drizzle-orm";
 import type { getDb } from "../db/client.js";
 import { agents, proposals } from "../db/schema.js";
 import { remember } from "../memory/memory.js";
-import { accountSkillRoot } from "./skills.js";
+import { writeSharedSkill } from "./local.js";
 
 type Database = Pick<ReturnType<typeof getDb>, "insert" | "select" | "update">;
 
@@ -54,10 +52,10 @@ export async function listProposals(db: Database, accountId: string) {
 
 /**
  * Applies one pending proposal and bumps that agent's prompt version.
- * Input: database, account id, proposal id, and the skills directory used when the kind is skill.
+ * Input: database, account id, and proposal id. A skill is saved on the account computer.
  * Output: the approved proposal, or null when this account does not own it.
  */
-export async function approve(db: Database, accountId: string, proposalId: string, skillsRoot?: string) {
+export async function approve(db: Database, accountId: string, proposalId: string) {
   const [proposal] = await db
     .select()
     .from(proposals)
@@ -73,7 +71,8 @@ export async function approve(db: Database, accountId: string, proposalId: strin
     return null;
   }
   if (proposal.kind === "skill") {
-    writeSkill(skillsRoot, accountId, proposal.body);
+    // On this account's computer, not the server: another account must not receive this file.
+    await writeSharedSkill(accountId, proposal.body);
   }
   if (proposal.kind === "prompt") {
     await db
@@ -113,35 +112,4 @@ export async function reject(db: Database, accountId: string, proposalId: string
     .where(and(eq(proposals.id, proposalId), eq(proposals.accountId, accountId), eq(proposals.status, "pending")))
     .returning();
   return updated ?? null;
-}
-
-function writeSkill(skillsRoot: string | undefined, accountId: string, body: string) {
-  if (!skillsRoot) {
-    throw new Error("A skill proposal needs a skills directory.");
-  }
-  const name = skillName(body);
-  if (!name) {
-    throw new Error("A skill proposal needs a name.");
-  }
-  // Account folder, not the shared root: another tenant must not receive this file.
-  const directory = join(accountSkillRoot(skillsRoot, accountId), name);
-  mkdirSync(directory, { recursive: true });
-  writeFileSync(join(directory, "SKILL.md"), body);
-}
-
-function skillName(body: string): string | undefined {
-  const lines = body.split("\n");
-  if (lines[0]?.trim() !== "---") {
-    return undefined;
-  }
-  for (const line of lines.slice(1)) {
-    if (line.trim() === "---") {
-      return undefined;
-    }
-    const match = line.match(/^name:\s*([A-Za-z0-9-]+)\s*$/);
-    if (match?.[1]) {
-      return match[1];
-    }
-  }
-  return undefined;
 }

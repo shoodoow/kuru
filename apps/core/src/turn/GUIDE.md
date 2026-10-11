@@ -40,12 +40,17 @@ Set `SKILLS_DIR` to a directory (e.g. repo root `skills/`):
 ```text
 skills/
   my-skill/
-    SKILL.md          # shared (all accounts)
-  accounts/
-    <account-uuid>/
-      my-skill/
-        SKILL.md      # overrides shared same name for that account
+    SKILL.md          # default skill, every account gets it
 ```
+
+`SKILLS_DIR` holds only these defaults. A skill that belongs to one account is kept on that account's computer:
+
+```text
+/shared/skills/<name>/SKILL.md             # all agents on the account: plugin skills, approved skills, published installs
+/home/<agent>/.agents/skills/<name>/       # one agent's own installs (`npx skills add -g`)
+```
+
+A skill on the computer overrides a default of the same name. An older version wrote account skills to `skills/accounts/<account-uuid>/`; that folder is moved onto the computer the first time the account's skills are read.
 
 Each `SKILL.md` must start with YAML frontmatter:
 

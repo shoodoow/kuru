@@ -1,4 +1,4 @@
-import { chartValue } from "@nano-agents/shared";
+import { chartValue } from "@kuru/shared";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, type ViewStyle } from "react-native";
 import type { AccountUsage, RosterAgent } from "../api";

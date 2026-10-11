@@ -53,10 +53,15 @@ export function lookupContextWindowInIndex(
     const hit = index.get(key);
     if (typeof hit === "number" && hit > 0) return Math.floor(hit);
   }
-  const trimmed = modelId.trim();
+  // Providers accept an id in any case ("MiMo-V2.6-Flash"); the catalog lists
+  // it in lower case. Without this the window was unknown and the ring stayed empty.
+  const trimmed = modelId.trim().toLowerCase();
   const stripped = stripModelVersionSuffix(trimmed);
   const owner = gatewayOwnerForProvider(provider);
-  for (const [id, contextWindow] of index) {
+  for (const [listed, contextWindow] of index) {
+    if (!(contextWindow > 0)) continue;
+    const id = listed.toLowerCase();
+    if (id === trimmed) return Math.floor(contextWindow);
     const slash = id.indexOf("/");
     if (slash < 0) continue;
     const idOwner = id.slice(0, slash);

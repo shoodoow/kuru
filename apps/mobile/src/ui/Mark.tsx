@@ -14,7 +14,7 @@ import {
   type MarkMaterial,
   type MarkShape,
   type MarkStyle,
-} from "@nano-agents/shared";
+} from "@kuru/shared";
 import { DotLive, DotThumb, isLiveMark, peekMarkThumb } from "./DotStage";
 
 export type { MarkGender, MarkMaterial, MarkShape, MarkStyle };

@@ -1,4 +1,4 @@
-import { chartData, chartScale, chartValue } from "@nano-agents/shared";
+import { chartData, chartScale, chartValue } from "@kuru/shared";
 import { describe, expect, it } from "vitest";
 import { widgetAsText } from "./send-message.js";
 

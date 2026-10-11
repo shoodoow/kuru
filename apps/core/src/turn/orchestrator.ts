@@ -1,4 +1,4 @@
-import type { MessageBlock } from "@nano-agents/shared";
+import type { MessageBlock } from "@kuru/shared";
 /**
  * Room turn orchestration: run ledger, speaker queue, queue drain.
  * DB: runs, messages, events (via TurnEmitter).

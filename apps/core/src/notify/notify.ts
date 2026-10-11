@@ -1,4 +1,4 @@
-import { notifyInputSchema } from "@nano-agents/agent-tools";
+import { notifyInputSchema } from "@kuru/agent-tools";
 import { and, eq } from "drizzle-orm";
 import type { Store } from "../db/client.js";
 import { notifications } from "../db/schema.js";

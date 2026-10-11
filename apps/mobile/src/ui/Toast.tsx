@@ -22,9 +22,11 @@ function shownFor(toast: ToastMessage): number {
  * behind the sheet, so a success read as a failure, out of sight. Each screen
  * that can save mounts one of these; it shows the session's latest toast.
  * Input: `tones` limits what this screen shows (chat and inbox already print
- * errors inline). Output: the banner, or nothing.
+ * errors inline). `top` is how far down the screen's own content starts: an
+ * iOS form sheet draws its content behind its header, so a banner at the top
+ * edge sat hidden there. Output: the banner, or nothing.
  */
-export function Toast({ tones = ["success", "error"] }: { tones?: ToastMessage["tone"][] }) {
+export function Toast({ tones = ["success", "error"], top = 0 }: { tones?: ToastMessage["tone"][]; top?: number }) {
   const { toast } = useSession();
   const [shown, setShown] = useState<ToastMessage | null>(null);
   const fade = useRef(new Animated.Value(0)).current;
@@ -52,7 +54,7 @@ export function Toast({ tones = ["success", "error"] }: { tones?: ToastMessage["
       accessibilityLiveRegion="polite"
       style={[
         styles.toast,
-        { opacity: fade, transform: [{ translateY: fade.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }] },
+        { top: top + 10, opacity: fade, transform: [{ translateY: fade.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }] },
       ]}
     >
       {shown.tone === "success" ? <IconToastDone /> : <IconToastWarn />}

@@ -1,5 +1,5 @@
 import { View } from "react-native";
-import type { MarkShape } from "@nano-agents/shared";
+import type { MarkShape } from "@kuru/shared";
 
 const INK = "#2B2B2E";
 

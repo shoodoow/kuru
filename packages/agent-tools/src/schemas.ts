@@ -3,7 +3,7 @@ import {
   providerNames,
   sendMessageInputSchema,
   urgencySchema,
-} from "@nano-agents/shared";
+} from "@kuru/shared";
 import { z } from "zod";
 
 export { sendMessageInputSchema };

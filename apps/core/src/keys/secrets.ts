@@ -1,4 +1,4 @@
-import { secretInputSchema } from "@nano-agents/shared";
+import { secretInputSchema } from "@kuru/shared";
 import { and, eq } from "drizzle-orm";
 import type { Store } from "../db/client.js";
 import { accountSecrets } from "../db/schema.js";

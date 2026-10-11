@@ -1,4 +1,4 @@
-import { todoWriteInputSchema, type TodoItem } from "@nano-agents/agent-tools";
+import { todoWriteInputSchema, type TodoItem } from "@kuru/agent-tools";
 import { and, eq } from "drizzle-orm";
 import type { Store } from "../db/client.js";
 import { agentTodos } from "../db/schema.js";

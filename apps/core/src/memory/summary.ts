@@ -1,4 +1,4 @@
-import { summaryItemSchema } from "@nano-agents/shared";
+import { summaryItemSchema } from "@kuru/shared";
 import { and, asc, eq } from "drizzle-orm";
 import type { getDb } from "../db/client.js";
 import { messages, summaryItems } from "../db/schema.js";

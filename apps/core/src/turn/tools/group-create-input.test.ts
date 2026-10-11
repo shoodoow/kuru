@@ -1,4 +1,4 @@
-import { groupCreateInputSchema } from "@nano-agents/agent-tools";
+import { groupCreateInputSchema } from "@kuru/agent-tools";
 import { describe, expect, it } from "vitest";
 
 describe("groupCreateInputSchema", () => {

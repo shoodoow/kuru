@@ -6,6 +6,9 @@ import { afterAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db/client.js";
 import { agents, conversations, messages, proposals } from "../db/schema.js";
+import { existsSync } from "node:fs";
+import { exec } from "../linux/linux.js";
+import { adoptHostSkills } from "./local.js";
 import { approve, propose, reject } from "./proposals.js";
 import { createAccount, createAgent } from "../roster/roster.js";
 import { startServer } from "../http/server.js";
@@ -65,7 +68,6 @@ describe("proposals", () => {
 
   it("approves a skill, writes that file, and increments the prompt version", async () => {
     const room = await openRoom("Accept");
-    const skillsRoot = await mkdtemp(join(tmpdir(), "nano-proposals-"));
     const message = await saveMessage(room, "Learn the letter voice.");
     const body = "---\nname: letters\ndescription: Writes letters.\n---\n\nWrite in the client's voice.\n";
     const saved = await propose(db, room.accountId, {
@@ -74,9 +76,23 @@ describe("proposals", () => {
       body,
       messageIds: [message.id],
     });
-    await approve(db, room.accountId, saved.id, skillsRoot);
-    expect(await readFile(join(skillsRoot, "accounts", room.accountId, "letters", "SKILL.md"), "utf8")).toBe(body);
+    await approve(db, room.accountId, saved.id);
+    // The skill is saved on the account's computer, where its agents read it.
+    const written = await exec(room.accountId, ["cat", "/shared/skills/letters/SKILL.md"]);
+    expect(written.stdout).toBe(body);
     expect(await promptVersion(room.agentId)).toBe(2);
+  });
+
+  it("moves skills an older version left on the server onto the account's computer", async () => {
+    const room = await openRoom("Move");
+    const skillsRoot = await mkdtemp(join(tmpdir(), "nano-adopt-"));
+    const old = join(skillsRoot, "accounts", room.accountId);
+    await mkdir(join(old, "ledger"), { recursive: true });
+    const body = "---\nname: ledger\ndescription: Keeps the ledger.\n---\n\nAdd each line.\n";
+    await writeFile(join(old, "ledger", "SKILL.md"), body);
+    await adoptHostSkills(skillsRoot, room.accountId);
+    expect((await exec(room.accountId, ["cat", "/shared/skills/ledger/SKILL.md"])).stdout).toBe(body);
+    expect(existsSync(old)).toBe(false);
     await rm(skillsRoot, { recursive: true, force: true });
   });
 

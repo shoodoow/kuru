@@ -28,7 +28,7 @@ describe("prompt files on disk", () => {
 
 describe("tool descriptions", () => {
   it("exist for every tool the agents can call", async () => {
-    const { allToolDefinitions } = await import("@nano-agents/agent-tools");
+    const { allToolDefinitions } = await import("@kuru/agent-tools");
     const { promptKeys } = await import("./prompts.js");
     const keys = new Set(promptKeys("tools"));
     const missing = allToolDefinitions.map((def) => def.name).filter((name) => !keys.has(name));

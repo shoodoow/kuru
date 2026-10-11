@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping with nano-agents.
+Thanks for helping with Kuru.
 
 ## Setup
 

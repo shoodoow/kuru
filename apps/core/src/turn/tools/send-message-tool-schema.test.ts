@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sendMessageInputSchema } from "@nano-agents/agent-tools";
+import { sendMessageInputSchema } from "@kuru/agent-tools";
 
 describe("send_message tool shape", () => {
   it("accepts canonical text blocks", () => {

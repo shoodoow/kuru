@@ -1,4 +1,4 @@
-import { reactionSchema } from "@nano-agents/agent-tools";
+import { reactionSchema } from "@kuru/agent-tools";
 import { and, eq } from "drizzle-orm";
 import { Router } from "express";
 import { config } from "../../config.js";
@@ -23,7 +23,6 @@ import { attach, publish, type StreamEvent } from "../../rooms/stream.js";
 import { runTurn } from "../../rooms/turn.js";
 import { fileSize, mimeForName } from "../../rooms/uploads.js";
 import { execStream } from "../../linux/linux.js";
-import { dispatcherToolNames } from "../../turn/tools/registry.js";
 import { buildChatContextInfo } from "../../turn/usage/chat-context.js";
 import { logger, pathParam, queryAccountId, UUID, type AppContext, type Guard } from "../context.js";
 import { startCueTurn } from "../wake.js";
@@ -364,9 +363,10 @@ export function conversationsRoutes(ctx: AppContext, guard: Guard): Router {
   });
   conversations.get("/:conversationId/context", guard, async (req, res) => {
     // Per-chat context + accurate usage for the phone header. DB-accurate run
-    // totals; context sizes are labeled estimates (tool schemas/images excluded).
+    // totals; the context size is the last run's measured prompt, or an estimate
+    // that counts the tools, connector tools and skill list (images excluded).
     const info = await buildChatContextInfo(ctx.db, queryAccountId(req), pathParam(req, "conversationId"), {
-      toolCount: dispatcherToolNames().length,
+      skillsRoot: config.skillsDir(),
     });
     if (!info) {
       res.status(404).json({ error: "Room not found." });

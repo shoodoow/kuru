@@ -2,7 +2,7 @@
  * Tool execute bodies for the dispatcher registry.
  * DB: per tool — messages, delegations, agents, routines, notifications.
  */
-import { chartData } from "@nano-agents/shared";
+import { chartData } from "@kuru/shared";
 import { hitLine, mergeRanked, searchFacts, searchMessages, searchSummaries, searchTerms } from "../../memory/search.js";
 import { prompt } from "../../prompt/prompts.js";
 import { isRequestableToolSet, toolNamesInSet, toolSetGuidance } from "./tool-sets.js";
@@ -28,7 +28,7 @@ import {
   subagentCreateSchema,
   teammateUpdateSchema,
   workerRedirectInputSchema,
-} from "@nano-agents/agent-tools";
+} from "@kuru/agent-tools";
 import { takeOver } from "../../desktop/desktop.js";
 import { mergeWorkerBrief } from "./repair-input.js";
 import { MAX_ROUNDS_WITHOUT_PERSON, postToRoom, roundsSincePerson } from "../team-chat.js";

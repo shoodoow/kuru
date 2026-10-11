@@ -1,3 +1,3 @@
-import { agentCreateSchema } from "@nano-agents/shared";
+import { agentCreateSchema } from "@kuru/shared";
 
 export const acceptedAgentFields = agentCreateSchema.keyof().options;

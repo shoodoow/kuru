@@ -1,4 +1,4 @@
-import { randomSurpriseMark, type AgentMark } from "@nano-agents/shared";
+import { randomSurpriseMark, type AgentMark } from "@kuru/shared";
 import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { RosterAgent } from "../api";

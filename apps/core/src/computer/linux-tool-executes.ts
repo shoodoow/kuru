@@ -26,7 +26,7 @@ const WORKER_OUTPUT_CHARS = 8_000;
 export type LinuxToolExecute = (input: Record<string, unknown>) => Promise<unknown>;
 
 /**
- * Execute bodies for Linux worker tools (schemas live in @nano-agents/agent-tools).
+ * Execute bodies for Linux worker tools (schemas live in @kuru/agent-tools).
  * Why: one factory per worker run, so per-run budgets (screenshot cap) reset
  * with the run. Screenshots compound in model context — each one re-bills
  * every later step — so the camera stops after the budget and the worker

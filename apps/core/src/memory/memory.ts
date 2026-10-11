@@ -1,4 +1,4 @@
-import { memoryCorrectSchema, memoryFactSchema } from "@nano-agents/shared";
+import { memoryCorrectSchema, memoryFactSchema } from "@kuru/shared";
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import type { getDb } from "../db/client.js";
 import { accounts, memories, messages, type MemoryKind } from "../db/schema.js";

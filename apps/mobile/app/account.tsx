@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect } from "react";
 import { useNavigation } from "expo-router";
-import { HeaderBackButton } from "expo-router/react-navigation";
+import { HeaderBackButton, useHeaderHeight } from "expo-router/react-navigation";
 import { MenuSheet, type MenuPage } from "../src/account/MenuSheet";
 import { createCore } from "../src/api";
 import { useSession } from "../src/session/SessionProvider";
@@ -32,6 +32,7 @@ function menuBack(page: MenuPage, signedIn: boolean): MenuPage | null {
 export default function AccountRoute() {
   const navigation = useNavigation();
   const session = useSession();
+  const headerHeight = useHeaderHeight();
   const page = session.menu ?? "menu";
   const back = menuBack(page, session.account !== null);
 
@@ -81,9 +82,10 @@ export default function AccountRoute() {
           const agent = session.agents.find((row) => row.linuxProfile) ?? session.agents[0];
           if (agent) session.openDesktop(agent);
         }}
-        onSaveProvider={(provider, secret, baseUrl) => session.saveProvider(provider, secret, baseUrl).catch(session.show)}
+        // The provider page reports a refused key or model itself, under the button that was pressed.
+        onSaveProvider={session.saveProvider}
         defaultModel={session.defaultModel}
-        onSaveDefaultModel={(provider, modelId) => session.saveDefaultModel(provider, modelId).catch(session.show)}
+        onSaveDefaultModel={session.saveDefaultModel}
         onAddPlugin={(id) => void session.addPlugin(id).catch(session.show)}
         onRemovePlugin={session.removePlugin}
         onRefreshPlugins={() => void session.refreshPlugins().catch(session.show)}
@@ -96,7 +98,8 @@ export default function AccountRoute() {
         onSignOut={session.signOut}
         onDelete={session.deleteAccount}
       />
-      <Toast />
+      {/* Only the iOS sheet puts its content behind the header; elsewhere it starts below. */}
+      <Toast top={process.env.EXPO_OS === "ios" ? headerHeight : 0} />
     </View>
   );
 }

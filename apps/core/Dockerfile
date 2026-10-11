@@ -1,5 +1,5 @@
 # The core server. Build from the repository root:
-#   docker build -f apps/core/Dockerfile -t nano-agents-core .
+#   docker build -f apps/core/Dockerfile -t kuru-core .
 # The image keeps the repository layout because the core reads prompts/,
 # skills/ and apps/core/drizzle/ by their paths relative to its own files.
 
@@ -17,8 +17,8 @@ COPY tsconfig.json tsconfig.base.json ./
 COPY packages/shared packages/shared
 COPY packages/agent-tools packages/agent-tools
 COPY apps/core apps/core
-RUN pnpm --filter @nano-agents/shared build \
-  && pnpm --filter @nano-agents/agent-tools build \
+RUN pnpm --filter @kuru/shared build \
+  && pnpm --filter @kuru/agent-tools build \
   && pnpm --filter core build
 # Drop compilers and test tools from what the final image copies.
 RUN CI=true pnpm install --frozen-lockfile --prod --filter "core..."

@@ -1,7 +1,7 @@
-import { workerToolNames as agentWorkerToolNames } from "@nano-agents/agent-tools";
+import { workerToolNames as agentWorkerToolNames } from "@kuru/agent-tools";
 
 /**
- * @deprecated Use workerToolNames from @nano-agents/agent-tools.
+ * @deprecated Use workerToolNames from @kuru/agent-tools.
  * Kept for tests that assert computer tool names are a subset of worker tools.
  */
 export function profileToolNames(): string[] {

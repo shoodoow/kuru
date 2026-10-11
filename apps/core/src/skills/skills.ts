@@ -1,8 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// Account installs live one level down so skillCatalog(root) never treats
-// them as shared skills. The folder name is fixed and is not a skill.
+// Where an older version kept one account's skills, one level down. They now
+// live on the account's computer (see local.ts) and are moved there when
+// read. The folder name is fixed and is never listed as a default skill.
 const ACCOUNT_SKILLS = "accounts";
 
 export type SkillSummary = { name: string; description: string };
@@ -123,9 +124,9 @@ export function readSkill(directory: string, name: string): string {
 }
 
 /**
- * Directory where one account's approved skills are written.
- * Why: a shared skills root would publish one account's lesson to every
- * tenant. The id is a uuid from our database, so the path cannot escape.
+ * Directory where an older version wrote one account's skills on the server.
+ * Still read until its skills have been moved to the account's computer.
+ * The id is a uuid from our database, so the path cannot escape.
  * Input: skills root and account id. Output: absolute directory path.
  */
 export function accountSkillRoot(root: string, accountId: string): string {

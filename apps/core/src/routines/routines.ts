@@ -1,6 +1,6 @@
-import { routineSchema } from "@nano-agents/shared";
+import { routineSchema } from "@kuru/shared";
 import { prompt } from "../prompt/prompts.js";
-import { routineCreateInputSchema, routineIdSchema, routineUpdateInputSchema } from "@nano-agents/agent-tools";
+import { routineCreateInputSchema, routineIdSchema, routineUpdateInputSchema } from "@kuru/agent-tools";
 import { and, asc, desc, eq, inArray, lte } from "drizzle-orm";
 import type { getDb } from "../db/client.js";
 import type { Store } from "../db/client.js";

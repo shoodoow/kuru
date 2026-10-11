@@ -6,6 +6,8 @@
  * untouched: same RECENT/SUMMARY windows, same fold watermark, same recall.
  * DB: reads agents/conversations/messages/summary_items/runs/delegations.
  */
+import { asSchema } from "ai";
+import { toolsForSurface } from "@kuru/agent-tools";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { getDb } from "../../db/client.js";
 import { agents, conversations, delegations, messages, runs, summaryItems } from "../../db/schema.js";
@@ -13,11 +15,70 @@ import { buildInstructions } from "../../prompt/build-instructions.js";
 import { roomLine } from "../../memory/context.js";
 import { RECENT_WINDOW, SUMMARY_WINDOW } from "../constants.js";
 import { modelInfoFor } from "./model-info.js";
+import { catalogPlugin } from "../../mcp/catalog.js";
+import { mcpRowsForAccount } from "../../mcp/store.js";
+import { LAZY_PLUGIN_TOOLS } from "../../mcp/tools.js";
+import type { McpToolCacheEntry } from "../../mcp/types.js";
+import { optionalPrompt } from "../../prompt/prompts.js";
+import { skillCatalogForAgent } from "../../skills/agent-skills.js";
+import { activeDispatcherTools, allowedForKind, initialToolSets } from "../tools/tool-sets.js";
 
 type Db = ReturnType<typeof getDb>;
 
-/** Rough chars→tokens for display. Labeled estimate: images/tool schemas excluded. */
+/** Rough chars→tokens for display. Images are not counted. */
 const CHARS_PER_TOKEN = 4;
+
+/**
+ * Sizes the tools sent with every model step: each one's name, description and input schema.
+ * Why: the tool list is resent on every step and is often larger than the
+ * conversation itself, so a size without it read far too low.
+ * Input: the account, the agent's kind, the room kind, and whether the account
+ * has other agents. Output: characters and counts for built-in and connector tools.
+ */
+async function toolSizes(
+  db: Db,
+  accountId: string,
+  input: { agentKind?: string | null; roomKind: string; hasTeam: boolean },
+): Promise<{ toolChars: number; toolCount: number; mcpToolChars: number; mcpToolCount: number }> {
+  const definitions = toolsForSurface("dispatcher");
+  const allowed = allowedForKind(input.agentKind);
+  // The sets a chat starts with. Sets the agent turns on mid-turn are not counted.
+  const enabled = new Set<string>(initialToolSets({ agentKind: input.agentKind, roomKind: input.roomKind, hasTeam: input.hasTeam, hasRoutines: false }));
+  const active = new Set(activeDispatcherTools(definitions.map((def) => def.name), enabled).filter((name) => !allowed || allowed.includes(name)));
+  let toolChars = 0;
+  for (const def of definitions) {
+    if (!active.has(def.name)) continue;
+    toolChars += def.name.length + (optionalPrompt("tools", def.name)?.length ?? 0) + schemaChars(() => asSchema(def.inputSchema as never).jsonSchema);
+  }
+  let mcpToolChars = 0;
+  let mcpToolCount = 0;
+  // A restricted kind (companion, support) is never given connector tools.
+  const rows = allowed ? [] : await mcpRowsForAccount(db, accountId).catch(() => []);
+  for (const row of rows) {
+    const tools = (row.kind === "google" ? catalogPlugin(row.slug)?.tools : undefined) ?? ((Array.isArray(row.toolsCache) ? row.toolsCache : []) as McpToolCacheEntry[]);
+    if (tools.length === 0) continue;
+    if (tools.length > LAZY_PLUGIN_TOOLS) {
+      // A large plugin is one small "load" tool until the agent asks for the rest.
+      mcpToolCount += 1;
+      mcpToolChars += 120 + Math.min(900, tools.map((entry) => entry.name).join(", ").length);
+      continue;
+    }
+    for (const entry of tools) {
+      mcpToolCount += 1;
+      mcpToolChars += row.slug.length + entry.name.length + (entry.description?.length ?? 0) + schemaChars(() => entry.inputSchema ?? {});
+    }
+  }
+  return { toolChars, toolCount: active.size, mcpToolChars, mcpToolCount };
+}
+
+/** Length of a schema as the JSON a provider receives; 0 when it cannot be turned into JSON. */
+function schemaChars(read: () => unknown): number {
+  try {
+    return JSON.stringify(read())?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
 
 export type ChatContextInfo = {
   conversationId: string;
@@ -32,8 +93,19 @@ export type ChatContextInfo = {
   context: {
     prefixChars: number;
     tailChars: number;
+    /** Built-in tools offered at the start of a turn, and the size of their definitions. */
     toolCount: number;
+    toolChars: number;
+    /** Connector (MCP and plugin) tools, counted the same way. */
+    mcpToolCount: number;
+    mcpToolChars: number;
+    /** The list of skill names and descriptions in the prompt. */
+    skillChars: number;
+    /** The size shown on the phone: `measuredTokens` when there is one, else the estimate. */
     estTokens: number;
+    /** What the provider counted per model call on the last run: everything sent, tools included. Null before the first run. */
+    measuredTokens: number | null;
+    source: "measured" | "estimate";
     recentWindow: number;
     summaryWindow: number;
   };
@@ -69,7 +141,7 @@ export async function buildChatContextInfo(
   db: Db,
   accountId: string,
   conversationId: string,
-  opts?: { toolCount?: number },
+  opts?: { skillsRoot?: string },
 ): Promise<ChatContextInfo | null> {
   const [room] = await db
     .select()
@@ -160,7 +232,22 @@ export async function buildChatContextInfo(
   const provider = owner?.provider ?? "unknown";
   const modelId = owner?.modelId ?? "unknown";
   const capacity = modelInfoFor(provider, modelId, owner?.modelContextWindow);
-  const estTokens = Math.ceil((prefixChars + tailChars) / CHARS_PER_TOKEN);
+  const [others] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(agents)
+    .where(and(eq(agents.accountId, accountId), eq(agents.hidden, false)));
+  const tools = await toolSizes(db, accountId, { agentKind: owner?.kind, roomKind: room.kind, hasTeam: (others?.count ?? 0) > 1 });
+  const skillChars = owner
+    ? (await skillCatalogForAgent({ skillsRoot: opts?.skillsRoot, accountId, linuxProfile: owner.linuxProfile }).catch(() => [])).reduce(
+        (n, skill) => n + skill.name.length + skill.description.length + 4,
+        0,
+      )
+    : 0;
+  const estimated = Math.ceil((prefixChars + tailChars + tools.toolChars + tools.mcpToolChars + skillChars) / CHARS_PER_TOKEN);
+  // A run adds up the input of each model call, so input / calls is one call's prompt as the provider counted it.
+  const lastTracked = runRows.find((row) => (row.inputTokens ?? 0) > 0 && (row.modelSteps ?? 0) > 0);
+  const measuredTokens = lastTracked ? Math.round((lastTracked.inputTokens ?? 0) / (lastTracked.modelSteps ?? 1)) : null;
+  const estTokens = measuredTokens ?? estimated;
 
   return {
     conversationId,
@@ -175,8 +262,14 @@ export async function buildChatContextInfo(
     context: {
       prefixChars,
       tailChars,
-      toolCount: opts?.toolCount ?? 0,
+      toolCount: tools.toolCount,
+      toolChars: tools.toolChars,
+      mcpToolCount: tools.mcpToolCount,
+      mcpToolChars: tools.mcpToolChars,
+      skillChars,
       estTokens,
+      measuredTokens,
+      source: measuredTokens === null ? "estimate" : "measured",
       recentWindow: RECENT_WINDOW,
       summaryWindow: SUMMARY_WINDOW,
     },

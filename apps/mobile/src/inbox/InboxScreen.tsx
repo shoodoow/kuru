@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { InboxStatus, RosterAgent } from "../api";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { useResolvedScheme } from "../theme/appearance";
@@ -26,8 +26,11 @@ export function InboxScreen({
   onOpenGroup,
   onPin,
   onHide,
+  onRefresh,
   note,
 }: {
+  /** Reads the list again from the server; pulling the list down calls it. */
+  onRefresh?: () => Promise<void>;
   agents: RosterAgent[];
   groups: { id: string; title: string; memberCount: number; members: GroupFace[] }[];
   /** Unread counts and busy agents; null until first loaded. */
@@ -50,6 +53,7 @@ export function InboxScreen({
     return visible.filter((agent) => `${agent.name} ${agent.label} ${agent.role} ${agent.jobDescription}`.toLowerCase().includes(needle));
   }, [query, visible]);
   const [held, setHeld] = useState<RosterAgent | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const marks = useMemo(() => {
     const working = new Set(status?.workingAgentIds ?? []);
     const unreadByAgent = new Map<string, number>();
@@ -87,6 +91,20 @@ export function InboxScreen({
         contentContainerStyle={styles.list}
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl
+              refreshing={refreshing}
+              tintColor={colors.muted}
+              onRefresh={() => {
+                setRefreshing(true);
+                void onRefresh()
+                  .catch(() => {})
+                  .finally(() => setRefreshing(false));
+              }}
+            />
+          ) : undefined
+        }
         ListHeaderComponent={
           <>
             {pinned.length > 0 ? (
@@ -110,7 +128,7 @@ export function InboxScreen({
               </ScrollView>
             ) : null}
             {agents.length === 0 ? (
-              <Text style={styles.empty}>Sign in to get started.</Text>
+              <Text style={styles.empty}>No chats yet. Pull down to load them again.</Text>
             ) : filtered.length === 0 ? (
               <Text style={styles.empty}>No matching agents.</Text>
             ) : null}

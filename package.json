@@ -1,5 +1,5 @@
 {
-  "name": "nano-agents",
+  "name": "kuru",
   "private": true,
   "license": "MIT",
   "packageManager": "pnpm@12.6.0",

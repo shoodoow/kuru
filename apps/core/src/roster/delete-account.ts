@@ -65,6 +65,7 @@ export async function deleteAccount(db: Db, accountId: string, skillsRoot?: stri
   // Outside the database nothing can be rolled back, so these come last and a failure is logged, not raised.
   await removeAccountComputer(accountId).catch(noted("Removing a deleted account's computer"));
   if (skillsRoot) {
+    // Skills live on the computer removed above; this clears a folder an older version left on the server.
     try {
       rmSync(accountSkillRoot(skillsRoot, accountId), { recursive: true, force: true });
     } catch (error) {

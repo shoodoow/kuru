@@ -129,6 +129,7 @@ export default function InboxRoute() {
       onOpen={(agent) => void session.openAgent(agent).catch(session.show)}
       onPin={(agent) => void session.setRosterFlag(agent, { pinned: !agent.pinned }).catch(session.show)}
       onHide={(agent) => void session.setRosterFlag(agent, { hidden: true }).catch(session.show)}
+      onRefresh={() => session.reload().catch(session.show)}
       note={session.note}
     />
     {/* Errors already print in the inbox's own line. */}

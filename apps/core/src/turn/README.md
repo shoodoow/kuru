@@ -10,7 +10,7 @@ Dispatcher-first room turns: the chatting agent answers, does a few quick lookup
 | `speaker.ts` | One agent: context → model loop → mentions |
 | `agent-loop.ts` | Wires registry + trace harness |
 | `tools/registry.ts` | Builds dispatcher tool map (+ MCP/plugins) |
-| `tools/build-tools.ts` | Filters `@nano-agents/agent-tools` by surface |
+| `tools/build-tools.ts` | Filters `@kuru/agent-tools` by surface |
 | `tools/executors.ts` | Dispatcher tool side effects (DB writes) |
 | `events/emitter.ts` | Durable `events` + SSE fanout |
 | `events/bus.ts` | In-process worker/handoff events |

@@ -3,7 +3,7 @@
  * Why: providers sometimes flatten blocks, stringify the array, or dump a
  * `[widget:secret {…}]` line as markdown instead of a real widget block.
  */
-import { expandWidgetMarkupBlocks } from "@nano-agents/shared";
+import { expandWidgetMarkupBlocks } from "@kuru/shared";
 
 export function normalizeSendMessageInput(input: Record<string, unknown>): { blocks: unknown; replyTo?: unknown } {
   let blocks = input.blocks;

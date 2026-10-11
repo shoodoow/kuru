@@ -1,6 +1,6 @@
 import { boolean, bigserial, check, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import type { MessageBlock } from "@nano-agents/shared";
+import type { MessageBlock } from "@kuru/shared";
 
 /** Embedding width for semantic recall (OpenAI text-embedding-3-small). */
 export const EMBEDDING_DIMS = 1536;

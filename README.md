@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🤖 nano-agents
+# 🤖 Kuru
 
 **Your own Grok-style bot — self-hosted, with almost every feature.**
 Chat from your phone. Agents team up, run workers, remember, schedule routines, use skills & MCP tools, drive a real Linux desktop you can watch.
@@ -16,10 +16,10 @@ Chat from your phone. Agents team up, run workers, remember, schedule routines, 
 
 </div>
 
-> **Work in progress** — This repo is the public open-source home for nano-agents. The project is under active development (pre-1.0): setup steps, APIs, and mobile UX can change between commits. Treat it as experimental self-hosting software, not a frozen production release; pin a commit or tag if you need stability. Issues and PRs are welcome.
+> **Work in progress** — This repo is the public open-source home for Kuru. The project is under active development (pre-1.0): setup steps, APIs, and mobile UX can change between commits. Treat it as experimental self-hosting software, not a frozen production release; pin a commit or tag if you need stability. Issues and PRs are welcome.
 
 <p align="center">
-  <img src="docs/demo.gif" alt="nano-agents mobile demo — search, start a chat, send messages" width="280" />
+  <img src="docs/demo.gif" alt="Kuru mobile demo — search, start a chat, send messages" width="280" />
 </p>
 
 > **Bring your own API keys** — This project does not include model API keys. After you sign in, open **Account → Providers** in the app and add keys for OpenAI, Anthropic, xAI, or an OpenAI-compatible base URL (per account, stored encrypted in Postgres). **Google OAuth** is only for login. Optional `EXA_API_KEY` / `BRAVE_API_KEY` in `apps/core/.env` are for shared web search, not chat models.
@@ -49,7 +49,7 @@ Chat from your phone. Agents team up, run workers, remember, schedule routines, 
 Need **Node.js ≥ 22.13**, **pnpm 12.6** (`packageManager` in the root `package.json`), and **Docker** (Postgres). A phone also needs **Expo Go**, **cloudflared**, a domain, and a Google OAuth web client. Copy env files only when they are missing so you do not wipe secrets.
 
 ```bash
-git clone git@github.com:shoodoow/nano-agents.git && cd nano-agents
+git clone git@github.com:shoodoow/kuru.git && cd kuru
 pnpm install
 
 docker compose up -d postgres          # waits until healthy on :5432
@@ -233,7 +233,7 @@ apps/core/            Express API, auth, rooms/turns, scheduler, memory, desktop
 apps/mobile/          Expo app
 packages/shared/      shared schemas/types
 packages/agent-tools/ tool definitions
-skills/               shared + per-account overrides
+skills/               default skills for every account (account skills live on the account computer)
 plugins/              MCP docs
 deploy/               SETUP.md + cloudflared example
 ```
