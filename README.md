@@ -36,6 +36,7 @@ Chat from your phone. Agents team up, run workers, remember, schedule routines, 
 - [🧩 Skills & MCP plugins](#-skills--mcp-plugins)
 - [⏰ Routines & teams](#-routines--teams)
 - [⚙️ Configuration](#️-configuration)
+- [🔄 Updating](#-updating)
 - [🧪 Develop](#-develop)
 - [🤝 Contributing & Security](#-contributing--security)
 
@@ -268,6 +269,16 @@ pnpm --filter mobile start:clear
 ```
 
 </details>
+
+---
+
+## 🔄 Updating
+
+```bash
+./update.sh        # in the kuru folder on the server
+```
+
+Pulls the newest code, rebuilds, restarts, and waits for the server to answer. Your data and settings stay. Read [`CHANGELOG.md`](CHANGELOG.md) for what changed and whether a release needs anything from you. Installed phone builds get app updates over the air. Details: [Updating](deploy/SETUP.md#updating).
 
 ---
 

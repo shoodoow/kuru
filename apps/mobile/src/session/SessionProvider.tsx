@@ -24,7 +24,7 @@ import {
   type Routine,
   type ToolApproval,
 } from "../api";
-import { blocksFromMaybeWidgetText, expandWidgetMarkupBlocks, type AgentMark } from "@kuru/shared";
+import { blocksFromMaybeWidgetText, expandWidgetMarkupBlocks, versionNotice, type AgentMark, type ServerVersionInfo } from "@kuru/shared";
 import {
   configureForegroundBanners,
   ensureLocalNotificationsReady,
@@ -224,6 +224,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
   const [serverUrl, setServerUrl] = useState(() => coreBaseUrl());
+  // Set when this app and the server it talks to are too far apart in version.
+  const [versionNote, setVersionNote] = useState<string | null>(null);
+  useEffect(() => {
+    let stale = false;
+    setVersionNote(null);
+    // Best effort: a server that cannot be reached says nothing about versions.
+    fetch(`${serverUrl}/health`, { credentials: "omit" })
+      .then((response) => (response.ok ? (response.json() as Promise<ServerVersionInfo>) : null))
+      .then((info) => {
+        if (!stale && info) setVersionNote(versionNotice(info));
+      })
+      .catch(() => {});
+    return () => {
+      stale = true;
+    };
+  }, [serverUrl]);
   // False until the saved sign-in has been checked, so a signed-in person never sees the welcome page flash by.
   const [restored, setRestored] = useState(false);
   const [inbox, setInbox] = useState<InboxStatus | null>(null);
@@ -1688,6 +1704,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     askForAgent,
     createGroup,
     serverUrl,
+    versionNote,
     changeServer,
     restored,
     reload: refreshSession,
@@ -1808,6 +1825,8 @@ type SessionValue = {
   restored: boolean;
   /** The server the app talks to. */
   serverUrl: string;
+  /** One sentence when the app or the server needs updating to work with the other; otherwise null. */
+  versionNote: string | null;
   /** Points the app at another server; "" goes back to the build's own. */
   changeServer: (typed: string) => Promise<void>;
   removePlugin: (id: string) => void;

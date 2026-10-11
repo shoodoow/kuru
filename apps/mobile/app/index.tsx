@@ -96,6 +96,7 @@ export default function InboxRoute() {
       <>
         <WelcomeScreen
           serverUrl={session.serverUrl}
+          notice={session.versionNote}
           onSignIn={() => session.signInWithGoogle()}
           onChangeServer={() => session.openAccount("signup")}
         />
@@ -130,7 +131,8 @@ export default function InboxRoute() {
       onPin={(agent) => void session.setRosterFlag(agent, { pinned: !agent.pinned }).catch(session.show)}
       onHide={(agent) => void session.setRosterFlag(agent, { hidden: true }).catch(session.show)}
       onRefresh={() => session.reload().catch(session.show)}
-      note={session.note}
+      // An app and server that no longer fit together outranks any passing error.
+      note={session.versionNote ?? session.note}
     />
     {/* Errors already print in the inbox's own line. */}
     <Toast tones={["success"]} />

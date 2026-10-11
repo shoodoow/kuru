@@ -477,13 +477,63 @@ with any server.
   with it, so it is not for regular use.
 - **Logs:** `docker compose logs -f core`.
 
-**Updating later:**
+## Updating
+
+New code never reaches an install by itself. Whoever runs a server updates
+it; the phone app is updated separately.
+
+### The server
 
 ```bash
-git pull
-docker build -t kuru-linux:1 apps/core/linux
-docker compose --profile core up -d --build
+cd kuru
+./update.sh
 ```
+
+The script pulls the newest code, rebuilds the agents' computer image and
+the server, restarts it, and waits until it answers. What it leaves alone:
+
+- **Your data.** The database, saved keys and every account's computer are
+  in Docker volumes.
+- **Your settings.** `apps/core/.env` and `.env` are not in git. When a
+  release needs a new setting, `CHANGELOG.md` says so under **To update**.
+- **Existing agents' computers.** They are not rebuilt; the server repairs
+  what it needs on them.
+
+The database is migrated as the server starts. The server is away for the
+few seconds of the restart, and agent work running at that moment is cut
+off, so pick a quiet time. Read `CHANGELOG.md` first to see what changed.
+
+To stay on a known release instead of the newest code:
+`git fetch --tags && git checkout v0.2.0`, then
+`./update.sh --force`.
+
+### The phone app
+
+| How the app was installed | How it updates |
+|---------------------------|----------------|
+| Expo Go | It loads the newest code each time it connects to the dev server |
+| An APK or iPhone build | Over the air, when the person who made the build publishes an update (below). Changes to native code need a new build. |
+
+Publishing an update to the builds you made, from `apps/mobile`:
+
+```bash
+npx eas-cli update --channel preview --message "what changed"
+```
+
+Phones check when the app opens, download in the background, and show the
+new version the next time the app is opened. An update only reaches builds
+with the same `version` in `apps/mobile/app.json`; raise that number when
+you add or upgrade a native library, and make a new build then.
+
+Updates come from the Expo project the build was made in. If you build the
+app yourself, run `npx eas-cli init` first so the project (and its updates)
+is your own.
+
+### When the app and the server drift apart
+
+The server reports its release on `/health`, and the app compares it with
+its own. If one is too old for the other, the app says so on the welcome
+page and at the top of the chat list, and names which side to update.
 
 ## Build the phone app
 

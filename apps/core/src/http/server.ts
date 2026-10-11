@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
+import { KURU_VERSION, MIN_APP_VERSION } from "@kuru/shared";
 import { toNodeHandler } from "better-auth/node";
 import express, { type Express } from "express";
 import { pinoHttp } from "pino-http";
@@ -115,8 +116,9 @@ function createApp(ctx: AppContext): Express {
   });
 
   app.use(jsonBody(requireSession(ctx)));
+  // Also says which release this is, so an app can tell when one side needs updating.
   app.get("/health", (_req, res) => {
-    res.status(200).json({ ok: true });
+    res.status(200).json({ ok: true, version: KURU_VERSION, minAppVersion: MIN_APP_VERSION });
   });
   mountRoutes(app, ctx);
   app.use((_req, res) => {

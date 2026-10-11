@@ -24,9 +24,12 @@ function greeting(now = new Date()): string {
  */
 export function WelcomeScreen({
   serverUrl,
+  notice,
   onSignIn,
   onChangeServer,
 }: {
+  /** Shown when the app or the server needs updating before sign-in can work well. */
+  notice?: string | null;
   serverUrl: string;
   onSignIn: () => Promise<void>;
   onChangeServer: () => void;
@@ -69,6 +72,7 @@ export function WelcomeScreen({
           }}
         />
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {notice && !error ? <Text style={styles.error}>{notice}</Text> : null}
         <Pressable accessibilityRole="button" hitSlop={8} onPress={onChangeServer} style={styles.server}>
           <Text style={styles.serverText} numberOfLines={1}>
             Server: {serverUrl.replace(/^https?:\/\//, "")} · Change

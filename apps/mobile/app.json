@@ -4,6 +4,12 @@
     "slug": "nano-agents",
     "scheme": "nano-agents",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/47834947-adeb-4aa2-b980-bc72ac43be47"
+    },
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#000000",

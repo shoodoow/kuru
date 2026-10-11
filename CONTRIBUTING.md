@@ -43,3 +43,11 @@ No mention wakes only the room owner; unknown names are ignored.
 ```
 
 Do not add `Co-authored-by` trailers unless the co-author agrees.
+
+## Releasing
+
+1. Set the new number in two places: `KURU_VERSION` in `packages/shared/src/version.ts` and `version` in the root `package.json`. A test fails when they differ or when `CHANGELOG.md` has no entry for it.
+2. Add the entry at the top of `CHANGELOG.md`. Say under **To update** anything the person running a server has to do: a new setting, a new app build.
+3. If the release changes or removes something an older app calls, raise `MIN_APP_VERSION`. If the app starts to need something an older server lacks, raise `MIN_SERVER_VERSION`.
+4. Merge to `main`, then tag it: `git tag -a v0.3.0 -m "Kuru 0.3.0" && git push --tags`.
+5. For the phone: `npx eas-cli update --channel preview --message "0.3.0"` from `apps/mobile`. If a native library was added or upgraded, raise `version` in `apps/mobile/app.json` and make a new build instead.
