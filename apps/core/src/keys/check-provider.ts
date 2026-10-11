@@ -100,6 +100,21 @@ export async function checkProvider(
   if (models.length === 0 && custom) {
     return { ok: false, error: `Something answered at ${base}, but it lists no models. Most servers want the address to end in /v1.` };
   }
+  // Many gateways hand their model list to anyone, so a list that came back
+  // says nothing about the key. An empty chat request does: a server checks
+  // who is asking before it reads the request, so a bad key is refused (401)
+  // and a good one gets "your request is empty". It costs nothing either way.
+  if (custom && key) {
+    const probe = await fetchImpl(`${base}/chat/completions`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    }).catch(() => null);
+    if (probe && (probe.status === 401 || probe.status === 403)) {
+      return { ok: false, error: `${host} refused that key. Check you copied all of it and that it is still active.` };
+    }
+  }
   return { ok: true, models };
 }
 

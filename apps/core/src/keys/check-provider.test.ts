@@ -69,6 +69,19 @@ describe("checking a provider before saving it", () => {
     expect(await checkProvider("local", "", "https://example.com/v1", empty.fetchImpl)).toMatchObject({ ok: false });
   });
 
+  it("catches a wrong key on a gateway whose model list is open to anyone", async () => {
+    const gateway = (good: boolean) =>
+      (async (input: string | URL | Request) =>
+        String(input).endsWith("/models")
+          ? Response.json({ data: [{ id: "llama3" }] })
+          : new Response("{}", { status: good ? 400 : 401 })) as typeof fetch;
+    expect(await checkProvider("local", "sk-wrong", "https://gateway.example.com/v1", gateway(false))).toEqual({
+      ok: false,
+      error: "gateway.example.com refused that key. Check you copied all of it and that it is still active.",
+    });
+    expect(await checkProvider("local", "sk-right", "https://gateway.example.com/v1", gateway(true))).toEqual({ ok: true, models: ["llama3"] });
+  });
+
   it("reads a refusal that arrives as a plain 400", async () => {
     const wordy = provider(() => Response.json({ error: "Incorrect API key provided." }, { status: 400 }));
     expect(await checkProvider("xai", "xai-bad", null, wordy.fetchImpl)).toMatchObject({ ok: false, error: expect.stringMatching(/refused that key/) });
