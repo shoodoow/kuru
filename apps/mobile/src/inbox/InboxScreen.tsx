@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import type { RosterAgent } from "../api";
+import type { InboxStatus, RosterAgent } from "../api";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { useResolvedScheme } from "../theme/appearance";
 import { Avatar } from "../ui/Avatar";
@@ -11,13 +11,16 @@ import { IconPin, IconEyeOff, IconReply } from "../ui/icons";
  * Shows the account roster plus group rooms in a chat-list layout.
  * Why: groups previously vanished after creation — agents alone cannot
  * reopen them. The groups section lists every group room with member counts.
- * Input: agents, groups, and handlers for account, search, new chat,
+ * Each row also shows whether its agent is working (a blue dot on the avatar)
+ * and how many of its messages are unread, so nobody has to open a chat to find out.
+ * Input: agents, groups, their status, and handlers for account, search, new chat,
  * opening one agent, and opening one group.
  * Output: the inbox screen.
  */
 export function InboxScreen({
   agents,
   groups,
+  status,
   searching,
   onOpen,
   onOpenGroup,
@@ -27,6 +30,8 @@ export function InboxScreen({
 }: {
   agents: RosterAgent[];
   groups: { id: string; title: string; memberCount: number; members: GroupFace[] }[];
+  /** Unread counts and busy agents; null until first loaded. */
+  status: InboxStatus | null;
   searching: boolean;
   onOpen: (agent: RosterAgent) => void;
   onOpenGroup: (conversationId: string) => void;
@@ -45,6 +50,21 @@ export function InboxScreen({
     return visible.filter((agent) => `${agent.name} ${agent.label} ${agent.role} ${agent.jobDescription}`.toLowerCase().includes(needle));
   }, [query, visible]);
   const [held, setHeld] = useState<RosterAgent | null>(null);
+  const marks = useMemo(() => {
+    const working = new Set(status?.workingAgentIds ?? []);
+    const unreadByAgent = new Map<string, number>();
+    const rooms = new Map<string, { unread: number; working: boolean }>();
+    for (const room of status?.rooms ?? []) {
+      rooms.set(room.id, room);
+      if (room.kind === "direct") {
+        unreadByAgent.set(room.ownerAgentId, (unreadByAgent.get(room.ownerAgentId) ?? 0) + room.unread);
+      }
+    }
+    return {
+      agent: (id: string) => ({ working: working.has(id), unread: unreadByAgent.get(id) ?? 0 }),
+      group: (id: string) => rooms.get(id) ?? { working: false, unread: 0 },
+    };
+  }, [status]);
   const pinned = query.trim() ? [] : filtered.filter((agent) => agent.pinned);
   const rows = query.trim() ? filtered : filtered.filter((agent) => !agent.pinned);
 
@@ -75,13 +95,13 @@ export function InboxScreen({
                   <Pressable
                     key={agent.id}
                     accessibilityRole="button"
-                    accessibilityLabel={`Pinned ${agent.name}`}
+                    accessibilityLabel={rowLabel(`Pinned ${agent.name}`, marks.agent(agent.id))}
                     onPress={() => onOpen(agent)}
                     onLongPress={() => setHeld(agent)}
                     delayLongPress={350}
                     style={styles.pinnedItem}
                   >
-                    <PinnedFace agent={agent} />
+                    <PinnedFace agent={agent} working={marks.agent(agent.id).working} unread={marks.agent(agent.id).unread} />
                     <Text style={styles.pinnedLabel} numberOfLines={1}>
                       {agent.name}
                     </Text>
@@ -100,49 +120,65 @@ export function InboxScreen({
           groups.length > 0 ? (
             <View style={styles.groups}>
               <Text style={styles.groupsTitle}>Groups</Text>
-              {groups.map((group) => (
-                <Pressable
-                  key={group.id}
-                  accessibilityRole="button"
-                  onPress={() => onOpenGroup(group.id)}
-                  style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-                >
-                  <GroupCluster members={group.members} size={36} />
-                  <View style={styles.rowBody}>
-                    <Text style={styles.name} numberOfLines={1}>
-                      {group.title}
-                    </Text>
-                    <Text style={styles.preview} numberOfLines={1}>
-                      {group.memberCount} {group.memberCount === 1 ? "member" : "members"}
-                    </Text>
-                  </View>
-                </Pressable>
-              ))}
+              {groups.map((group) => {
+                const mark = marks.group(group.id);
+                return (
+                  <Pressable
+                    key={group.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={rowLabel(group.title, mark)}
+                    onPress={() => onOpenGroup(group.id)}
+                    style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+                  >
+                    <View>
+                      <GroupCluster members={group.members} size={36} />
+                      {mark.working ? <View style={styles.workingDot} /> : null}
+                    </View>
+                    <View style={styles.rowBody}>
+                      <Text style={[styles.name, mark.unread > 0 && styles.nameUnread]} numberOfLines={1}>
+                        {group.title}
+                      </Text>
+                      <Text style={[styles.preview, mark.working && styles.workingText]} numberOfLines={1}>
+                        {mark.working ? "Working…" : `${group.memberCount} ${group.memberCount === 1 ? "member" : "members"}`}
+                      </Text>
+                    </View>
+                    <UnreadBadge count={mark.unread} />
+                  </Pressable>
+                );
+              })}
             </View>
           ) : null
         }
-        renderItem={({ item }) => (
+        extraData={marks}
+        renderItem={({ item }) => {
+          const mark = marks.agent(item.id);
+          return (
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel={rowLabel(item.name, mark)}
             onPress={() => onOpen(item)}
             onLongPress={() => setHeld(item)}
             delayLongPress={350}
             style={({ pressed }) => [styles.row, pressed && styles.pressed]}
           >
-            <Avatar
-              id={item.id}
-              size={46}
-              round={item.name.length % 2 === 0}
-              shape={item.markShape}
-              color={item.markColor}
-              material={item.markMaterial}
-              style={item.markStyle}
-              gender={item.markGender}
-              photo={item.avatarUrl}
-            />
+            <View>
+              <Avatar
+                id={item.id}
+                size={46}
+                round={item.name.length % 2 === 0}
+                shape={item.markShape}
+                color={item.markColor}
+                material={item.markMaterial}
+                style={item.markStyle}
+                gender={item.markGender}
+                photo={item.avatarUrl}
+                mood={mark.working ? "working" : "idle"}
+              />
+              {mark.working ? <View style={styles.workingDot} /> : null}
+            </View>
             <View style={styles.rowBody}>
               <View style={styles.rowTop}>
-                <Text style={styles.name} numberOfLines={1}>
+                <Text style={[styles.name, mark.unread > 0 && styles.nameUnread]} numberOfLines={1}>
                   {item.name}
                 </Text>
                 {item.label && item.label !== item.name ? (
@@ -152,14 +188,16 @@ export function InboxScreen({
                 ) : null}
               </View>
               <View style={styles.previewRow}>
-                <IconReply />
-                <Text style={styles.preview} numberOfLines={1}>
-                  {item.role || `Message ${item.name}`}
+                {mark.working ? null : <IconReply />}
+                <Text style={[styles.preview, mark.working && styles.workingText]} numberOfLines={1}>
+                  {mark.working ? "Working…" : item.role || `Message ${item.name}`}
                 </Text>
               </View>
             </View>
+            <UnreadBadge count={mark.unread} />
           </Pressable>
-        )}
+          );
+        }}
       />
       {note ? <Text style={styles.note}>{note}</Text> : null}
       <Modal visible={held !== null} transparent animationType="fade" onRequestClose={() => setHeld(null)}>
@@ -216,9 +254,15 @@ export function InboxScreen({
 
 const PIN_BOX = 76;
 /** Draws one pinned face inside the same square, whatever the mark shape is. */
-function PinnedFace({ agent }: { agent: RosterAgent }) {
+function PinnedFace({ agent, working, unread }: { agent: RosterAgent; working: boolean; unread: number }) {
   return (
     <View style={styles.pinnedFace}>
+      {working ? <View style={[styles.workingDot, styles.pinnedDot]} /> : null}
+      {unread > 0 ? (
+        <View style={styles.pinnedBadge}>
+          <UnreadBadge count={unread} />
+        </View>
+      ) : null}
       <Avatar
         id={agent.id}
         size={PIN_BOX}
@@ -228,9 +272,25 @@ function PinnedFace({ agent }: { agent: RosterAgent }) {
         style={agent.markStyle}
         gender={agent.markGender}
         photo={agent.avatarUrl}
+        mood={working ? "working" : "idle"}
       />
     </View>
   );
+}
+
+/** A count of messages the person has not seen; nothing when there are none. */
+function UnreadBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <View style={styles.unread}>
+      <Text style={styles.unreadText}>{count > 99 ? "99+" : String(count)}</Text>
+    </View>
+  );
+}
+
+/** What a screen reader says for a row: the name, then anything the marks show. */
+function rowLabel(name: string, mark: { working: boolean; unread: number }): string {
+  return [name, mark.working ? "working" : "", mark.unread > 0 ? `${mark.unread} unread` : ""].filter(Boolean).join(", ");
 }
 
 function createStyles(colors: ColorPalette) {
@@ -267,6 +327,24 @@ function createStyles(colors: ColorPalette) {
   rowBody: { flex: 1, gap: 3 },
   rowTop: { flexDirection: "row", alignItems: "center", gap: 8 },
   name: { color: colors.text, fontSize: 16, fontWeight: "600", flexShrink: 1 },
+  nameUnread: { fontWeight: "800" },
+  workingText: { color: colors.online },
+  workingDot: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: colors.online,
+    borderWidth: 2,
+    borderColor: colors.bg,
+    zIndex: 1,
+  },
+  pinnedDot: { right: 14, bottom: 0 },
+  pinnedBadge: { position: "absolute", right: 8, top: -4, zIndex: 1 },
+  unread: { backgroundColor: colors.online, borderRadius: 11, minWidth: 22, height: 22, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  unreadText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700", fontVariant: ["tabular-nums"] },
   badge: { backgroundColor: colors.control, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 },
   badgeText: { color: colors.muted, fontSize: 13 },
   previewRow: { flexDirection: "row", alignItems: "center" },

@@ -22,7 +22,18 @@ import type { GenerateResult, TurnInput } from "../turn/types.js";
  */
 export const DEFAULT_SUPPORT_NAME = "Chief of Staff";
 
+/** The role shown for an agent that has not written its own yet. */
+export const UNSET_ROLE = "New agent";
+
 type Database = ReturnType<typeof getDb>;
+
+/**
+ * True for an agent created with only a name, until it writes its own profile.
+ * Its job description is the standing note that tells it to find out what it is for.
+ */
+export function isUnsetAgent(agent: { jobDescription: string }): boolean {
+  return agent.jobDescription === prompt("dispatcher", "new-agent-job");
+}
 
 /** The default agent's role, job and kind are set by the core and cannot be edited. */
 export class ProtectedAgentError extends Error {
@@ -95,19 +106,20 @@ export async function createAgent(db: Database, accountId: string, input: unknow
       accountId,
       name: data.name,
       label: data.label,
-      role: data.role,
+      role: data.role || UNSET_ROLE,
       personality: data.personality ?? "",
-      jobDescription: data.jobDescription,
+      // No job given: the agent asks the person what it is for, then writes its own.
+      jobDescription: data.jobDescription || prompt("dispatcher", "new-agent-job"),
       kind: data.kind,
       provider: data.provider,
       modelId: data.modelId,
       modelContextWindow,
       linuxProfile: null,
-      markShape: surprise.markShape,
-      markColor: surprise.markColor,
-      markMaterial: surprise.markMaterial,
-      markStyle: surprise.markStyle,
-      markGender: surprise.markGender,
+      markShape: data.markShape ?? surprise.markShape,
+      markColor: data.markColor ?? surprise.markColor,
+      markMaterial: data.markMaterial ?? surprise.markMaterial,
+      markStyle: data.markStyle ?? surprise.markStyle,
+      markGender: data.markGender ?? surprise.markGender,
     })
     .returning();
   if (!row) {

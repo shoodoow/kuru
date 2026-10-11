@@ -13,6 +13,7 @@ import {
   createCore,
   type AccountSettings,
   type DefaultModelSetting,
+  type InboxStatus,
   type MessageBlock,
   type Proposal,
   type PluginList,
@@ -23,7 +24,7 @@ import {
   type Routine,
   type ToolApproval,
 } from "../api";
-import { blocksFromMaybeWidgetText, expandWidgetMarkupBlocks } from "@nano-agents/shared";
+import { blocksFromMaybeWidgetText, expandWidgetMarkupBlocks, type AgentMark } from "@nano-agents/shared";
 import {
   configureForegroundBanners,
   ensureLocalNotificationsReady,
@@ -127,6 +128,8 @@ const SYNC_ACTIVE_MS = 2000;
 const SYNC_IDLE_MS = 15000;
 /** How often the phone asks for pings it has not shown yet (the open chat hears its own at once over the stream). */
 const NOTIFICATION_POLL_MS = 10000;
+/** How often the inbox list re-reads unread counts and who is working. */
+const INBOX_POLL_MS = 4000;
 const SERVER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function sortBubbles(bubbles: Bubble[]): Bubble[] {
@@ -185,6 +188,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   agentsRef.current = agents;
   const expectReply = useRef(false);
   const turnActiveRef = useRef(false);
+  /** The chat on screen, for code that runs outside its render. */
+  const openRoomRef = useRef("");
+  /** Re-reads the inbox status now, so a finished turn does not keep showing as working. */
+  const refreshInboxRef = useRef<() => void>(() => {});
   const turnIsGroupRef = useRef(false);
   const turnAgentNameRef = useRef("");
   const [replyTo, setReplyTo] = useState<Bubble | null>(null);
@@ -213,6 +220,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [desktopAgent, setDesktopAgent] = useState<RosterAgent | null>(null);
   const [notifications, setNotifications] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
+  const [inbox, setInbox] = useState<InboxStatus | null>(null);
   const [autoReview, setAutoReview] = useState(true);
   const [defaultModel, setDefaultModel] = useState<DefaultModelSetting | null>(null);
   // True for a signed-in account that has no default agent yet: the inbox shows the setup guide.
@@ -387,6 +395,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [accountId, notifications]);
 
+  /**
+   * Keeps the inbox list's unread counts and working marks current.
+   * Why: without them the person had to open each chat to see whether an agent
+   * had answered or was still busy. The open chat is read as it is watched,
+   * so it never counts as unread here.
+   */
+  useEffect(() => {
+    const id = accountId.trim();
+    if (!id) {
+      setInbox(null);
+      return;
+    }
+    let stopped = false;
+    const pull = async (): Promise<void> => {
+      const status = await core.inboxStatus(id).catch(() => null);
+      if (stopped || !status) return;
+      const open = openRoomRef.current;
+      setInbox({ ...status, rooms: status.rooms.map((room) => (room.id === open ? { ...room, unread: 0 } : room)) });
+    };
+    void pull();
+    refreshInboxRef.current = () => void pull();
+    const timer = setInterval(() => void pull(), INBOX_POLL_MS);
+    return () => {
+      stopped = true;
+      refreshInboxRef.current = () => {};
+      clearInterval(timer);
+    };
+  }, [accountId]);
+
   useEffect(() => {
     configureForegroundBanners();
     return onPushTap((data) => {
@@ -423,26 +460,39 @@ export function SessionProvider({ children }: { children: ReactNode }) {
    * Input: the agent name, role, and job from the new-room sheet.
    * Output: nothing. The chat screen opens for that agent.
    */
-  async function createChat(
-    name: string,
-    role: string,
-    jobDescription: string,
-    provider: ProviderSetting["provider"],
-    modelId: string,
-    kind: "work" | "companion" = "work",
-  ): Promise<void> {
+  async function createChat(name: string, look?: AgentMark): Promise<void> {
     if (!accountId.trim()) {
       throw new Error("Sign in first, then create a chat.");
     }
-    const hired = await core.hireAgent(accountId, { name, role, jobDescription, kind, provider, modelId });
+    // The new agent starts on the account's default model, or failing that on
+    // the one the default agent already runs on.
+    const model = defaultModel ?? agents.find((agent) => agent.kind === "support") ?? agents[0];
+    if (!model) {
+      throw new Error("Choose a default model in the account menu first.");
+    }
+    const hired = await core.hireAgent(accountId, { name, provider: model.provider, modelId: model.modelId, look });
     const room = await core.openChat(accountId, hired);
-    // The agent opens the chat itself; if that fails the chat just starts empty.
+    // The agent opens the chat itself, by asking what it is here to help with;
+    // if that fails the chat just starts empty.
     void core.sayHello(accountId, room.id).catch(() => {});
     const rows = await core.listAgents(accountId);
     const fresh = rows.find((row) => row.id === hired.id) ?? hired;
     setAgents(rows);
     await enterRoom({ id: room.id, kind: "direct", title: fresh.name, ownerAgentId: fresh.id }, rows);
     await loadGroups(accountId, rows);
+  }
+
+  /**
+   * Opens the default agent's chat and asks it, as the person, for a new agent.
+   * Why: opening the chat alone left the person to work out what to type.
+   * Input: the default agent and the name typed on the form, if any.
+   */
+  async function askForAgent(support: RosterAgent, name: string): Promise<void> {
+    await openAgent(support);
+    const rooms = await core.listConversations(accountId.trim());
+    const room = rooms.find((row) => row.kind === "direct" && row.ownerAgentId === support.id);
+    if (!room) return;
+    await sendText(room.id, name ? `I'd like to set up a new agent called ${name}.` : "I'd like to set up a new agent.");
   }
 
   /**
@@ -522,6 +572,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!turnActiveRef.current) return;
     turnActiveRef.current = false;
     setRoomActivity(null);
+    refreshInboxRef.current();
     if (opts?.refreshContext && expectReply.current && conversationId) {
       expectReply.current = false;
       void loadContextLine(conversationId);
@@ -585,6 +636,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   const liveRoomId = conversationId;
+  openRoomRef.current = conversationId;
 
   /**
    * Keeps the open chat matched to the server while the room stays on screen.
@@ -613,6 +665,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           known.add(bubble.id);
         }
         mergeThread(fresh);
+        // Whatever is on screen has been seen.
+        void core.markRead(account, liveRoomId).catch(() => {});
+        setInbox((current) =>
+          current && current.rooms.some((room) => room.id === liveRoomId && room.unread > 0)
+            ? { ...current, rooms: current.rooms.map((room) => (room.id === liveRoomId ? { ...room, unread: 0 } : room)) }
+            : current,
+        );
         if (turnActiveRef.current) {
           try {
             const info = await core.chatContext(account, liveRoomId);
@@ -1407,6 +1466,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     notifications,
     setNotifications,
     pendingCount,
+    inbox,
     autoReview,
     autoTimeZone,
     setAutoTimeZone,
@@ -1449,6 +1509,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     leaveChat,
     switchAccount,
     createChat,
+    askForAgent,
     createGroup,
     signOut() {
       void authClient.signOut().catch(show);
@@ -1519,6 +1580,8 @@ type SessionValue = {
   notifications: boolean;
   setNotifications: (value: boolean) => void;
   pendingCount: number;
+  /** Unread counts and busy agents for the inbox list; null until first loaded. */
+  inbox: InboxStatus | null;
   autoReview: boolean;
   autoTimeZone: boolean;
   setAutoTimeZone: (value: boolean) => void;
@@ -1560,14 +1623,8 @@ type SessionValue = {
   openDesktop: (agent: RosterAgent) => void;
   leaveChat: (roomId: string) => void;
   switchAccount: (id: string) => Promise<void>;
-  createChat: (
-    name: string,
-    role: string,
-    jobDescription: string,
-    provider: ProviderSetting["provider"],
-    modelId: string,
-    kind?: "work" | "companion",
-  ) => Promise<void>;
+  createChat: (name: string, look?: AgentMark) => Promise<void>;
+  askForAgent: (support: RosterAgent, name: string) => Promise<void>;
   createGroup: (title: string, agentIds: string[]) => Promise<void>;
   signOut: () => void;
   deleteAccount: (id: string) => void;

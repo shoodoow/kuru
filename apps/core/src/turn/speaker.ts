@@ -20,6 +20,7 @@ import { blocksToText, mirrorGroupSpeechToOwnerDm, type TurnEvent } from "../roo
 import { runAgentLoop } from "./agent-loop.js";
 import { teamContextFor } from "./team-chat.js";
 import { computerFacts } from "../computer/computer.js";
+import { isUnsetAgent } from "../roster/roster.js";
 import { allowedForKind, initialToolSets, TEAM_MEMBER_BLOCKED } from "./tools/tool-sets.js";
 import { recentWorkLogs, saveWorkLog, weaveWorkLogs } from "./work-log.js";
 import { mentionedAgents } from "./mentions.js";
@@ -373,7 +374,11 @@ export async function speakOnce(
           messages: modelMessages,
           hiddenTurn: Boolean(cue),
           toolSets,
-          blockedTools: teamMember ? [...TEAM_MEMBER_BLOCKED] : undefined,
+          blockedTools: [
+            ...(teamMember ? TEAM_MEMBER_BLOCKED : []),
+            // An agent writes its own profile once, while it still has none.
+            ...(isUnsetAgent(agent) ? [] : ["set_my_profile"]),
+          ],
           allowedTools: allowedForKind(agent.kind),
           askWithCards: agent.kind === "support",
           generate,

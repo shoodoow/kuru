@@ -86,6 +86,8 @@ export const conversations = pgTable(
     foldedThrough: timestamp("folded_through", { withTimezone: true }),
     // Group rooms: the team's shared brief, shown to every member in the room.
     brief: text("brief"),
+    // When the person last had this chat open; newer agent messages are unread.
+    lastReadAt: timestamp("last_read_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

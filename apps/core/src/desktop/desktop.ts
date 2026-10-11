@@ -13,6 +13,11 @@ const FIRST_UID = 1000;
 const FIRST_DISPLAY = 10;
 /** Keeps the three port ranges (VNC, noVNC, DevTools) from running into each other. */
 const MAX_PROFILES = 990;
+/**
+ * Bumped whenever the panel or its scripts change, so a desktop that is
+ * already running picks the new ones up the next time it is opened.
+ */
+const DESKTOP_SETUP = "2";
 /** How long a desktop that just answered is trusted before it is probed again. */
 const READY_TTL_MS = 10_000;
 
@@ -117,7 +122,12 @@ export async function startDesktop(accountId: string, profile: string): Promise<
       `convert -size 48x48 xc:'#3c4043' -fill '#8ab4f8' -draw 'circle 24,24 24,8' ${root}/chrome.png`,
       `convert -size 48x48 xc:'#3c4043' -fill '#e8eaed' -draw 'rectangle 10,16 38,36' ${root}/files.png`,
       `convert -size 48x48 xc:'#202124' -fill '#e8eaed' -draw 'rectangle 12,22 20,26' -draw 'rectangle 24,22 36,26' ${root}/bash.png`,
-      `cat > ${root}/jwmrc << 'EOF'\n${jwmConfig(display, session.cdpPort)}\nEOF`,
+      `cat > ${root}/chrome.sh << 'EOF'\n${chromeLauncher(session.cdpPort)}\nEOF`,
+      `chmod 755 ${root}/chrome.sh`,
+      `cat > ${root}/jwmrc << 'EOF'\n${jwmConfig(display)}\nEOF`,
+      `printf %s ${DESKTOP_SETUP} > ${root}/setup`,
+      // A panel that is already running reloads its config; open windows stay.
+      `su -s /bin/sh ${shellQuote(profile)} -c ${shellQuote(`DISPLAY=:${display} jwm -restart`)} >/dev/null 2>&1 || true`,
       `xsetroot -display :${display} -solid '#1a1a1a' || true`,
       `xsetroot -display :${display} -cursor_name left_ptr || true`,
       `timeout 3 display -window root ${root}/wallpaper.png >${root}/wall.log 2>&1 || true`,
@@ -142,6 +152,7 @@ export async function startDesktop(accountId: string, profile: string): Promise<
 function probeScript(session: Session, profile: string): string {
   return (
     `[ "$(cat /tmp/desktop-${session.display}/owner 2>/dev/null)" = ${shellQuote(profile)} ] && ` +
+    `[ "$(cat /tmp/desktop-${session.display}/setup 2>/dev/null)" = ${DESKTOP_SETUP} ] && ` +
     `xset -display :${session.display} q >/dev/null 2>&1 && nc -z 127.0.0.1 ${session.rfbPort} && nc -z 127.0.0.1 ${session.novncPort}`
   );
 }
@@ -437,17 +448,44 @@ function bootDesktop(display: number, profile: string): string {
   ].join("\n");
 }
 
-function jwmConfig(display: number, cdpPort: number): string {
+/**
+ * The script behind the panel's Chrome button.
+ * Why: the button used to start Chrome on every tap. Chrome takes a few
+ * seconds to appear, so impatient taps piled up windows, and a tap while
+ * Chrome was minimised opened another window instead of bringing it back.
+ * Now a tap raises the window if there is one, waits if Chrome is still
+ * starting, and starts it only when it is not running.
+ */
+export function chromeLauncher(cdpPort: number): string {
+  return [
+    "#!/bin/sh",
+    "found=0",
+    "for w in $(xdotool search --class chromium 2>/dev/null); do",
+    // Chrome owns several helper windows; only its real ones carry this title.
+    "  case \"$(xdotool getwindowname \"$w\" 2>/dev/null)\" in",
+    "    *Chromium) xdotool windowmap \"$w\" windowactivate \"$w\" 2>/dev/null && found=1 ;;",
+    "  esac",
+    "done",
+    "[ \"$found\" = 1 ] && exit 0",
+    // The panel runs as the agent's user, which cannot write beside this script.
+    "stamp=/tmp/chrome-starting-$(id -u)",
+    "now=$(date +%s)",
+    "last=$(cat \"$stamp\" 2>/dev/null || echo 0)",
+    "[ $((now - last)) -lt 8 ] && exit 0",
+    "echo \"$now\" > \"$stamp\"",
+    `exec chromium --no-sandbox --disable-dev-shm-usage --disable-gpu --no-first-run --start-maximized --remote-debugging-address=127.0.0.1 --remote-debugging-port=${cdpPort}`,
+  ].join("\n");
+}
+
+export function jwmConfig(display: number): string {
   const root = `/tmp/desktop-${display}`;
-  const chrome =
-    `chromium --no-sandbox --disable-dev-shm-usage --disable-gpu --no-first-run --start-maximized --remote-debugging-address=127.0.0.1 --remote-debugging-port=${cdpPort}`;
   return `<JWM>
 <WindowStyle>
 <Font>DejaVu Sans-11</Font>
 <Width>4</Width>
 <Height>24</Height>
-<Active><Text>#f2f2f2</Text><Title>#2a2a2a</Title></Active>
-<Inactive><Text>#bdbdbd</Text><Title>#1a1a1a</Title></Inactive>
+<Foreground>#bdbdbd</Foreground><Background>#1a1a1a</Background>
+<Active><Foreground>#f2f2f2</Foreground><Background>#3a3a3a</Background></Active>
 </WindowStyle>
 <Group>
 <Class>Chromium</Class>
@@ -456,12 +494,16 @@ function jwmConfig(display: number, cdpPort: number): string {
 <Desktops width="1" height="1">
 <Desktop><Background type="image">${root}/wallpaper.png</Background></Desktop>
 </Desktops>
+<TaskListStyle>
+<Font>DejaVu Sans-11</Font>
+<Foreground>#bdbdbd</Foreground><Background>#1a1a1a</Background>
+<Active><Foreground>#f2f2f2</Foreground><Background>#3a3a3a</Background></Active>
+</TaskListStyle>
 <Tray x="0" y="728" height="72">
-<Spacer/>
-<TrayButton label="Chrome" icon="${root}/chrome.png">exec:${chrome}</TrayButton>
+<TrayButton label="Chrome" icon="${root}/chrome.png">exec:${root}/chrome.sh</TrayButton>
 <TrayButton label="Files" icon="${root}/files.png">exec:pcmanfm</TrayButton>
 <TrayButton label="Bash" icon="${root}/bash.png">exec:xterm</TrayButton>
-<Spacer/>
+<TaskList maxwidth="260"/>
 </Tray>
 </JWM>`;
 }

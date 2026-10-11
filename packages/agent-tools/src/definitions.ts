@@ -10,6 +10,7 @@ import {
   groupConversationInputSchema,
   groupCreateInputSchema,
   teamBriefInputSchema,
+  ownProfileInputSchema,
   accountBriefInputSchema,
   hireAgentInputSchema,
   agentMemoryReadInputSchema,
@@ -100,6 +101,11 @@ export const allToolDefinitions: ToolDefinition[] = [
     set: "team",
     surfaces: ["dispatcher"],
     inputSchema: teamBriefInputSchema,
+  },
+  {
+    name: "set_my_profile",
+    surfaces: ["dispatcher"],
+    inputSchema: ownProfileInputSchema,
   },
   {
     name: "set_brief",

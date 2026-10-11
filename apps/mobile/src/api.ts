@@ -4,6 +4,7 @@ import {
   messageCreateSchema,
   roomCreateSchema,
   type AgentKind,
+  type AgentMark,
   type AgentProfile,
   type MarkGender,
   type MarkMaterial,
@@ -232,11 +233,18 @@ export type PendingNotification = {
   createdAt: string;
 };
 
+/** What the inbox list shows beside each chat. */
+export type InboxStatus = {
+  rooms: { id: string; kind: string; ownerAgentId: string; unread: number; working: boolean }[];
+  /** Agents with a turn or background work running. */
+  workingAgentIds: string[];
+};
+
 export type CoreClient = {
   listAgents: (accountId: string) => Promise<RosterAgent[]>;
   hireAgent: (
     accountId: string,
-    input: { name: string; role: string; personality?: string; jobDescription: string; kind?: "work" | "companion"; provider: ProviderSetting["provider"]; modelId: string },
+    input: { name: string; role?: string; personality?: string; jobDescription?: string; kind?: "work" | "companion"; provider: ProviderSetting["provider"]; modelId: string; look?: AgentMark },
   ) => Promise<RosterAgent>;
   hireSubagent: (
     accountId: string,
@@ -283,6 +291,10 @@ export type CoreClient = {
   ) => () => void;
   registerDevice: (accountId: string, input: { expoPushToken: string; platform?: string | null }) => Promise<{ id: string }>;
   listNotifications: (accountId: string) => Promise<PendingNotification[]>;
+  /** Unread counts and busy agents for the inbox list. */
+  inboxStatus: (accountId: string) => Promise<InboxStatus>;
+  /** Tells the server the person has this chat open, so its messages count as seen. */
+  markRead: (accountId: string, conversationId: string) => Promise<unknown>;
   ackNotification: (accountId: string, notificationId: string) => Promise<{ id: string }>;
   mention: (draft: string, name: string) => string;
   listProposals: (accountId: string) => Promise<Proposal[]>;
@@ -364,6 +376,9 @@ export function createCore(baseUrl = coreBaseUrl(), fetchImpl: typeof fetch = fe
       subscribeMessages(baseUrl, accountId, conversationId, onEvent, fetchImpl, opts),
     registerDevice: (accountId, input) => registerDevice(baseUrl, accountId, input, fetchImpl),
     listNotifications: (accountId) => listNotifications(baseUrl, accountId, fetchImpl),
+    inboxStatus: (accountId) => readJson<InboxStatus>(fetchImpl, `${baseUrl}/accounts/${accountId}/inbox`),
+    markRead: (accountId, conversationId) =>
+      readJson<unknown>(fetchImpl, `${baseUrl}/conversations/${conversationId}/read?accountId=${accountId}`, { method: "POST" }),
     ackNotification: (accountId, notificationId) => ackNotification(baseUrl, accountId, notificationId, fetchImpl),
     mention,
     listProposals: (accountId) => listProposals(baseUrl, accountId, fetchImpl),
@@ -487,18 +502,20 @@ async function listAgents(baseUrl: string, accountId: string, fetchImpl: typeof 
 async function hireAgent(
   baseUrl: string,
   accountId: string,
-  input: { name: string; role: string; personality?: string; jobDescription: string; kind?: "work" | "companion"; provider: ProviderSetting["provider"]; modelId: string },
+  input: { name: string; role?: string; personality?: string; jobDescription?: string; kind?: "work" | "companion"; provider: ProviderSetting["provider"]; modelId: string; look?: AgentMark },
   fetchImpl: typeof fetch,
 ): Promise<RosterAgent> {
   const body = agentCreateSchema.parse({
     name: input.name,
     label: input.name,
-    role: input.role,
+    // Left out, the agent asks the person what it is for and writes these itself.
+    role: input.role ?? "",
     personality: input.personality ?? "",
-    jobDescription: input.jobDescription,
+    jobDescription: input.jobDescription ?? "",
     kind: input.kind ?? "work",
     provider: input.provider,
     modelId: input.modelId,
+    ...input.look,
   });
   return readJson<RosterAgent>(fetchImpl, `${baseUrl}/accounts/${accountId}/agents`, {
     method: "POST",

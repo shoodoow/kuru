@@ -16,6 +16,12 @@ export default function ChatRoute() {
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const chat = session.lastChat?.conversationId === conversationId ? session.lastChat : null;
+  // The footer line shows the turn the phone is watching, or failing that any
+  // work the server says is running here (a background job, a scheduled run).
+  const busyHere = session.inbox?.rooms.find((room) => room.id === conversationId)?.working ?? false;
+  const activity = session.roomActivity ?? (busyHere ? ("working" as const) : null);
+  const activityRef = useRef(activity);
+  activityRef.current = activity;
   const leaveRef = useRef(session.leaveChat);
   leaveRef.current = session.leaveChat;
   const core = useRef(createCore());
@@ -51,7 +57,7 @@ export default function ChatRoute() {
             style={chat.agent.markStyle}
             gender={chat.agent.markGender}
             photo={chat.agent.avatarUrl}
-            mood={sessionRef.current.roomActivity ? "working" : "idle"}
+            mood={activityRef.current ? "working" : "idle"}
           />
           <View style={{ flexShrink: 1 }}>
             <Text style={{ color: colors.text, fontSize: 16, fontWeight: "600" }} numberOfLines={1}>
@@ -78,7 +84,7 @@ export default function ChatRoute() {
           </Pressable>
         ) : null,
     });
-  }, [chat, navigation, session.roomActivity]);
+  }, [chat, navigation, activity]);
 
   if (!chat) {
     return (
@@ -101,7 +107,7 @@ export default function ChatRoute() {
       messages={session.messages}
       draft={session.draft}
       sending={session.sending}
-      roomActivity={session.roomActivity}
+      roomActivity={activity}
       isGroup={chat.kind === "group"}
       error={session.note}
       replyTo={session.replyTo}

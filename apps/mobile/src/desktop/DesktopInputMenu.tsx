@@ -5,18 +5,20 @@ import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme
 import { IconCheck } from "../ui/icons";
 
 /**
- * Pointer options for the remote desktop viewer (trackpad vs direct touch).
+ * Pointer and view options for the remote desktop viewer (trackpad vs direct touch, zoom).
  */
 export function DesktopInputMenu({
   trackpad,
   onToggleTrackpad,
   onRecenterPointer,
+  onResetZoom,
   onApprovals,
   onClose,
 }: {
   trackpad: boolean;
   onToggleTrackpad: () => void;
   onRecenterPointer: () => void;
+  onResetZoom: () => void;
   onApprovals: () => void;
   onClose: () => void;
 }) {
@@ -37,6 +39,14 @@ export function DesktopInputMenu({
         disabled={!trackpad}
         onPress={() => {
           onRecenterPointer();
+          onClose();
+        }}
+      />
+      <MenuRow
+        label="Reset zoom"
+        icon="minimize"
+        onPress={() => {
+          onResetZoom();
           onClose();
         }}
       />

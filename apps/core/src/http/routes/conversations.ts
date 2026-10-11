@@ -5,6 +5,7 @@ import { config } from "../../config.js";
 import { agents, messages } from "../../db/schema.js";
 import { prompt } from "../../prompt/prompts.js";
 import { listEventsSince } from "../../rooms/events.js";
+import { markRead } from "../../rooms/inbox.js";
 import {
   addMember,
   findRoom,
@@ -17,6 +18,7 @@ import {
 } from "../../rooms/rooms.js";
 import { acquireRun, RoomBusyError } from "../../rooms/runs.js";
 import { blocksToText, saveReaction, withWidgetProps } from "../../rooms/send-message.js";
+import { isUnsetAgent } from "../../roster/roster.js";
 import { attach, publish, type StreamEvent } from "../../rooms/stream.js";
 import { runTurn } from "../../rooms/turn.js";
 import { dispatcherToolNames } from "../../turn/tools/registry.js";
@@ -106,6 +108,14 @@ export function conversationsRoutes(ctx: AppContext, guard: Guard): Router {
     }
     res.status(201).json(reaction);
   });
+  // The person has this chat open: everything in it so far counts as seen.
+  conversations.post("/:conversationId/read", guard, async (req, res) => {
+    if (!(await markRead(ctx.db, queryAccountId(req), pathParam(req, "conversationId")))) {
+      res.status(404).json({ error: "Room not found." });
+      return;
+    }
+    res.json({ ok: true });
+  });
   // A chat the person just created by hand: its agent writes the first message.
   conversations.post("/:conversationId/hello", guard, async (req, res) => {
     const accountId = queryAccountId(req);
@@ -116,7 +126,7 @@ export function conversationsRoutes(ctx: AppContext, guard: Guard): Router {
       return;
     }
     const [owner] = await ctx.db
-      .select({ kind: agents.kind })
+      .select({ kind: agents.kind, jobDescription: agents.jobDescription })
       .from(agents)
       .where(and(eq(agents.id, room.ownerAgentId), eq(agents.accountId, accountId)));
     startFirstHello(ctx.db, {
@@ -124,6 +134,7 @@ export function conversationsRoutes(ctx: AppContext, guard: Guard): Router {
       conversationId,
       agentId: room.ownerAgentId,
       kind: owner?.kind ?? "work",
+      unset: owner ? isUnsetAgent(owner) : false,
       generate: ctx.generate,
       skillsRoot: config.skillsDir(),
     });

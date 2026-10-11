@@ -95,6 +95,7 @@ export default function InboxRoute() {
     <InboxScreen
       agents={session.agents}
       groups={session.groups}
+      status={session.inbox}
       searching={searching}
       onOpenGroup={(id) => void session.openGroup(id).catch(session.show)}
       onOpen={(agent) => void session.openAgent(agent).catch(session.show)}

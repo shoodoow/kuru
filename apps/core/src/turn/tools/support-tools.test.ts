@@ -4,7 +4,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { getDb } from "../../db/client.js";
 import { agents, conversations, memories, messages } from "../../db/schema.js";
 import { briefFor } from "../../memory/memory.js";
-import { createAccount, createAgent, ensureSupportAgent } from "../../roster/roster.js";
+import { createAccount, createAgent, ensureSupportAgent, isUnsetAgent, UNSET_ROLE } from "../../roster/roster.js";
 import type { ToolContext } from "./context.js";
 import { dispatcherExecutors } from "./executors.js";
 
@@ -78,6 +78,29 @@ describe("support tools", () => {
     ] as const) {
       expect(await call(name, ctx, input)).toEqual({ error: "This tool is not available to you." });
     }
+  });
+
+  it("lets an agent created with only a name write its own profile, once", async () => {
+    const { account, worker, ctxFor } = await setUp("Blank agent");
+    const blank = await createAgent(db, account.id, { name: "Nova", label: "Nova", provider: "openai", modelId: "gpt-5", markColor: "#FFCC38" });
+    expect(blank).toMatchObject({ role: UNSET_ROLE, kind: "work", markColor: "#FFCC38" });
+    expect(isUnsetAgent(blank)).toBe(true);
+    expect(isUnsetAgent(worker)).toBe(false);
+
+    const profile = {
+      role: "Research assistant",
+      personality: "Calm and precise, with short answers.",
+      jobDescription: "Find and summarise sources for the weekly newsletter, and flag anything that needs a second look.",
+    };
+    // An agent that already has a job cannot rewrite it.
+    expect(((await dispatcherExecutors.set_my_profile!(ctxFor(worker.id), profile)) as Result).error).toMatch(/already set/);
+    expect(((await dispatcherExecutors.set_my_profile!(ctxFor(blank.id), { role: "x" })) as Result).error).toMatch(/Invalid/);
+
+    expect(await dispatcherExecutors.set_my_profile!(ctxFor(blank.id), profile)).toMatchObject({ saved: true });
+    const [saved] = await db.select().from(agents).where(eq(agents.id, blank.id));
+    expect(saved).toMatchObject({ ...profile, kind: "work" });
+    expect(isUnsetAgent(saved!)).toBe(false);
+    expect(((await dispatcherExecutors.set_my_profile!(ctxFor(blank.id), profile)) as Result).error).toMatch(/already set/);
   });
 
   it("saves the brief for the whole account and caps its length", async () => {

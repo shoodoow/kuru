@@ -39,6 +39,7 @@ describe("agent-tools catalog", () => {
       "search_memory",
       "send_message",
       "set_brief",
+      "set_my_profile",
       "set_team_brief",
       "spawn_worker",
       "stop_worker",

@@ -70,12 +70,14 @@ export const defaultModelIds: Partial<Record<(typeof providerNames)[number], str
   xai: "grok-4",
 };
 
-export const agentCreateSchema = z.object({
+const agentCreateFields = z.object({
   name: z.string().trim().min(1).max(100),
   label: z.string().trim().min(1).max(100),
-  role: z.string().trim().min(1).max(100),
+  // Role and job may be left out: the agent then asks the person what it is
+  // for and writes them itself (see `set_my_profile`).
+  role: z.string().trim().max(100).optional().default(""),
   personality: z.string().trim().max(500).optional().default(""),
-  jobDescription: z.string().trim().min(1).max(10_000),
+  jobDescription: z.string().trim().max(10_000).optional().default(""),
   provider: z.enum(providerNames),
   modelId: z.string().trim().min(1).max(200),
   kind: z.enum(hireableAgentKinds).optional().default("work"),
@@ -265,6 +267,19 @@ export function randomSurpriseMark(): AgentMark {
     markGender,
   };
 }
+
+export const agentCreateSchema = agentCreateFields.extend({
+  // The look picked on the create form; left out, the agent gets a random one.
+  markShape: z.enum(markShapes).optional(),
+  markColor: z
+    .string()
+    .trim()
+    .regex(/^#[0-9a-fA-F]{6}$/, "Mark color must be a hex color like #FFCC38.")
+    .optional(),
+  markMaterial: z.enum(markMaterials).optional(),
+  markStyle: z.enum(markStyles).optional(),
+  markGender: z.enum(markGenders).optional(),
+});
 
 export const agentProfileSchema = agentFlagsSchema.extend({
   notify: z.boolean().optional(),

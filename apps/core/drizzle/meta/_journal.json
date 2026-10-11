@@ -281,6 +281,13 @@
       "when": 1791153000000,
       "tag": "0039_default-model",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791154000000,
+      "tag": "0040_last-read",
+      "breakpoints": true
     }
   ]
 }

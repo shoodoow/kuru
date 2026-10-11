@@ -15,7 +15,8 @@ import type { GenerateResult, TurnInput } from "./types.js";
 type Db = ReturnType<typeof getDb>;
 
 /** The private note that tells an agent of this kind to open its chat. */
-export function firstHelloCue(kind: string): string {
+export function firstHelloCue(kind: string, unset = false): string {
+  if (unset) return prompt("cues", "new-agent-first-hello");
   if (kind === "support") return prompt("cues", "support-first-hello");
   if (kind === "companion") return prompt("cues", "companion-first-hello");
   return prompt("cues", "agent-first-hello");
@@ -34,6 +35,8 @@ export function startFirstHello(
     conversationId: string;
     agentId: string;
     kind: string;
+    /** Created with only a name: it opens by asking what the person wants from it. */
+    unset?: boolean;
     generate?: (input: TurnInput) => Promise<GenerateResult>;
     skillsRoot?: string;
   },
@@ -46,7 +49,7 @@ export function startFirstHello(
       .limit(1);
     if (any) return;
     const [{ runTurn }, { publish }] = await Promise.all([import("./orchestrator.js"), import("../rooms/stream.js")]);
-    const cue = firstHelloCue(input.kind);
+    const cue = firstHelloCue(input.kind, input.unset);
     await runTurn(db, input.accountId, input.conversationId, cue, input.generate, input.skillsRoot, {
       cue,
       speakerId: input.agentId,

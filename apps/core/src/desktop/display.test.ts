@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampPoint, sessionForUid } from "./desktop.js";
+import { chromeLauncher, clampPoint, jwmConfig, sessionForUid } from "./desktop.js";
 
 /**
  * Locks the single-source-of-truth display contract: agent tools, bash
@@ -31,5 +31,21 @@ describe("deterministic display", () => {
     expect(clampPoint(-5, 9999)).toEqual({ x: 0, y: 799 });
     expect(clampPoint(1279.6, 100)).toEqual({ x: 1279, y: 100 });
     expect(clampPoint(NaN, 10)).toEqual({ x: 0, y: 10 });
+  });
+});
+
+/** Locks the panel a person sees on the agent's screen. */
+describe("desktop panel", () => {
+  it("lists open windows, so a minimised one can be brought back", () => {
+    const config = jwmConfig(10);
+    expect(config).toContain("<TaskList");
+    expect(config).toContain("exec:/tmp/desktop-10/chrome.sh");
+  });
+
+  it("raises Chrome when it is already open instead of starting another", () => {
+    const script = chromeLauncher(19222);
+    expect(script.indexOf("windowactivate")).toBeGreaterThan(-1);
+    expect(script.indexOf("windowactivate")).toBeLessThan(script.indexOf("exec chromium"));
+    expect(script).toContain("--remote-debugging-port=19222");
   });
 });

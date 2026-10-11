@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { novncRoot, novncShell, novncShellScript } from "./novnc.js";
 
 /**
@@ -52,10 +52,16 @@ describe("novnc viewer page", () => {
     const script = novncShellScript("/assets/novnc");
     expect(script).toContain('params.get("trackpad") === "1"');
     expect(script).toContain("window.nanoSetTrackpad");
-    expect(script).toContain("window.nanoTrackpadStep");
+    expect(script).toContain("window.nanoTouch");
+    expect(script).toContain("window.nanoResetZoom");
     expect(script).toContain("window.nanoRecenterPointer");
     expect(script).toContain("window.ReactNativeWebView");
     expect(script).toContain("rfb.showDotCursor = true");
+  });
+
+  it("is valid JavaScript once the import is set aside", () => {
+    const body = novncShellScript("/assets/novnc").replace(/^import .*$/m, "");
+    expect(() => new Function(body)).not.toThrow();
   });
 
   it("separates a refused socket from an ordinary disconnect", () => {
@@ -81,5 +87,106 @@ describe("novnc viewer page", () => {
     const connect = script.indexOf("withSession(begin)");
     const construct = script.indexOf("new RFB(");
     expect(construct).toBeLessThan(connect);
+  });
+});
+
+/**
+ * Runs the viewer script against a stand-in screen, so the gestures can be
+ * checked without a browser. The stand-in records every pointer message.
+ */
+function viewer(trackpad: boolean) {
+  const sent: { x: number; y: number; mask: number }[] = [];
+  const listeners = new Map<string, (event: unknown) => void>();
+  const rfb = {
+    _fbWidth: 1280,
+    _fbHeight: 800,
+    _rfbConnectionState: "connected",
+    viewOnly: false,
+    _gestures: { detach: () => {} },
+    _cursor: { move: () => {} },
+    _sendMouse: (x: number, y: number, mask: number) => sent.push({ x: Math.round(x), y: Math.round(y), mask }),
+    addEventListener: (type: string, handler: (event: unknown) => void) => listeners.set(type, handler),
+    focus: () => {},
+  };
+  const screenStyle: Record<string, string> = {};
+  const win: Record<string, unknown> = {
+    innerWidth: 400,
+    innerHeight: 600,
+    location: { search: `?url=ws://host/x&viewOnly=0&trackpad=${trackpad ? "1" : "0"}`, host: "host" },
+    __nanoSessionReady: true,
+    addEventListener: () => {},
+  };
+  const doc = { getElementById: () => ({ style: screenStyle }), addEventListener: () => {} };
+  const body = novncShellScript("/assets/novnc").replace(/^import .*$/m, "");
+  new Function("window", "document", "RFB", body)(win, doc, function () {
+    return rfb;
+  });
+  listeners.get("connect")!({});
+  sent.length = 0;
+  const touch = (phase: string, ...points: number[]) => (win.nanoTouch as (phase: string, flat: number[]) => void)(phase, points);
+  return { sent, touch, screenStyle };
+}
+
+describe("desktop gestures", () => {
+  // A 1280x800 screen fitted into a 400x600 stage: 400x250, starting 175 down.
+  it("turns a tap into a held left click under the finger", () => {
+    vi.useFakeTimers();
+    const { sent, touch } = viewer(false);
+    touch("start", 200, 300);
+    touch("end");
+    expect(sent.at(-1)).toEqual({ x: 200, y: 125, mask: 1 });
+    vi.advanceTimersByTime(100);
+    expect(sent.at(-1)).toEqual({ x: 200, y: 125, mask: 0 });
+    vi.useRealTimers();
+  });
+
+  it("turns a long press and a two-finger tap into a right click", () => {
+    vi.useFakeTimers();
+    const { sent, touch } = viewer(false);
+    touch("start", 200, 300);
+    vi.advanceTimersByTime(600);
+    expect(sent.some((event) => event.mask === 4)).toBe(true);
+    touch("end");
+    vi.advanceTimersByTime(100);
+    expect(sent.filter((event) => event.mask === 1)).toEqual([]);
+
+    sent.length = 0;
+    touch("start", 200, 300);
+    touch("start", 200, 300, 240, 300);
+    touch("end", 240, 300);
+    touch("end");
+    vi.advanceTimersByTime(100);
+    expect(sent.filter((event) => event.mask !== 0).map((event) => event.mask)).toEqual([4]);
+    vi.useRealTimers();
+  });
+
+  it("moves the pointer without pressing in trackpad mode, and scrolls with two fingers", () => {
+    const { sent, touch } = viewer(true);
+    touch("start", 100, 100);
+    touch("move", 150, 100);
+    touch("end");
+    expect(sent.every((event) => event.mask === 0)).toBe(true);
+    // 50 stage px at a scale of 400/1280 moves the pointer 160 screen px, which is 50 px in the picture.
+    expect(sent.at(-1)).toEqual({ x: 250, y: 125, mask: 0 });
+
+    sent.length = 0;
+    touch("start", 100, 300);
+    touch("start", 100, 300, 140, 300);
+    touch("move", 100, 250, 140, 250);
+    touch("end");
+    // Fingers moving up push the page up, which is wheel down.
+    expect(sent.some((event) => event.mask === 16)).toBe(true);
+    expect(sent.some((event) => event.mask === 4)).toBe(false);
+  });
+
+  it("zooms the view with a pinch instead of sending anything to the screen", () => {
+    const { sent, touch, screenStyle } = viewer(false);
+    touch("start", 180, 300);
+    touch("start", 180, 300, 220, 300);
+    sent.length = 0;
+    touch("move", 140, 300, 260, 300);
+    touch("end");
+    expect(screenStyle.width).toBe("1200px");
+    expect(sent.filter((event) => event.mask !== 0)).toEqual([]);
   });
 });

@@ -7,6 +7,7 @@ import { prompt } from "../../prompt/prompts.js";
 import { isRequestableToolSet, toolNamesInSet, toolSetGuidance } from "./tool-sets.js";
 import {
   accountBriefInputSchema,
+  ownProfileInputSchema,
   agentMemoryAddInputSchema,
   agentMemoryCorrectInputSchema,
   agentMemoryReadInputSchema,
@@ -58,7 +59,7 @@ import {
   messageRunningWorker,
   workerStatuses,
 } from "../../rooms/subagents.js";
-import { AgentNameError, createAgent, updateAgentFlags } from "../../roster/roster.js";
+import { AgentNameError, createAgent, isUnsetAgent, updateAgentFlags } from "../../roster/roster.js";
 import { createRoom } from "../../rooms/rooms.js";
 import { createProfile } from "../../linux/linux.js";
 import { catalogTextForAgent, readSkillForAgent, skillCatalogForAgent } from "../../skills/agent-skills.js";
@@ -1283,6 +1284,34 @@ async function supportOnly(ctx: ToolContext): Promise<{ provider: string; modelI
   return { provider: me.provider, modelId: me.modelId };
 }
 
+/**
+ * Lets an agent created with only a name write its own role, voice and job.
+ * Why: the create form asks for a name and nothing else, so the agent finds
+ * out what the person wants by asking and then records it. It works once:
+ * after that the profile is the person's to edit.
+ */
+async function executeSetMyProfile(ctx: ToolContext, input: Record<string, unknown>) {
+  const [me] = await ctx.store
+    .select({ jobDescription: agents.jobDescription })
+    .from(agents)
+    .where(and(eq(agents.id, ctx.agentId), eq(agents.accountId, ctx.accountId)));
+  if (!me || !isUnsetAgent(me)) {
+    return { error: "Your profile is already set. The person changes it from your info page." };
+  }
+  const parsed = ownProfileInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      error:
+        "Invalid set_my_profile input. Required: role, personality (at least 10 characters), jobDescription (at least 20 characters). Optional: kind (work or companion).",
+    };
+  }
+  await updateAgentFlags(ctx.store, ctx.accountId, ctx.agentId, parsed.data);
+  return {
+    saved: true,
+    note: "This is your job from now on. Tell the person in a line or two what you will do for them, then offer a first step.",
+  };
+}
+
 async function executeSetBrief(ctx: ToolContext, input: Record<string, unknown>) {
   const me = await supportOnly(ctx);
   if ("error" in me) return me;
@@ -1479,6 +1508,7 @@ export const dispatcherExecutors: Record<string, ToolExecutor> = {
     };
   },
   message_agent: executeMessageAgent,
+  set_my_profile: executeSetMyProfile,
   set_brief: executeSetBrief,
   hire_agent: executeHireAgent,
   read_agent_memory: executeReadAgentMemory,

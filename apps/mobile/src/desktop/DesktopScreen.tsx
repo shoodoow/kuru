@@ -230,9 +230,10 @@ export function DesktopScreen({
             onPress={() =>
               Alert.alert(
                 "Desktop",
-                trackpad
-                  ? "Trackpad mode moves a visible cursor without jumping under your finger. Tap to click; drag to move the pointer."
-                  : "Direct touch maps taps to the spot under your finger. Turn on trackpad mode in the menu for a laptop-style pointer.",
+                (trackpad
+                  ? "Trackpad mode: drag to move the pointer, tap to click. Tap, then drag, to hold the button down (select text, move a window)."
+                  : "Direct touch: tap to click the spot under your finger, drag to hold the button down. Turn on trackpad mode in the menu for a laptop-style pointer.") +
+                  "\n\nRight click: press and hold, or tap with two fingers.\nScroll: drag with two fingers.\nZoom: pinch. While zoomed in, two fingers also slide the view.",
               )
             }
             style={styles.headerHit}
@@ -268,6 +269,7 @@ export function DesktopScreen({
               trackpad={trackpad}
               onToggleTrackpad={toggleTrackpad}
               onRecenterPointer={recenterPointer}
+              onResetZoom={() => webRef.current?.injectJavaScript(`window.nanoResetZoom && window.nanoResetZoom(); true;`)}
               onApprovals={onApprovals}
               onClose={() => setMenuOpen(false)}
             />
@@ -294,8 +296,8 @@ export function DesktopScreen({
             androidLayerType="hardware"
             allowsInlineMediaPlayback
             style={styles.viewer}
-            // noVNC maps its own pointer and wheel gestures; the surrounding
-            // page must not pan or zoom over it.
+            // The viewer page handles every gesture itself, pinch zoom included,
+            // so the WebView around it must not pan or zoom as well.
             scrollEnabled={false}
             bounces={false}
             setBuiltInZoomControls={false}

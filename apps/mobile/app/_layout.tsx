@@ -42,7 +42,9 @@ function ThemedStack() {
       >
         <Stack.Screen name="index" options={{ title: "Chats" }} />
         <Stack.Screen name="chat/[conversationId]" options={{ title: "Chat" }} />
-        <Stack.Screen name="desktop/[agentId]" options={{ title: "Desktop" }} />
+        {/* No swipe-back here: moving the pointer toward the right edge of the
+            remote screen used to be read as "go back" and closed the desktop. */}
+        <Stack.Screen name="desktop/[agentId]" options={{ title: "Desktop", gestureEnabled: false, fullScreenGestureEnabled: false }} />
         <Stack.Screen name="profile/[agentId]" options={{ title: "Profile" }} />
         <Stack.Screen name="group/[conversationId]" options={{ title: "Group" }} />
         <Stack.Screen name="approvals" options={{ title: "Approvals" }} />

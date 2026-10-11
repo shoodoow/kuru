@@ -110,6 +110,16 @@ export const hireAgentInputSchema = z.object({
   jobDescription: z.string().trim().min(20).max(10_000),
 });
 
+/** What a newly created agent writes about itself once it knows what the person wants. */
+export const ownProfileInputSchema = z.object({
+  role: z.string().trim().min(1).max(100),
+  /** The agent's voice: a sentence or two on how it talks. */
+  personality: z.string().trim().min(10).max(500),
+  jobDescription: z.string().trim().min(20).max(10_000),
+  /** "work" does jobs on its own computer. "companion" is for conversation only. */
+  kind: z.enum(["work", "companion"]).optional().default("work"),
+});
+
 /** Another agent on this account, by the name listed under "Other agents" (or its id). */
 const otherAgentField = z.string().trim().min(1).max(120);
 

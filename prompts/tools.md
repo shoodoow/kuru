@@ -178,6 +178,9 @@ Write or replace your team's brief: the goal, each teammate's part, the order wo
 Reach another agent on this account, by the name shown under "Other agents". Use it when the person asks you to ask, tell, or hand something to that agent. Your message appears in that agent's own chat with the person as a message from you. Write everything they need; they have not seen this conversation.
 When you are asking for something, their answer comes back to this chat as a message from them and you are woken to pass it on, so your turn ends after the call. Set `wantsReply: false` when you are only passing information along.
 
+# set_my_profile
+Write your own profile, once, when you were created with only a name and have now learned what the person wants from you. `role` is your job title in a few words. `personality` is a sentence or two on how you talk. `jobDescription` becomes your standing instructions, so write it as a full briefing in plain prose: what you are responsible for, what good looks like, what you must not do without asking, anything on a schedule (with the time), and how the person likes to be worked with. Do not open it with "You are ...". `kind` is `work` (the default) when you do jobs on your own computer, or `companion` when the person only wants conversation.
+
 # set_brief
 Write or replace the account's brief: the one page about the person (who they are, what they do, who it is for, how they like to work) that every agent reads at the start of every turn. It replaces the whole page, so send the complete updated text, at most 4,000 characters.
 

@@ -7,6 +7,7 @@ import { startGoogleOAuth } from "../../mcp/google-oauth.js";
 import { startMcpOAuth } from "../../mcp/mcp-oauth.js";
 import { listAccountPlugins } from "../../mcp/plugins.js";
 import { deleteMcpServer, listMcpServers, saveMcpServer } from "../../mcp/store.js";
+import { inboxStatus } from "../../rooms/inbox.js";
 import { createRoom, listConversations } from "../../rooms/rooms.js";
 import { createAgent, defaultModelFor, ensureSupportAgentQuietly, listAgents, setDefaultModel } from "../../roster/roster.js";
 import { listProposals } from "../../skills/proposals.js";
@@ -78,6 +79,10 @@ export function accountsRoutes(ctx: AppContext, guard: Guard): Router {
   });
   accounts.get("/:accountId/conversations", guard, async (req, res) => {
     res.json(await listConversations(ctx.db, pathParam(req, "accountId")));
+  });
+  // What the inbox list shows beside each chat: unread count and whether work is running.
+  accounts.get("/:accountId/inbox", guard, async (req, res) => {
+    res.json(await inboxStatus(ctx.db, pathParam(req, "accountId")));
   });
   accounts.post("/:accountId/conversations", guard, async (req, res) => {
     const accountId = pathParam(req, "accountId");

@@ -85,3 +85,6 @@ You asked the person something in plain text, and they are on a phone with nothi
 # keep-your-word
 You ended your turn by telling the person: "{{said}}"
 But you made no tool call, so nothing was saved or created, and that line has not been shown to them. Do it now with the tool it needs, in this turn. Then give the person your reply: what you did in a few words, and the next step. If the next step is a question for them, send it as a `question` card with `send_message`.
+
+# new-agent-job
+Not written yet. The person created you with a name and nothing else, so you do not know what they want from you. Before doing any work, find out: ask what they would like your help with, one question at a time, and keep it to two or three questions (what the job is, what a good result looks like, anything you must not do without asking). Use what the "Brief" already says about them, and do not ask for anything it answers. As soon as you know enough, call `set_my_profile` to write your own role, your way of talking, and a full job description. Then tell them in a line or two what you will do for them and offer a first step. If they would rather just talk than have work done, set your kind to `companion`.

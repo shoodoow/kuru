@@ -43,7 +43,8 @@ export function novncShell(assetBase: string): string {
 <title>Desktop</title>
 <style>
   html, body { margin: 0; height: 100%; background: #111; overflow: hidden; touch-action: none; }
-  #screen { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; touch-action: none; }
+  /* The script resizes and slides this box to zoom and pan the picture. */
+  #screen { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; touch-action: none; transform-origin: 0 0; }
   #screen canvas { max-width: 100%; max-height: 100%; touch-action: none; }
 </style>
 </head>
@@ -114,197 +115,368 @@ const withSession = (start) => {
 };
 
 let trackpadWanted = params.get("trackpad") === "1";
-let trackpadCleanup = null;
 
-const fbToElement = (rfb, fbX, fbY) => {
-  const scale = rfb._display.scale;
-  const vp = rfb._display._viewportLoc;
-  return { x: (fbX - vp.x) * scale, y: (fbY - vp.y) * scale };
+// ---- The view: local zoom and pan ----
+// The remote screen is 1280 wide and a phone about 400, so text is unreadable
+// at fit size. Zooming grows the box noVNC scales the picture into, which keeps
+// its pointer maths right; panning slides that box under the stage.
+const MAX_ZOOM = 5;
+const view = { zoom: 1, x: 0, y: 0 };
+const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+
+/** Where the remote picture sits inside the zoomed box, in CSS px. */
+const pictureBox = (rfb) => {
+  const boxW = window.innerWidth * view.zoom;
+  const boxH = window.innerHeight * view.zoom;
+  const fbW = rfb._fbWidth || 1;
+  const fbH = rfb._fbHeight || 1;
+  const scale = Math.min(boxW / fbW, boxH / fbH);
+  const w = fbW * scale;
+  const h = fbH * scale;
+  return { left: (boxW - w) / 2, top: (boxH - h) / 2, w, h, scale, boxW, boxH };
 };
 
-const moveTrackpadPointer = (rfb, fbX, fbY) => {
-  const w = rfb._display.width;
-  const h = rfb._display.height;
-  if (w <= 0 || h <= 0) {
+/** Keeps the picture on screen: centred when it fits, edge to edge when it does not. */
+const clampPan = (pan, start, size, stage, box) =>
+  size <= stage ? (box - stage) / 2 : clamp(pan, start, start + size - stage);
+
+const applyView = (rfb) => {
+  const box = pictureBox(rfb);
+  view.x = clampPan(view.x, box.left, box.w, window.innerWidth, box.boxW);
+  view.y = clampPan(view.y, box.top, box.h, window.innerHeight, box.boxH);
+  screen.style.width = box.boxW + "px";
+  screen.style.height = box.boxH + "px";
+  screen.style.transform = "translate(" + -view.x + "px," + -view.y + "px)";
+  placeCursor(rfb);
+};
+
+// ---- The pointer ----
+// One remote pointer for both input modes, kept in remote-screen pixels.
+const ptr = { x: null, y: null, mask: 0 };
+
+const clientToFb = (rfb, clientX, clientY) => {
+  const box = pictureBox(rfb);
+  return { x: (clientX + view.x - box.left) / box.scale, y: (clientY + view.y - box.top) / box.scale };
+};
+
+const placeCursor = (rfb) => {
+  if (ptr.x == null) {
     return;
   }
-  fbX = Math.max(0, Math.min(w - 1, fbX));
-  fbY = Math.max(0, Math.min(h - 1, fbY));
-  rfb._trackpadFbX = fbX;
-  rfb._trackpadFbY = fbY;
-  const el = fbToElement(rfb, fbX, fbY);
-  rfb._flushMouseMoveTimer(el.x, el.y);
-  rfb._sendMouse(el.x, el.y, rfb._mouseButtonMask);
-  const canvas = rfb._canvas;
-  const rect = canvas.getBoundingClientRect();
-  // Element coords match clientToElement (CSS px on the canvas box), not buffer width.
-  const clientX = rect.left + el.x;
-  const clientY = rect.top + el.y;
-  rfb._cursor.move(clientX, clientY);
+  const box = pictureBox(rfb);
+  rfb._cursor.move(box.left + ptr.x * box.scale - view.x, box.top + ptr.y * box.scale - view.y);
 };
 
+/** Sends the pointer where it is, with these buttons held. */
+const sendAt = (rfb, mask) => {
+  const box = pictureBox(rfb);
+  ptr.mask = mask & 7;
+  rfb._sendMouse(ptr.x * box.scale, ptr.y * box.scale, mask);
+};
+
+const movePtr = (rfb, fbX, fbY) => {
+  ptr.x = clamp(fbX, 0, (rfb._fbWidth || 1) - 1);
+  ptr.y = clamp(fbY, 0, (rfb._fbHeight || 1) - 1);
+  sendAt(rfb, ptr.mask);
+  placeCursor(rfb);
+};
+
+/** While zoomed in, slides the view so the pointer never leaves it. */
+const follow = (rfb) => {
+  if (view.zoom <= 1 || ptr.x == null) {
+    return;
+  }
+  const box = pictureBox(rfb);
+  const edge = 48;
+  const x = box.left + ptr.x * box.scale - view.x;
+  const y = box.top + ptr.y * box.scale - view.y;
+  const before = view.x + "," + view.y;
+  if (x < edge) view.x -= edge - x;
+  if (x > window.innerWidth - edge) view.x += x - (window.innerWidth - edge);
+  if (y < edge) view.y -= edge - y;
+  if (y > window.innerHeight - edge) view.y += y - (window.innerHeight - edge);
+  if (before !== view.x + "," + view.y) {
+    applyView(rfb);
+  }
+};
+
+// A press and its release sent in the same instant can be missed by the
+// desktop's panel and by some apps, so a click holds the button briefly.
+const CLICK_HOLD = 70;
+const click = (rfb, button) => {
+  sendAt(rfb, 0);
+  sendAt(rfb, button);
+  setTimeout(() => sendAt(rfb, 0), CLICK_HOLD);
+};
+
+// Wheel buttons: 8 up, 16 down, 32 left, 64 right. Fingers moving down pull
+// the page down with them, as on a phone.
+const WHEEL_STEP = 14;
+const wheelLeft = { x: 0, y: 0 };
+const wheel = (rfb, dx, dy) => {
+  wheelLeft.x += dx;
+  wheelLeft.y += dy;
+  while (Math.abs(wheelLeft.y) >= WHEEL_STEP) {
+    sendAt(rfb, ptr.mask | (wheelLeft.y > 0 ? 8 : 16));
+    sendAt(rfb, ptr.mask);
+    wheelLeft.y -= Math.sign(wheelLeft.y) * WHEEL_STEP;
+  }
+  while (Math.abs(wheelLeft.x) >= WHEEL_STEP) {
+    sendAt(rfb, ptr.mask | (wheelLeft.x > 0 ? 32 : 64));
+    sendAt(rfb, ptr.mask);
+    wheelLeft.x -= Math.sign(wheelLeft.x) * WHEEL_STEP;
+  }
+};
+
+// ---- Gestures ----
+// One finger: tap is a left click, a long press is a right click. In direct
+// mode the pointer jumps under the finger and a drag holds the left button; in
+// trackpad mode a drag moves the pointer, and tap-then-drag holds the button.
+// Two fingers: a tap is a right click, a drag scrolls, a pinch zooms the view.
 const TAP = 10;
 const LONG = 500;
-let trackpadActive = false;
-let trackpadMoved = false;
-let trackpadLongTimer = null;
-let trackpadLastX = 0;
-let trackpadLastY = 0;
+const DOUBLE = 350;
+const PINCH = 24;
+const g = { n: 0, startX: 0, startY: 0, lastX: 0, lastY: 0, moved: false, done: false, armed: false, drag: false, long: null, lastTap: 0, two: null };
 
-const trackpadStopLong = () => {
-  if (trackpadLongTimer) {
-    clearTimeout(trackpadLongTimer);
-    trackpadLongTimer = null;
+const stopLong = () => {
+  if (g.long) {
+    clearTimeout(g.long);
+    g.long = null;
   }
 };
 
-const trackpadApplyDelta = (rfb, dx, dy) => {
-  const scale = rfb._display.scale;
-  if (scale <= 0) {
-    return;
+const endDrag = (rfb) => {
+  if (g.drag) {
+    g.drag = false;
+    sendAt(rfb, 0);
   }
-  moveTrackpadPointer(rfb, rfb._trackpadFbX + dx / scale, rfb._trackpadFbY + dy / scale);
 };
 
-window.nanoTrackpadStep = (phase, dx, dy) => {
-  const rfb = window.nanoRfb;
-  if (!trackpadWanted || !rfb || rfb.viewOnly) {
+const oneStart = (rfb, p) => {
+  g.startX = g.lastX = p.x;
+  g.startY = g.lastY = p.y;
+  g.moved = false;
+  g.done = false;
+  g.armed = trackpadWanted && Date.now() - g.lastTap < DOUBLE;
+  if (!trackpadWanted) {
+    const at = clientToFb(rfb, p.x, p.y);
+    movePtr(rfb, at.x, at.y);
+  }
+  stopLong();
+  g.long = setTimeout(() => {
+    if (g.n === 1 && !g.moved && !g.done) {
+      g.done = true;
+      click(rfb, 4);
+    }
+  }, LONG);
+};
+
+const oneMove = (rfb, p) => {
+  const dx = p.x - g.lastX;
+  const dy = p.y - g.lastY;
+  g.lastX = p.x;
+  g.lastY = p.y;
+  if (g.done) {
     return;
   }
-  if (phase === 0) {
-    trackpadActive = true;
-    trackpadMoved = false;
-    trackpadStopLong();
-    trackpadLongTimer = setTimeout(() => {
-      if (trackpadActive && !trackpadMoved) {
-        const el = fbToElement(rfb, rfb._trackpadFbX, rfb._trackpadFbY);
-        rfb._sendMouse(el.x, el.y, 4);
-        rfb._sendMouse(el.x, el.y, 0);
-        trackpadMoved = true;
-      }
-    }, LONG);
-    return;
-  }
-  if (phase === 1) {
-    if (!trackpadActive) {
+  if (!g.moved) {
+    if (Math.hypot(p.x - g.startX, p.y - g.startY) <= TAP) {
       return;
     }
-    if (Math.hypot(dx, dy) > TAP) {
-      trackpadStopLong();
-      trackpadMoved = true;
+    g.moved = true;
+    stopLong();
+    if (!trackpadWanted || g.armed) {
+      g.drag = true;
+      sendAt(rfb, 1);
     }
-    if (trackpadMoved) {
-      trackpadApplyDelta(rfb, dx, dy);
-    }
-    return;
   }
-  if (phase === 2) {
-    trackpadStopLong();
-    if (trackpadActive && !trackpadMoved) {
-      const el = fbToElement(rfb, rfb._trackpadFbX, rfb._trackpadFbY);
-      rfb._sendMouse(el.x, el.y, 1);
-      rfb._sendMouse(el.x, el.y, 0);
-    }
-    trackpadActive = false;
+  if (trackpadWanted) {
+    const scale = pictureBox(rfb).scale;
+    movePtr(rfb, ptr.x + dx / scale, ptr.y + dy / scale);
+    follow(rfb);
+  } else {
+    const at = clientToFb(rfb, p.x, p.y);
+    movePtr(rfb, at.x, at.y);
   }
 };
 
-const applyTrackpad = (rfb, on) => {
-  if (trackpadCleanup) {
-    trackpadCleanup();
-    trackpadCleanup = null;
+const oneEnd = (rfb) => {
+  stopLong();
+  if (g.drag) {
+    endDrag(rfb);
+  } else if (!g.moved && !g.done) {
+    click(rfb, 1);
+    g.lastTap = Date.now();
   }
-  trackpadWanted = on;
-  trackpadActive = false;
-  trackpadStopLong();
-  if (!on) {
-    rfb._gestures.attach(rfb._canvas);
+  g.done = true;
+};
+
+const twoStart = (rfb, a, b) => {
+  stopLong();
+  endDrag(rfb);
+  // The one-finger gesture is over: lifting a finger later must not click.
+  g.done = true;
+  const cx = (a.x + b.x) / 2;
+  const cy = (a.y + b.y) / 2;
+  g.two = { d0: Math.hypot(a.x - b.x, a.y - b.y), zoom0: view.zoom, cx, cy, startX: cx, startY: cy, kind: null, at: Date.now() };
+  wheelLeft.x = 0;
+  wheelLeft.y = 0;
+};
+
+const twoMove = (rfb, a, b) => {
+  const t = g.two;
+  const d = Math.hypot(a.x - b.x, a.y - b.y);
+  const cx = (a.x + b.x) / 2;
+  const cy = (a.y + b.y) / 2;
+  if (!t.kind) {
+    if (Math.abs(d - t.d0) > PINCH) {
+      t.kind = "pinch";
+    } else if (Math.hypot(cx - t.startX, cy - t.startY) > TAP) {
+      t.kind = "scroll";
+    } else {
+      return;
+    }
+  }
+  if (t.kind === "pinch") {
+    // The spot of the picture under the fingers stays under the fingers.
+    const next = clamp((t.zoom0 * d) / t.d0, 1, MAX_ZOOM);
+    const ux = (t.cx + view.x) / view.zoom;
+    const uy = (t.cy + view.y) / view.zoom;
+    view.zoom = next;
+    view.x = ux * next - cx;
+    view.y = uy * next - cy;
+    applyView(rfb);
+  } else {
+    // Zoomed in, the drag slides the view first; what the view cannot take
+    // (it is at its edge, or the picture already fits) scrolls the remote page.
+    let dx = cx - t.cx;
+    let dy = cy - t.cy;
+    if (view.zoom > 1) {
+      const beforeX = view.x;
+      const beforeY = view.y;
+      view.x -= dx;
+      view.y -= dy;
+      applyView(rfb);
+      dx -= beforeX - view.x;
+      dy -= beforeY - view.y;
+    }
+    wheel(rfb, dx, dy);
+  }
+  t.cx = cx;
+  t.cy = cy;
+};
+
+const twoEnd = (rfb) => {
+  const t = g.two;
+  g.two = null;
+  if (!t.kind && Date.now() - t.at < DOUBLE) {
+    click(rfb, 4);
+  }
+};
+
+/** Feeds the engine: phase is start, move, end or cancel; points are the fingers still down, in page px. */
+const touch = (phase, points) => {
+  const rfb = window.nanoRfb;
+  if (!rfb || rfb.viewOnly || rfb._rfbConnectionState !== "connected" || ptr.x == null) {
     return;
   }
+  const n = points.length;
+  if (phase === "cancel") {
+    stopLong();
+    endDrag(rfb);
+    g.two = null;
+    g.done = true;
+    g.n = 0;
+    return;
+  }
+  if (phase === "start") {
+    if (n === 1) {
+      oneStart(rfb, points[0]);
+    } else if (n === 2) {
+      twoStart(rfb, points[0], points[1]);
+    }
+    g.n = n;
+    return;
+  }
+  if (phase === "move") {
+    if (n === 1 && g.n === 1) {
+      oneMove(rfb, points[0]);
+    } else if (n >= 2 && g.two) {
+      twoMove(rfb, points[0], points[1]);
+    }
+    return;
+  }
+  if (g.two && n < 2) {
+    twoEnd(rfb);
+  }
+  if (n === 0) {
+    oneEnd(rfb);
+  }
+  g.n = n;
+};
+
+// The phone's trackpad surface sits over the page and reports fingers here, as
+// a flat list of x, y pairs.
+window.nanoTouch = (phase, flat) => {
+  const points = [];
+  for (let i = 0; i + 1 < flat.length; i += 2) {
+    points.push({ x: flat[i], y: flat[i + 1] });
+  }
+  touch(phase, points);
+};
+
+// Everywhere else the page hears the fingers itself. Listening on the document
+// covers the bars around the picture as well as the picture.
+for (const [type, phase] of [["touchstart", "start"], ["touchmove", "move"], ["touchend", "end"], ["touchcancel", "cancel"]]) {
+  document.addEventListener(
+    type,
+    (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      touch(phase, Array.from(event.touches, (t) => ({ x: t.clientX, y: t.clientY })));
+    },
+    { passive: false, capture: true },
+  );
+}
+
+window.addEventListener("resize", () => {
+  if (window.nanoRfb && ptr.x != null) {
+    applyView(window.nanoRfb);
+  }
+});
+
+const centerPointer = (rfb) => {
+  movePtr(rfb, (rfb._fbWidth || 1) / 2, (rfb._fbHeight || 1) / 2);
+  follow(rfb);
+};
+
+/** Takes touch input over from noVNC once the screen is connected. */
+const takeInput = (rfb) => {
   rfb._gestures.detach();
   rfb.showDotCursor = true;
-  if (rfb._trackpadFbX == null) {
-    rfb._trackpadFbX = rfb._display.width / 2;
-    rfb._trackpadFbY = rfb._display.height / 2;
-  }
-  moveTrackpadPointer(rfb, rfb._trackpadFbX, rfb._trackpadFbY);
-
-  // In the phone WebView, React Native owns the full-stage trackpad surface.
-  if (window.ReactNativeWebView) {
-    return;
-  }
-
-  const touchSurface = screen;
-  let docBound = false;
-
-  const unbindDoc = () => {
-    if (!docBound) {
-      return;
-    }
-    document.removeEventListener("touchmove", onMove, { passive: false });
-    document.removeEventListener("touchend", onEnd, { passive: false });
-    document.removeEventListener("touchcancel", onEnd, { passive: false });
-    docBound = false;
-  };
-
-  const onStart = (e) => {
-    if (e.touches.length !== 1) {
-      return;
-    }
-    e.preventDefault();
-    trackpadLastX = e.touches[0].clientX;
-    trackpadLastY = e.touches[0].clientY;
-    window.nanoTrackpadStep(0, 0, 0);
-    unbindDoc();
-    document.addEventListener("touchmove", onMove, { passive: false });
-    document.addEventListener("touchend", onEnd, { passive: false });
-    document.addEventListener("touchcancel", onEnd, { passive: false });
-    docBound = true;
-  };
-
-  const onMove = (e) => {
-    if (!trackpadActive || e.touches.length !== 1) {
-      return;
-    }
-    e.preventDefault();
-    const dx = e.touches[0].clientX - trackpadLastX;
-    const dy = e.touches[0].clientY - trackpadLastY;
-    trackpadLastX = e.touches[0].clientX;
-    trackpadLastY = e.touches[0].clientY;
-    window.nanoTrackpadStep(1, dx, dy);
-  };
-
-  const onEnd = (e) => {
-    if (e) {
-      e.preventDefault();
-    }
-    unbindDoc();
-    window.nanoTrackpadStep(2, 0, 0);
-  };
-
-  touchSurface.addEventListener("touchstart", onStart, { passive: false, capture: true });
-  trackpadCleanup = () => {
-    unbindDoc();
-    touchSurface.removeEventListener("touchstart", onStart, { capture: true });
-    trackpadStopLong();
-    trackpadActive = false;
-  };
+  ptr.mask = 0;
+  centerPointer(rfb);
+  applyView(rfb);
 };
 
 window.nanoSetTrackpad = (on) => {
   trackpadWanted = !!on;
-  const rfb = window.nanoRfb;
-  if (rfb && rfb._rfbConnectionState === "connected") {
-    applyTrackpad(rfb, trackpadWanted);
-  }
 };
 
 window.nanoRecenterPointer = () => {
   const rfb = window.nanoRfb;
-  if (!rfb || !trackpadWanted) {
-    return;
+  if (rfb && ptr.x != null) {
+    centerPointer(rfb);
   }
-  moveTrackpadPointer(rfb, rfb._display.width / 2, rfb._display.height / 2);
+};
+
+window.nanoResetZoom = () => {
+  const rfb = window.nanoRfb;
+  view.zoom = 1;
+  if (rfb && ptr.x != null) {
+    applyView(rfb);
+  }
 };
 
 const begin = () => {
@@ -333,9 +505,7 @@ const begin = () => {
 
   rfb.addEventListener("connect", () => {
     everConnected = true;
-    if (trackpadWanted) {
-      applyTrackpad(rfb, true);
-    }
+    takeInput(rfb);
     post({ kind: "connect" });
   });
   rfb.addEventListener("disconnect", () => post({ kind: everConnected ? "disconnect" : "auth" }));
