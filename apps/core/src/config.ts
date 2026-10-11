@@ -102,4 +102,14 @@ export const config = {
   exaApiKey: (): string | undefined => read("EXA_API_KEY"),
   embeddingProvider: (): string => read("EMBEDDING_PROVIDER") ?? "openai",
   embeddingModel: (): string | undefined => read("EMBEDDING_MODEL"),
+  /**
+   * Optional fixed model for every account's default agent, as "provider:modelId"
+   * (for example "anthropic:claude-sonnet-5-5"). Unset, it uses the default model the person chooses during setup.
+   */
+  supportModel: (): { provider: string; modelId: string } | null => {
+    const value = read("SUPPORT_AGENT_MODEL");
+    const split = value?.indexOf(":") ?? -1;
+    if (!value || split < 1 || split === value.length - 1) return null;
+    return { provider: value.slice(0, split), modelId: value.slice(split + 1) };
+  },
 };

@@ -12,6 +12,14 @@ export const accounts = pgTable("accounts", {
   timezone: text("timezone").notNull().default(""),
   // Auto-review: risky tools wait for a person when true.
   autoReview: boolean("auto_review").notNull().default(true),
+  // Standing page about the person and what they do, written by the default
+  // (support) agent and shown to every agent on every turn.
+  brief: text("brief"),
+  briefUpdatedAt: timestamp("brief_updated_at", { withTimezone: true }),
+  // The model new agents start on, chosen by the person during setup. The
+  // default agent is created once this is set.
+  defaultProvider: text("default_provider"),
+  defaultModelId: text("default_model_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -29,6 +37,9 @@ export const agents = pgTable(
     role: text("role").notNull(),
     personality: text("personality").notNull().default(""),
     jobDescription: text("job_description").notNull(),
+    // What the agent is for: picks its standing prompt and its tool list.
+    // 'support' is the account's default agent; there is one per account.
+    kind: text("kind").notNull().default("work"),
     provider: text("provider").notNull(),
     modelId: text("model_id").notNull(),
     /** Context window (tokens) from Vercel AI Gateway at hire / model change. */
@@ -51,7 +62,11 @@ export const agents = pgTable(
     teamId: text("team_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [unique("agents_account_id_linux_profile_unique").on(table.accountId, table.linuxProfile)],
+  (table) => [
+    unique("agents_account_id_linux_profile_unique").on(table.accountId, table.linuxProfile),
+    check("agents_kind_check", sql`${table.kind} in ('work', 'companion', 'support')`),
+    uniqueIndex("agents_one_support_per_account").on(table.accountId).where(sql`${table.kind} = 'support'`),
+  ],
 );
 
 export const conversations = pgTable(

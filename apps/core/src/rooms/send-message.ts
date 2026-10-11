@@ -49,6 +49,35 @@ export function withWidgetProps(
 }
 
 /**
+ * Describes one widget in words, for the stored message body.
+ * Why: the body is what the agent reads back as its own history. A bare
+ * `[widget:question]` hid what it had asked, and the model then copied that
+ * placeholder into its next reply as plain text instead of sending a card.
+ * A sentence with the question, the choices and the answer reads as history,
+ * not as a format to imitate.
+ * Input: widget name and props. Output: one line of text.
+ */
+export function widgetAsText(widget: string, props: Record<string, unknown>): string {
+  const text = (value: unknown): string => (typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "");
+  const labels = (Array.isArray(props.options) ? props.options : [])
+    .map((option) => (typeof option === "string" ? option : text((option as { label?: unknown } | null)?.label)))
+    .map((label) => label.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  const title = text(props.prompt) || text(props.title) || text(props.question) || text(props.message);
+  if (widget === "question" || widget === "poll") {
+    const picked = text(props.selected);
+    return [
+      `(Shown to the person as a tappable ${widget} card: "${title.slice(0, 300) || "a question"}"`,
+      labels.length > 0 ? ` Choices: ${labels.join(" | ")}.` : "",
+      picked ? ` They picked: ${picked}.` : widget === "question" ? " Not answered yet." : "",
+      ")",
+    ].join("");
+  }
+  return `(Shown to the person as a ${widget} card${title ? `: "${title.slice(0, 200)}"` : ""})`;
+}
+
+/**
  * Converts rich blocks to plain text for summaries, FTS, and legacy clients.
  * Why: body stays the searchable/compatible column; payload is the rich source.
  * Materialized attachments render as Linux paths so the agent opens/copies
@@ -66,7 +95,7 @@ export function blocksToText(blocks: MessageBlock[]): string {
     } else if (block.kind === "file") {
       const at = "savedPath" in block && block.savedPath ? ` (saved at ${block.savedPath})` : "";
       parts.push(`[file: ${block.name}${at}]`);
-    } else if (block.kind === "widget") parts.push(`[widget:${block.widget}]`);
+    } else if (block.kind === "widget") parts.push(widgetAsText(block.widget, block.props));
   }
   return parts.join("\n\n").slice(0, 100_000) || "[attachment]";
 }

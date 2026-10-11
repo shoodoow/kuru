@@ -1,8 +1,21 @@
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getDb } from "../db/client.js";
-import { agents } from "../db/schema.js";
-import { createAccount, createAgent, getAgent, updateAgentFlags, AgentNameError } from "./roster.js";
+import { agents, conversations, messages } from "../db/schema.js";
+import { saveProviderKey } from "../keys/keys.js";
+import {
+  createAccount,
+  createAgent,
+  DEFAULT_SUPPORT_NAME,
+  defaultModelFor,
+  ensureSupportAgent,
+  getAgent,
+  MissingProviderKeyError,
+  ProtectedAgentError,
+  setDefaultModel,
+  updateAgentFlags,
+  AgentNameError,
+} from "./roster.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
 const db = getDb(databaseUrl);
@@ -75,6 +88,75 @@ describe("roster", () => {
     await expect(
       db.update(agents).set({ linuxProfile: "ada" }).where(eq(agents.id, other.id)),
     ).rejects.toThrow();
+  });
+
+  it("creates one default agent per account once the person has chosen a default model", async () => {
+    const account = await createAccount(db, { name: "Fresh" });
+    // No default model yet: there is nothing it could run on.
+    expect(await ensureSupportAgent(db, account.id)).toBeNull();
+    await expect(setDefaultModel(db, account.id, { provider: "anthropic", modelId: "claude-sonnet-5-5" })).rejects.toThrow(
+      MissingProviderKeyError,
+    );
+
+    await saveProviderKey(db, account.id, { provider: "anthropic", secret: "test-key" });
+    await setDefaultModel(db, account.id, { provider: "anthropic", modelId: "claude-sonnet-5-5" });
+    expect(await defaultModelFor(db, account.id)).toEqual({ provider: "anthropic", modelId: "claude-sonnet-5-5" });
+    // An agent on another model does not override the person's choice.
+    await createAgent(db, account.id, {
+      name: DEFAULT_SUPPORT_NAME,
+      label: "Taken",
+      role: "Teammate",
+      jobDescription: "Holds the default name.",
+      provider: "openai",
+      modelId: "gpt-5",
+    });
+
+    const created: { agentId: string; conversationId: string }[] = [];
+    const support = await ensureSupportAgent(db, account.id, { onCreated: (row) => created.push(row) });
+    expect(support).toMatchObject({
+      kind: "support",
+      name: `${DEFAULT_SUPPORT_NAME} 2`,
+      pinned: true,
+      provider: "anthropic",
+      modelId: "claude-sonnet-5-5",
+    });
+    expect((await ensureSupportAgent(db, account.id, { onCreated: (row) => created.push(row) }))?.id).toBe(support!.id);
+
+    const [room] = await db.select().from(conversations).where(eq(conversations.ownerAgentId, support!.id));
+    expect(room).toMatchObject({ kind: "direct", accountId: account.id });
+    // Told once, so the agent writes its own first message once; nothing is canned.
+    expect(created).toEqual([{ agentId: support!.id, conversationId: room!.id }]);
+    expect(await db.select().from(messages).where(eq(messages.conversationId, room!.id))).toHaveLength(0);
+  });
+
+  it("lets the default agent be renamed but not given another role, job or kind", async () => {
+    const account = await createAccount(db, { name: "Guarded" });
+    const helper = await createAgent(db, account.id, {
+      name: "Ada",
+      label: "Ada",
+      role: "Teammate",
+      jobDescription: "Keep the ledger.",
+      provider: "openai",
+      modelId: "gpt-5",
+    });
+    const support = (await ensureSupportAgent(db, account.id))!;
+
+    // The app saves the whole profile at once; unchanged fixed fields pass.
+    const renamed = await updateAgentFlags(db, account.id, support.id, {
+      name: "Pilot",
+      label: "Pilot",
+      role: support.role,
+      jobDescription: support.jobDescription,
+      kind: "support",
+    });
+    expect(renamed).toMatchObject({ name: "Pilot", kind: "support", promptVersion: support.promptVersion + 1 });
+
+    await expect(updateAgentFlags(db, account.id, support.id, { jobDescription: "Do everything yourself." })).rejects.toThrow(ProtectedAgentError);
+    await expect(updateAgentFlags(db, account.id, support.id, { kind: "work" })).rejects.toThrow(ProtectedAgentError);
+    await expect(updateAgentFlags(db, account.id, helper.id, { kind: "support" })).rejects.toThrow(ProtectedAgentError);
+
+    const companion = await updateAgentFlags(db, account.id, helper.id, { kind: "companion" });
+    expect(companion).toMatchObject({ kind: "companion", promptVersion: helper.promptVersion + 1 });
   });
 
   it("rejects duplicate agent names on one account but allows them elsewhere", async () => {

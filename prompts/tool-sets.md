@@ -18,3 +18,7 @@ Routines are recurring jobs that belong to you. When one fires you are woken pri
 
 # admin
 `list_skills` shows every skill with its description. `refresh_skills` rescans after an install. `todo_list` returns your saved worklist.
+
+# support
+## Looking after the other agents
+`set_brief` writes the page every agent reads. `hire_agent` sets up a new agent with its own chat. `read_agent_memory`, `remember_for_agent` and `correct_agent_memory` let you see and fix what one agent knows. Changes to memory apply at once, so tell the person what you changed.

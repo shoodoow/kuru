@@ -267,6 +267,20 @@
       "when": 1790980200000,
       "tag": "0037_hot-path-indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1791066600000,
+      "tag": "0038_agent-kinds",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1791153000000,
+      "tag": "0039_default-model",
+      "breakpoints": true
     }
   ]
 }

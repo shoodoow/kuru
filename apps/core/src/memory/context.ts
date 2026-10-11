@@ -10,6 +10,7 @@ const keyOrder = ["decisions", "actions", "open", "entities", "corrections", "to
  * size in year three as in week one: storage grows, the prompt does not.
  */
 const PROFILE_CHARS = 1_500;
+const BRIEF_CHARS = 4_000;
 const MEMORY_LINES = 24;
 const SUMMARY_DIGESTS = 6;
 const SUMMARY_LINES = 12;
@@ -61,6 +62,8 @@ export function buildContext(input: {
   summary: { key: string; body: string; messageId?: string; level?: number }[];
   messages: { body: string }[];
   memories?: { body: string; subject?: string | null }[];
+  /** The account's brief: who the person is and what they do, written by the support agent. */
+  brief?: string | null;
   /** Pinned standing description of the person and their world. */
   profile?: string | null;
   recall?: string[];
@@ -105,6 +108,7 @@ export function buildContext(input: {
     ...(input.room ? [`## Room\n${roomLine(input.room)}`] : []),
     ...(input.person ? [`## Person\n${personBlock(input.person)}`] : []),
     ...(input.computer?.trim() ? [`## Your computer\n${prompt("dispatcher", "computer-facts", { facts: input.computer.trim() })}`] : []),
+    ...(input.brief?.trim() ? [`## Brief\n${prompt("dispatcher", "brief", { brief: input.brief.trim().slice(0, BRIEF_CHARS) })}`] : []),
     ...(input.profile?.trim() ? [`## Profile\n${input.profile.trim().slice(0, PROFILE_CHARS)}`] : []),
     ...(memoryBlock ? [`## Memory\n${memoryBlock}`] : []),
     ...(summaryBlock ? [`## Summary\n${summaryBlock}`] : []),

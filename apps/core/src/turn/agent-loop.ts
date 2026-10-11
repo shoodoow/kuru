@@ -13,11 +13,14 @@ import { shouldRetryStall, stallNudge } from "./narration-stall.js";
 import {
   CLOSING_TOOLS,
   FOLLOW_THROUGH_TOOLS,
+  announcesUnsentCard,
+  asksInPlainText,
   claimsWorkInProgress,
   finalTextIsReply,
   promisesUnstartedWork,
   replyOnlyRestriction,
   shouldEndTurn,
+  stripLeakedThinking,
 } from "./loop-control.js";
 import { prompt } from "../prompt/prompts.js";
 import { activeDispatcherTools } from "./tools/tool-sets.js";
@@ -48,6 +51,10 @@ export async function runAgentLoop(
     toolSets?: string[];
     /** Tools withheld for this turn whatever sets are on. */
     blockedTools?: string[];
+    /** When set, the only tools this agent has (companion and support agents). */
+    allowedTools?: readonly string[];
+    /** The default agent: a question to the person must go out as a tappable card. */
+    askWithCards?: boolean;
     /** Hidden wake (worker result, routine): no ack owed, silence allowed. */
     hiddenTurn?: boolean;
     generate?: (input: TurnInput) => Promise<GenerateResult>;
@@ -86,6 +93,11 @@ export async function runAgentLoop(
     enabledToolSets: new Set(input.toolSets ?? []),
   };
   const tools = await buildFullToolSet(mode, toolCtx);
+  if (input.allowedTools) {
+    // Removed outright, not just hidden, so connector and plugin tools cannot be called either.
+    const allowed = new Set(input.allowedTools);
+    for (const name of Object.keys(tools)) if (!allowed.has(name)) delete tools[name];
+  }
   const harnessInput = {
     ...input,
     db,
@@ -145,11 +157,71 @@ export async function runAgentLoop(
     usage = addUsage(usage, retry.usage);
     responseMessages = [...responseMessages, { role: "user", content: stallNudge() }, ...retry.responseMessages];
   }
+  text = stripLeakedThinking(text);
+  // An agent with no worker tools (the default agent, a companion) keeps its
+  // own promises: "let me save that" with no call gets the turn continued,
+  // with all of its tools, instead of ending on a promise.
+  const canStartWork = FOLLOW_THROUGH_TOOLS.some((name) => name in tools);
+  if (
+    mode === "dispatcher" &&
+    !canStartWork &&
+    !toolCtx.endTurn &&
+    input.emittedMessages.length === 0 &&
+    // No call at all this turn: a turn that did save something and then says
+    // "I'll keep it updated" has nothing left to make true.
+    stepToolNames.every((names) => names.length === 0) &&
+    !/\blet me know\b/i.test(text) &&
+    promisesUnstartedWork({ text, handedOff: false, hiddenTurn: false })
+  ) {
+    const nudge = prompt("dispatcher", "keep-your-word", { said: text.slice(0, 500) });
+    const more = await runModelHarness({
+      ...harnessInput,
+      maxSteps: 4,
+      messages: [...input.messages, ...responseMessages, { role: "user", content: nudge }] as never,
+    });
+    usage = addUsage(usage, more.usage);
+    cacheReadTokens = more.cacheReadTokens ?? cacheReadTokens;
+    stepToolNames = [...stepToolNames, ...more.stepToolNames];
+    responseMessages = [...responseMessages, { role: "user", content: nudge }, ...more.responseMessages];
+    // What was promised is done now, so the reply is whatever followed it.
+    if (more.text.trim() || input.emittedMessages.length > 0) text = stripLeakedThinking(more.text);
+  }
+  const sentThisTurn = input.emittedMessages.length > 0;
+  // A card that did go out stands; text that only describes it again is dropped by the speaker.
+  const repair = sentThisTurn
+    ? null
+    : announcesUnsentCard(text)
+      ? "card-not-sent"
+      : input.askWithCards && !toolCtx.handedOff && asksInPlainText(text)
+        ? "ask-as-card"
+        : null;
+  if (mode === "dispatcher" && !toolCtx.endTurn && "send_message" in tools && repair) {
+    // One more step that must call send_message, so the card is actually sent.
+    const nudge = prompt("dispatcher", repair);
+    const step = (toolChoice?: "required") =>
+      runModelHarness({
+        ...harnessInput,
+        maxSteps: 1,
+        shouldStop: () => true,
+        toolChoice,
+        restrictStep: () => ({ activeTools: ["send_message"], note: "" }),
+        messages: [...input.messages, ...responseMessages, { role: "user", content: nudge }] as never,
+      });
+    // Not every provider accepts a forced tool call; those get the plain nudge.
+    const fix = await step("required").catch(() => step());
+    usage = addUsage(usage, fix.usage);
+    cacheReadTokens = fix.cacheReadTokens ?? cacheReadTokens;
+    stepToolNames = [...stepToolNames, ...fix.stepToolNames];
+    responseMessages = [...responseMessages, { role: "user", content: nudge }, ...fix.responseMessages];
+    // The card, with its lead-in, is the reply now; the text it replaces is dropped.
+    if (input.emittedMessages.length > 0) text = "";
+  }
   const handedOffInTurn = Boolean(toolCtx.handedOff);
   const said = text.trim() || (input.emittedMessages.at(-1)?.body ?? "");
   if (
     mode === "dispatcher" &&
     !toolCtx.endTurn &&
+    canStartWork &&
     promisesUnstartedWork({ text: said, handedOff: Boolean(toolCtx.handedOff), hiddenTurn: Boolean(toolCtx.hiddenTurn) })
   ) {
     // The reply stands as written. This step only makes the promise true.
@@ -173,6 +245,7 @@ export async function runAgentLoop(
     mode === "dispatcher" &&
     !toolCtx.endTurn &&
     !toolCtx.handedOff &&
+    canStartWork &&
     claimsWorkInProgress(said) &&
     !(await hasWorkRunning(db, input))
   ) {

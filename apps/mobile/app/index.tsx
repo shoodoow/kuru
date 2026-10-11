@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useNavigation } from "expo-router";
 import { InboxScreen } from "../src/inbox/InboxScreen";
+import { SetupGuide } from "../src/inbox/SetupGuide";
 import { useSession } from "../src/session/SessionProvider";
 import { Avatar } from "../src/ui/Avatar";
 import { IconPlus, IconSearch } from "../src/ui/icons";
@@ -78,6 +79,16 @@ export default function InboxRoute() {
       ),
     });
   }, [navigation, searching, session.pendingCount, session.account]);
+
+  // A new account has no agent to talk to until a provider and a model are chosen.
+  if (session.account && session.setupNeeded) {
+    return (
+      <SetupGuide
+        providers={session.providers}
+        onFinish={(provider, secret, baseUrl, modelId) => session.finishSetup(provider, secret, baseUrl, modelId)}
+      />
+    );
+  }
 
   return (
     <>

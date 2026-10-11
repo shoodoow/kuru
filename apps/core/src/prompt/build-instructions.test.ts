@@ -40,6 +40,26 @@ describe("buildInstructions", () => {
     expect(second).not.toContain("First hire.");
   });
 
+  it("gives each agent kind its own standing prompt", () => {
+    const base = { name: "Ada", role: "Friend", personality: "", job: "Be good company." };
+    const work = buildInstructions({ ...base, kind: "work" });
+    const companion = buildInstructions({ ...base, kind: "companion" });
+    const support = buildInstructions({ ...base, kind: "support" });
+    expect(work.indexOf(systemPrompt)).toBe(0);
+    expect(buildInstructions({ ...base, kind: null }).indexOf(systemPrompt)).toBe(0);
+    for (const text of [companion, support]) {
+      expect(text).not.toContain("spawn_worker");
+      expect(text).not.toContain("\n# ");
+      expect(text.endsWith("Job:\nBe good company.")).toBe(true);
+    }
+    expect(companion).toContain("long-term companion");
+    expect(support).toContain("set_brief");
+    expect(support).toContain("hire_agent");
+    // The intake must stay tappable: one question at a time, as a widget.
+    expect(support).toContain("Ask one question per message");
+    expect(support).toContain("`question` widget");
+  });
+
   it("composes the identity block in fixed order", () => {
     expect(buildAgentIdentity({ name: "Mo", role: "CMO", personality: "", job: "Run marketing." })).toBe(
       "You are Mo — CMO.\n\nJob:\nRun marketing.",

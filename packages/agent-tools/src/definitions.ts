@@ -10,6 +10,11 @@ import {
   groupConversationInputSchema,
   groupCreateInputSchema,
   teamBriefInputSchema,
+  accountBriefInputSchema,
+  hireAgentInputSchema,
+  agentMemoryReadInputSchema,
+  agentMemoryAddInputSchema,
+  agentMemoryCorrectInputSchema,
   messageAgentInputSchema,
   keyInputSchema,
   memberAddInputSchema,
@@ -53,8 +58,11 @@ export type ToolSurface = "dispatcher" | "worker";
  * in a set is offered only when that set is on for the turn, which keeps the
  * schemas resent on every model step small.
  */
-export const toolSetNames = ["team", "routines", "admin"] as const;
+export const toolSetNames = ["team", "routines", "admin", "support"] as const;
 export type ToolSetName = (typeof toolSetNames)[number];
+
+/** Sets an agent may turn on with `enable_tools`. `support` belongs to the account's default agent only. */
+export const requestableToolSetNames = ["team", "routines", "admin"] as const satisfies readonly ToolSetName[];
 
 /**
  * One tool's name, where it is offered, and its input shape.
@@ -92,6 +100,36 @@ export const allToolDefinitions: ToolDefinition[] = [
     set: "team",
     surfaces: ["dispatcher"],
     inputSchema: teamBriefInputSchema,
+  },
+  {
+    name: "set_brief",
+    set: "support",
+    surfaces: ["dispatcher"],
+    inputSchema: accountBriefInputSchema,
+  },
+  {
+    name: "hire_agent",
+    set: "support",
+    surfaces: ["dispatcher"],
+    inputSchema: hireAgentInputSchema,
+  },
+  {
+    name: "read_agent_memory",
+    set: "support",
+    surfaces: ["dispatcher"],
+    inputSchema: agentMemoryReadInputSchema,
+  },
+  {
+    name: "remember_for_agent",
+    set: "support",
+    surfaces: ["dispatcher"],
+    inputSchema: agentMemoryAddInputSchema,
+  },
+  {
+    name: "correct_agent_memory",
+    set: "support",
+    surfaces: ["dispatcher"],
+    inputSchema: agentMemoryCorrectInputSchema,
   },
   {
     name: "create_routine",

@@ -37,9 +37,12 @@ Notes:
 {{lines}}
 
 # profile
-You keep a short standing profile of the person an assistant works for, so the assistant can read it at the start of every conversation. From the facts below, write at most 1,400 characters of plain prose covering, where known: who they are and what they do, their organization and the people around them (name and role), what they are working on now, and how they like to work with the assistant. Prefer current facts over old ones. Only state what the facts support; leave out anything uncertain. No headings, no preamble.
+You keep a short standing profile of the person an assistant works for, so the assistant can read it at the start of every conversation. From the facts below, write at most 1,400 characters of plain prose covering, where known: who they are and what they do, their organization and the people around them (name and role), what they are working on now, and how they like to work with the assistant. Prefer current facts over old ones. Only state what the facts support; leave out anything uncertain. No headings, no preamble. The assistant also reads the brief shown below at the start of every conversation, so do not repeat what it already says; use the profile for what the brief leaves out, mainly the people around them and what they are working on now.
 
 # profile-user
+Brief the assistant already reads:
+{{brief}}
+
 Current profile:
 {{previous}}
 

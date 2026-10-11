@@ -11,7 +11,7 @@ import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { getDb } from "../db/client.js";
 import { memories, summaryItems } from "../db/schema.js";
 import { prompt } from "../prompt/prompts.js";
-import { profileFor, saveProfile } from "./memory.js";
+import { briefFor, profileFor, saveProfile } from "./memory.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -120,7 +120,8 @@ export async function refreshProfile(db: Db, accountId: string, write: Writer, m
     .reverse()
     .map((fact) => `- ${fact.kind}${fact.subject ? ` | ${fact.subject}` : ""}: ${fact.body.replace(/\s+/g, " ").slice(0, 300)}`)
     .join("\n");
-  const written = await write(prompt("memory", "profile"), prompt("memory", "profile-user", { previous, facts: lines }));
+  const brief = (await briefFor(db, accountId)) ?? "(none yet)";
+  const written = await write(prompt("memory", "profile"), prompt("memory", "profile-user", { brief, previous, facts: lines }));
   if (!written) return;
   await saveProfile(db, accountId, written.slice(0, PROFILE_CHARS), messageId);
 }

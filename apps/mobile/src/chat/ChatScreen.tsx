@@ -23,7 +23,6 @@ import { PillButton } from "../ui/PrimaryButton";
 import * as Haptics from "expo-haptics";
 import { MessageBlocks } from "./blocks";
 import { isTableTouch } from "./MarkdownText";
-import { isVideoBlock } from "./media";
 import { Composer } from "./Composer";
 import { messagePlainText } from "./markdown";
 import { MessageMenu, ReactionChips, type BubbleFrame } from "./Reactions";
@@ -391,7 +390,7 @@ export function ChatScreen({
               <View style={styles.empty}>
                 <Text style={styles.emptyTitle}>This is the start of {title}</Text>
                 <Text style={styles.emptyHint}>
-                  {members.length > 0 ? "Say hi below — type @ to mention a member." : "Say hi below to start."}
+                  {members.length > 0 ? "Type @ to mention a member." : `${title} will say hello in a moment.`}
                 </Text>
               </View>
             </View>
@@ -408,10 +407,6 @@ export function ChatScreen({
           const face = author ?? (item.agentId ? rosterFaces.get(item.agentId) ?? null : null);
           const highlighted = highlightId === item.id;
           const relay = item.relay;
-          // Photos and videos on their own stand without a bubble around them.
-          const bare =
-            !(item.replyTo && item.replyPreview) &&
-            blocks.every((block) => block.kind === "image" || (block.kind === "file" && isVideoBlock(block)));
           return (
             <View>
               {showTime ? <Text style={styles.time}>Today {item.time}</Text> : null}
@@ -459,26 +454,25 @@ export function ChatScreen({
                       }}
                       onLongPress={() => openMenu(item)}
                       delayLongPress={350}
-                      style={[
-                        styles.bubble,
-                        item.mine ? styles.bubbleMine : styles.bubbleTheirs,
-                        bare ? styles.bubbleBare : null,
-                        highlighted ? styles.bubbleHighlight : null,
-                      ]}
+                      // Words sit in bubbles; cards, pictures and files stand on their own.
+                      style={[styles.stack, item.mine ? styles.stackMine : styles.stackTheirs, highlighted ? styles.stackHighlight : null]}
                       accessibilityLabel={`${item.author}. ${item.body}`}
                     >
-                      {item.replyTo && item.replyPreview ? (
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel={`Jump to replied message: ${item.replyPreview}`}
-                          onPress={() => scrollToReply(item.replyTo!)}
-                          hitSlop={6}
-                        >
-                          <Text style={styles.quote}>↩ {item.replyPreview}</Text>
-                        </Pressable>
-                      ) : null}
                       <MessageBlocks
                         blocks={blocks}
+                        bubbleStyle={[styles.bubble, item.mine ? styles.bubbleMine : styles.bubbleTheirs]}
+                        lead={
+                          item.replyTo && item.replyPreview ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Jump to replied message: ${item.replyPreview}`}
+                              onPress={() => scrollToReply(item.replyTo!)}
+                              hitSlop={6}
+                            >
+                              <Text style={styles.quote}>↩ {item.replyPreview}</Text>
+                            </Pressable>
+                          ) : null
+                        }
                         messageId={item.id}
                         onApprove={onApprove}
                         onDeny={onDeny}
@@ -487,6 +481,7 @@ export function ChatScreen({
                         onSubmitSecret={onSecretSubmit}
                         onOpenDesktop={onDesktop}
                         onOpenAgent={onOpenAgent}
+                        agentInfo={(id) => rosterFaces.get(id)}
                         fetchBlob={onFetchBlob}
                       />
                       <ReactionChips reactions={item.reactions ?? []} onPick={(emoji) => onReact(item, emoji)} />
@@ -759,7 +754,11 @@ function createStyles(colors: ColorPalette) {
   bubble: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10, gap: 6 },
   bubbleMine: { backgroundColor: colors.online, borderBottomRightRadius: 6 },
   bubbleTheirs: { backgroundColor: colors.bubble, borderBottomLeftRadius: 6 },
-  bubbleBare: { backgroundColor: "transparent", paddingHorizontal: 0, paddingVertical: 0 },
+  // One message: its bubbles and cards stacked, hugging the speaker's side.
+  stack: { gap: 6, borderRadius: 22 },
+  stackMine: { alignItems: "flex-end" },
+  stackTheirs: { alignItems: "flex-start" },
+  stackHighlight: { borderWidth: 1, borderColor: colors.link, padding: 4 },
   relayWrap: { alignItems: "center", paddingHorizontal: 12, marginVertical: 4 },
   relayBadge: {
     flexDirection: "row",
@@ -805,7 +804,6 @@ function createStyles(colors: ColorPalette) {
   teamChatBody: { color: colors.text, fontSize: 14, lineHeight: 20 },
   teamChatMuted: { color: colors.muted, fontSize: 12, fontWeight: "400" },
   quote: { color: colors.muted, fontSize: 13, borderLeftWidth: 2, borderLeftColor: colors.link, paddingLeft: 8, marginBottom: 4 },
-  bubbleHighlight: { borderWidth: 1, borderColor: colors.link },
   error: { color: colors.danger, paddingHorizontal: 20, paddingBottom: 6, fontSize: 14 },
   replyBar: { backgroundColor: colors.control, marginHorizontal: 12, borderRadius: 10, padding: 8 },
   replyText: { color: colors.text, fontSize: 13 },

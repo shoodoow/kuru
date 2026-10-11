@@ -17,9 +17,13 @@ import { pressableStyle } from "../ui/pressableStyles";
 export function NewRoomSheet({
   agents,
   providers,
+  defaultModel,
   onCreateChat,
   onCreateGroup,
+  onAskSupport,
 }: {
+  /** The account's default model: the form starts on it. */
+  defaultModel?: { provider: ProviderSetting["provider"]; modelId: string } | null;
   agents: RosterAgent[];
   providers: ProviderSetting[];
   onCreateChat: (
@@ -28,15 +32,20 @@ export function NewRoomSheet({
     jobDescription: string,
     provider: ProviderSetting["provider"],
     modelId: string,
+    agentKind: "work" | "companion",
   ) => Promise<void>;
   onCreateGroup: (title: string, agentIds: string[]) => Promise<void>;
+  /** Opens the default agent's chat, where it sets a new agent up by asking. */
+  onAskSupport?: (agent: RosterAgent) => void | Promise<void>;
 }) {
+  const support = agents.find((agent) => agent.kind === "support");
+  const [agentKind, setAgentKind] = useState<"work" | "companion">("work");
   const [kind, setKind] = useState<"chat" | "group">("chat");
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
   const [job, setJob] = useState("");
-  const [provider, setProvider] = useState<ProviderSetting["provider"]>("openai");
-  const [modelId, setModelId] = useState("gpt-5");
+  const [provider, setProvider] = useState<ProviderSetting["provider"]>(defaultModel?.provider ?? "openai");
+  const [modelId, setModelId] = useState(defaultModel?.modelId ?? "gpt-5");
   const [title, setTitle] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -98,11 +107,31 @@ export function NewRoomSheet({
           </View>
           {kind === "chat" ? (
             <>
+              {support && onAskSupport ? (
+                <>
+                  <PrimaryButton label={`Ask ${support.label || support.name} to set one up`} onPress={() => void onAskSupport(support)} />
+                  <Text style={styles.hint}>Or fill it in yourself:</Text>
+                </>
+              ) : null}
+              <View style={styles.kinds}>
+                {(["work", "companion"] as const).map((option) => (
+                  <Pressable
+                    key={option}
+                    accessibilityRole="button"
+                    onPress={() => setAgentKind(option)}
+                    style={({ pressed }) => pressableStyle([styles.kind, agentKind === option && styles.kindOn], { pressed })}
+                  >
+                    <Text style={[styles.kindText, agentKind === option && styles.kindTextOn]}>
+                      {option === "work" ? "Does work" : "Just to talk"}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
               <TextInput value={name} onChangeText={setName} placeholder="Agent name" placeholderTextColor={colors.muted} keyboardAppearance="dark" style={styles.input} />
               <TextInput
                 value={role}
                 onChangeText={setRole}
-                placeholder="Role (e.g. Social manager)"
+                placeholder={agentKind === "work" ? "Role (e.g. Social manager)" : "Role (e.g. Spanish partner)"}
                 placeholderTextColor={colors.muted}
                 keyboardAppearance="dark"
                 style={styles.input}
@@ -110,7 +139,7 @@ export function NewRoomSheet({
               <TextInput
                 value={job}
                 onChangeText={setJob}
-                placeholder="What they do"
+                placeholder={agentKind === "work" ? "What they do" : "What you want from talking with them"}
                 placeholderTextColor={colors.muted}
                 keyboardAppearance="dark"
                 style={styles.input}
@@ -148,7 +177,7 @@ export function NewRoomSheet({
                 onPress={() => {
                   setBusy(true);
                   setError(null);
-                  void onCreateChat(name.trim(), role.trim(), job.trim(), provider, modelId.trim())
+                  void onCreateChat(name.trim(), role.trim(), job.trim(), provider, modelId.trim(), agentKind)
                     .catch((failure: unknown) => {
                       const message = failure instanceof Error ? failure.message : "Could not create the chat.";
                       setError(message);
@@ -162,7 +191,7 @@ export function NewRoomSheet({
             <>
               <TextInput value={title} onChangeText={setTitle} placeholder="Group name" placeholderTextColor={colors.muted} keyboardAppearance="dark" style={styles.input} />
               {agents.length < 2 ? <Text style={styles.hint}>Create at least two chats before a group.</Text> : null}
-              {agents.map((agent) => (
+              {agents.filter((agent) => agent.kind !== "support" && agent.kind !== "companion").map((agent) => (
                 <Pressable
                   key={agent.id}
                   accessibilityRole="button"

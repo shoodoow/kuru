@@ -160,10 +160,96 @@ export function toModelMessages(
     const reacted = role === "user" && !other ? reactionNote(history, index, reactions) : "";
     const text = [marker, reacted, linked].filter(Boolean).join("\n");
     const parts = wanted.get(index);
+    // Only marked here: `replaySentCards` expands it once work logs are woven in.
+    const sentCard = reader ? sentCardOf(row, role === "assistant") : null;
+    if (sentCard) return { role, content: text, sentCard } as { role: "user" | "assistant"; content: TurnMessageContent };
+    // A card the app posted for the agent (a link to a new agent's chat, an
+    // approval) is not something the agent wrote; shown as its own words it
+    // would be copied as text.
+    if (reader && role === "assistant" && isAppCard(row.payload)) return { role: "user", content: `[app note] ${text}` };
     if (!parts || parts.length === 0) return { role, content: text };
     return {
       role,
       content: [{ type: "text", text }, ...parts],
     } as { role: "user" | "assistant"; content: TurnMessageContent };
   });
+}
+
+/** A model message that may carry a card this agent sent, to be replayed as the tool call it was. */
+type WithSentCard<T> = T & { sentCard?: { id: string; blocks: unknown[]; answer: string | null } };
+
+/** The widgets an agent sends itself with send_message and that the person answers. */
+const REPLAYED_WIDGETS = new Set(["question", "poll"]);
+
+/**
+ * Finds the card in one of the agent's own messages.
+ * Input: a history row and whether the reader wrote it. Output: the blocks as
+ * they were sent (without the person's answer) plus that answer, or null.
+ */
+export function sentCardOf(row: HistoryRow, own: boolean): { id: string; blocks: unknown[]; answer: string | null } | null {
+  if (!own || !row.id || !Array.isArray(row.payload)) return null;
+  let answer: string | null = null;
+  let found = false;
+  const blocks: unknown[] = [];
+  for (const block of row.payload as { kind?: string; widget?: string; markdown?: unknown; props?: Record<string, unknown> }[]) {
+    if (block?.kind === "text" && typeof block.markdown === "string") blocks.push({ kind: "text", markdown: block.markdown });
+    else if (block?.kind === "widget" && typeof block.widget === "string" && REPLAYED_WIDGETS.has(block.widget)) {
+      const { selected, ...props } = block.props ?? {};
+      if (typeof selected === "string" && selected.trim()) answer = selected.trim();
+      blocks.push({ kind: "widget", widget: block.widget, props });
+      found = true;
+    }
+  }
+  return found ? { id: row.id, blocks, answer } : null;
+}
+
+/**
+ * Replays the agent's own cards as the `send_message` calls they were.
+ * Why: a card shown back as text, in any wording, teaches the model that
+ * writing that text is how a card is made, and it stops calling the tool. A
+ * real tool call with its result is the one form it cannot mistake for prose,
+ * and the result is where the person's answer belongs.
+ * Input: model messages, some marked by `toModelMessages` with `sentCard`.
+ * Output: the same list, each marked message replaced by a tool call and its result.
+ */
+export function replaySentCards<T extends { role: string; content: unknown }>(messages: WithSentCard<T>[]): T[] {
+  return messages.flatMap((message) => {
+    const card = message.sentCard;
+    if (!card) return [message as T];
+    const toolCallId = `card_${card.id.replaceAll("-", "")}`;
+    return [
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId, toolName: "send_message", input: { blocks: card.blocks } }],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId,
+            toolName: "send_message",
+            output: {
+              type: "json",
+              value: {
+                messageId: card.id,
+                shown: true,
+                answer: card.answer,
+                note: card.answer ? `The person answered: ${card.answer}` : "The person has not tapped an answer.",
+              },
+            },
+          },
+        ],
+      },
+    ] as unknown as T[];
+  });
+}
+
+/** True when a message holds only cards the agent did not send itself. */
+function isAppCard(payload: unknown): boolean {
+  if (!Array.isArray(payload) || payload.length === 0) return false;
+  return payload.every(
+    (block) =>
+      (block as { kind?: string })?.kind === "widget" && !REPLAYED_WIDGETS.has(String((block as { widget?: unknown }).widget)),
+  );
 }

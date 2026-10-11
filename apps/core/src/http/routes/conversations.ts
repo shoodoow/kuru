@@ -2,7 +2,7 @@ import { reactionSchema } from "@nano-agents/agent-tools";
 import { and, eq } from "drizzle-orm";
 import { Router } from "express";
 import { config } from "../../config.js";
-import { messages } from "../../db/schema.js";
+import { agents, messages } from "../../db/schema.js";
 import { prompt } from "../../prompt/prompts.js";
 import { listEventsSince } from "../../rooms/events.js";
 import {
@@ -16,13 +16,14 @@ import {
   saveUserMessage,
 } from "../../rooms/rooms.js";
 import { acquireRun, RoomBusyError } from "../../rooms/runs.js";
-import { saveReaction, withWidgetProps } from "../../rooms/send-message.js";
+import { blocksToText, saveReaction, withWidgetProps } from "../../rooms/send-message.js";
 import { attach, publish, type StreamEvent } from "../../rooms/stream.js";
 import { runTurn } from "../../rooms/turn.js";
 import { dispatcherToolNames } from "../../turn/tools/registry.js";
 import { buildChatContextInfo } from "../../turn/usage/chat-context.js";
 import { logger, pathParam, queryAccountId, UUID, type AppContext, type Guard } from "../context.js";
 import { startCueTurn } from "../wake.js";
+import { startFirstHello } from "../../turn/first-hello.js";
 
 /**
  * Routes under /conversations/:conversationId: messages, reactions, cues, the live stream, members.
@@ -105,6 +106,29 @@ export function conversationsRoutes(ctx: AppContext, guard: Guard): Router {
     }
     res.status(201).json(reaction);
   });
+  // A chat the person just created by hand: its agent writes the first message.
+  conversations.post("/:conversationId/hello", guard, async (req, res) => {
+    const accountId = queryAccountId(req);
+    const conversationId = pathParam(req, "conversationId");
+    const room = await findRoom(ctx.db, accountId, conversationId);
+    if (!room || room.kind !== "direct" || !room.ownerAgentId) {
+      res.status(404).json({ error: "Room not found." });
+      return;
+    }
+    const [owner] = await ctx.db
+      .select({ kind: agents.kind })
+      .from(agents)
+      .where(and(eq(agents.id, room.ownerAgentId), eq(agents.accountId, accountId)));
+    startFirstHello(ctx.db, {
+      accountId,
+      conversationId,
+      agentId: room.ownerAgentId,
+      kind: owner?.kind ?? "work",
+      generate: ctx.generate,
+      skillsRoot: config.skillsDir(),
+    });
+    res.status(202).json({ accepted: true });
+  });
   conversations.post("/:conversationId/cues", guard, async (req, res) => {
     // Widget picks / secret-saved wakes: cue-only turns (no user chat bubble).
     const accountId = queryAccountId(req);
@@ -124,9 +148,11 @@ export function conversationsRoutes(ctx: AppContext, guard: Guard): Router {
     if (messageId && selected) {
       const row = await getMessage(ctx.db, accountId, conversationId, messageId);
       if (row?.payload) {
+        const answered = withWidgetProps(row.payload, "question", { selected });
         const [updated] = await ctx.db
           .update(messages)
-          .set({ payload: withWidgetProps(row.payload, "question", { selected }) })
+          // The body is what the agent reads as history, so it records the answer too.
+          .set({ payload: answered, body: blocksToText(answered) })
           .where(and(eq(messages.id, messageId), eq(messages.accountId, accountId), eq(messages.conversationId, conversationId)))
           .returning();
         if (updated) {

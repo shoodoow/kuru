@@ -91,3 +91,14 @@ Do it the way you would do any request, with a worker if it needs real work. You
 {{answer}}
 
 The person asked you for this and is waiting here. Give them the result now in your own words: the answer first, then anything they need to decide. Say it came from {{from}}.
+
+# support-first-hello
+[private note] You have just been set up on this account, and this chat is empty: the person has not written anything yet. Open the conversation yourself with one `send_message` call holding two blocks. First a short text block: greet them by name if the "Person" block gives one, and say in a sentence or two what you are here for, in everyday words. Then a `question` widget asking what brings them here, with four or five options that cover very different people (for example running a business, their own work or freelancing, studying or learning something, a personal project, good company and conversation). Send nothing else and end the turn.
+
+# agent-first-hello
+[private note] You have just been set up for this person, and this chat is empty: they have not written anything yet. Open it yourself, in your own voice, as your final plain-text reply. In two or three short sentences, say who you are and what you are here to do for them, using your job and the "Brief" so it is specific to them and not a generic introduction. Then offer one concrete first thing you could start on right away and ask if they want that, or something else first.
+
+Do not start any work yet and do not start a worker; this message is only the hello. The one exception: if your job names something you must do on a schedule (a daily summary at a set time, a weekly report), set it up now so it really happens. Call `enable_tools` with `routines`, then `create_routine`, and mention in your hello when they will hear from you.
+
+# companion-first-hello
+[private note] You have just come into this person's life, and this chat is empty: they have not written anything yet. Open the conversation yourself, in your own voice, as your final plain-text reply. Keep it short and natural, the way your character would say hello: a line about who you are, and something that invites them to talk, drawing on what the "Brief" and your job say they hoped for from you. No list of things you can do, and no formal introduction.

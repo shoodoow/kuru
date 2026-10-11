@@ -1,7 +1,7 @@
 import { memoryCorrectSchema, memoryFactSchema } from "@nano-agents/shared";
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import type { getDb } from "../db/client.js";
-import { memories, messages, type MemoryKind } from "../db/schema.js";
+import { accounts, memories, messages, type MemoryKind } from "../db/schema.js";
 
 type Database = Pick<ReturnType<typeof getDb>, "insert" | "select" | "delete" | "update">;
 
@@ -10,6 +10,8 @@ const pageSize = 5;
 const standingMemoryLimit = 12;
 /** Current facts pulled in for subjects named in the incoming message. */
 const entityFactLimit = 12;
+/** Longest brief stored for an account. */
+export const BRIEF_CHARS = 4_000;
 
 /**
  * Loads one cited message, or a short search page from one room.
@@ -212,4 +214,38 @@ export async function saveProfile(db: Database, accountId: string, body: string,
     .returning({ id: memories.id });
   if (!row) return;
   for (const old of previous) await supersede(db, accountId, old.id, row.id);
+}
+
+/** The account's brief: the standing page about the person, shown to every agent. */
+export async function briefFor(db: Pick<Database, "select">, accountId: string): Promise<string | null> {
+  const [row] = await db.select({ brief: accounts.brief }).from(accounts).where(eq(accounts.id, accountId));
+  return row?.brief?.trim() || null;
+}
+
+/** Replaces the account's brief. Input: db, account id, the new text. Output: the saved text. */
+export async function saveBrief(db: Pick<Database, "update">, accountId: string, brief: string): Promise<string> {
+  const text = brief.trim().slice(0, BRIEF_CHARS);
+  await db.update(accounts).set({ brief: text, briefUpdatedAt: new Date() }).where(eq(accounts.id, accountId));
+  return text;
+}
+
+/**
+ * Current facts kept by one agent only (not the account's shared facts).
+ * Why: the support agent reads these to see what another agent knows before it adds or corrects a fact.
+ * Input: db, account id, the agent whose memory to read. Output: newest first, at most 60.
+ */
+export async function agentFacts(db: Pick<Database, "select">, accountId: string, agentId: string) {
+  return db
+    .select({ id: memories.id, kind: memories.kind, subject: memories.subject, body: memories.body, createdAt: memories.createdAt })
+    .from(memories)
+    .where(
+      and(
+        eq(memories.accountId, accountId),
+        eq(memories.scope, "agent"),
+        eq(memories.agentId, agentId),
+        isNull(memories.supersededBy),
+      ),
+    )
+    .orderBy(desc(memories.createdAt))
+    .limit(60);
 }

@@ -643,16 +643,22 @@ function InstructionsPage({
   onChange: (profile: RosterAgent) => void;
   onSave: () => void | Promise<unknown>;
 }) {
+  // The default agent's role and job are set by the core; only its voice is the person's to change.
+  const fixed = profile.kind === "support";
   return (
     <View style={styles.screen}>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Text style={styles.fieldLabel}>Role</Text>
-        <TextInput
-          value={profile.role}
-          onChangeText={(role) => onChange({ ...profile, role })}
-          keyboardAppearance="dark"
-          style={styles.input}
-        />
+        {fixed ? null : (
+          <>
+            <Text style={styles.fieldLabel}>Role</Text>
+            <TextInput
+              value={profile.role}
+              onChangeText={(role) => onChange({ ...profile, role })}
+              keyboardAppearance="dark"
+              style={styles.input}
+            />
+          </>
+        )}
         <Text style={styles.fieldLabel}>Personality</Text>
         <TextInput
           value={profile.personality}
@@ -661,14 +667,18 @@ function InstructionsPage({
           multiline
           style={styles.area}
         />
-        <Text style={styles.fieldLabel}>Job</Text>
-        <TextInput
-          value={profile.jobDescription}
-          onChangeText={(jobDescription) => onChange({ ...profile, jobDescription })}
-          keyboardAppearance="dark"
-          multiline
-          style={styles.area}
-        />
+        {fixed ? null : (
+          <>
+            <Text style={styles.fieldLabel}>Job</Text>
+            <TextInput
+              value={profile.jobDescription}
+              onChangeText={(jobDescription) => onChange({ ...profile, jobDescription })}
+              keyboardAppearance="dark"
+              multiline
+              style={styles.area}
+            />
+          </>
+        )}
         <PrimaryButton label="Save changes" onPress={onSave} style={styles.saveSpace} />
       </ScrollView>
     </View>

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { prompt } from "./prompts.js";
 
 /**
  * One agent's composed identity (Phase 17).
@@ -11,7 +12,23 @@ export type AgentIdentity = {
   role: string;
   personality: string;
   job: string;
+  /** Picks the standing prompt. Left out, the agent is a work agent. */
+  kind?: string | null;
 };
+
+/** Kinds with their own prompt file; its `# prompt` section is the standing prompt. */
+const kindPromptFiles = new Set(["companion", "support"]);
+
+/**
+ * Reads the standing prompt for one agent kind.
+ * Why: an agent kept for conversation, or the default agent that sets the
+ * others up, must not be told it has workers and a computer.
+ * Input: the agent's kind. Output: the prompt text, read fresh so an edit applies on the next turn.
+ */
+export function standingPrompt(kind?: string | null): string {
+  if (kind && kindPromptFiles.has(kind)) return prompt(kind, "prompt");
+  return readFileSync(new URL("../../../../prompts/system.md", import.meta.url), "utf8").trim();
+}
 
 /**
  * Composes one agent's identity block in fixed order.
@@ -35,7 +52,5 @@ export function buildAgentIdentity(input: AgentIdentity): string {
  * Output: the standing system prompt followed by that identity block.
  */
 export function buildInstructions(identity: AgentIdentity): string {
-  const promptUrl = new URL("../../../../prompts/system.md", import.meta.url);
-  const systemPrompt = readFileSync(promptUrl, "utf8").trim();
-  return [systemPrompt, buildAgentIdentity(identity)].join("\n\n");
+  return [standingPrompt(identity.kind), buildAgentIdentity(identity)].join("\n\n");
 }

@@ -74,6 +74,8 @@ export default function AccountRoute() {
           if (agent) session.openDesktop(agent);
         }}
         onSaveProvider={(provider, secret, baseUrl) => session.saveProvider(provider, secret, baseUrl).catch(session.show)}
+        defaultModel={session.defaultModel}
+        onSaveDefaultModel={(provider, modelId) => session.saveDefaultModel(provider, modelId).catch(session.show)}
         onAddPlugin={(id) => void session.addPlugin(id).catch(session.show)}
         onRemovePlugin={session.removePlugin}
         onRefreshPlugins={() => void session.refreshPlugins().catch(session.show)}

@@ -5,7 +5,13 @@
  * when the room already uses it; otherwise the model turns it on with
  * `enable_tools`. Wording lives in prompts/tool-sets.md. DB: none.
  */
-import { toolNamesInSet, toolSetNames, toolsForSurface, type ToolSetName } from "@nano-agents/agent-tools";
+import {
+  requestableToolSetNames,
+  toolNamesInSet,
+  toolSetNames,
+  toolsForSurface,
+  type ToolSetName,
+} from "@nano-agents/agent-tools";
 import { prompt } from "../../prompt/prompts.js";
 
 const gatedBy = new Map<string, ToolSetName>(
@@ -16,6 +22,11 @@ const gatedBy = new Map<string, ToolSetName>(
 
 export function isToolSetName(value: string): value is ToolSetName {
   return (toolSetNames as readonly string[]).includes(value);
+}
+
+/** True for a set an agent may turn on itself. `support` is never one of them. */
+export function isRequestableToolSet(value: string): value is ToolSetName {
+  return (requestableToolSetNames as readonly string[]).includes(value);
 }
 
 /**
@@ -29,7 +40,7 @@ export function activeDispatcherTools(
   enabled: ReadonlySet<string>,
   blocked: ReadonlySet<string> = new Set(),
 ): string[] {
-  const allOn = toolSetNames.every((set) => enabled.has(set));
+  const allOn = requestableToolSetNames.every((set) => enabled.has(set));
   return allNames.filter((name) => {
     if (blocked.has(name)) return false;
     if (name === "enable_tools") return !allOn;
@@ -56,7 +67,11 @@ export function initialToolSets(input: {
   delegated?: boolean;
   /** A teammate in someone else's group: it hands work on by @mention, not with the lead's tools. */
   teamMember?: boolean;
+  /** The agent's kind. Companion and support agents never get the work sets. */
+  agentKind?: string | null;
 }): ToolSetName[] {
+  if (input.agentKind === "support") return ["support"];
+  if (input.agentKind === "companion") return [];
   const sets: ToolSetName[] = [];
   if (!input.teamMember && (input.roomKind === "group" || input.hasTeam || input.delegated)) sets.push("team");
   if (input.hasRoutines || input.routineWake) sets.push("routines");
@@ -71,3 +86,28 @@ export { toolNamesInSet };
  * pinged the person directly. A teammate replies in the chat and names who is next.
  */
 export const TEAM_MEMBER_BLOCKED = ["enable_tools", "notify_user"] as const;
+
+/** What an agent kept for conversation can do: talk, remember, look things up, pass a message on. */
+const COMPANION_TOOLS = [
+  "send_message",
+  "react_to_message",
+  "remember_fact",
+  "correct_memory",
+  "search_memory",
+  "read_history",
+  "web_search",
+  "web_fetch",
+  "message_agent",
+] as const;
+
+/**
+ * The only tools an agent of a restricted kind has, or undefined for a work agent.
+ * Why: an allow list, so a connector or plugin added later is left out by
+ * default. That is what keeps the support agent from doing the work itself
+ * and a companion from starting jobs.
+ */
+export function allowedForKind(kind?: string | null): readonly string[] | undefined {
+  if (kind === "companion") return COMPANION_TOOLS;
+  if (kind === "support") return [...COMPANION_TOOLS, ...toolNamesInSet("support")];
+  return undefined;
+}

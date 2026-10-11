@@ -20,7 +20,17 @@ describe("send_message protocol", () => {
   it("converts blocks to searchable text with fallbacks", () => {
     expect(blocksToText([{ kind: "text", markdown: "hello" }])).toBe("hello");
     expect(blocksToText([{ kind: "image", url: "https://x/y.png", alt: "cat" }])).toBe("[image: cat]");
-    expect(blocksToText([{ kind: "widget", widget: "checklist", props: {} }])).toBe("[widget:checklist]");
+    expect(blocksToText([{ kind: "widget", widget: "checklist", props: {} }])).toBe("(Shown to the person as a checklist card)");
+    // The agent reads this back as history, so it must say what was asked and
+    // answered, and must not look like markup the model could copy.
+    const asked = blocksToText([
+      { kind: "widget", widget: "question", props: { prompt: "What brings you here?", options: [{ label: "A business" }, "Just to talk"] } },
+    ]);
+    expect(asked).toBe('(Shown to the person as a tappable question card: "What brings you here?" Choices: A business | Just to talk. Not answered yet.)');
+    expect(asked).not.toContain("[widget:");
+    expect(
+      blocksToText([{ kind: "widget", widget: "question", props: { prompt: "When?", options: ["Now", "Later"], selected: "Later" } }]),
+    ).toContain("They picked: Later.");
   });
 
   it("rejects non-https image urls", () => {

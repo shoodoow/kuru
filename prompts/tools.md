@@ -177,3 +177,18 @@ Write or replace your team's brief: the goal, each teammate's part, the order wo
 # message_agent
 Reach another agent on this account, by the name shown under "Other agents". Use it when the person asks you to ask, tell, or hand something to that agent. Your message appears in that agent's own chat with the person as a message from you. Write everything they need; they have not seen this conversation.
 When you are asking for something, their answer comes back to this chat as a message from them and you are woken to pass it on, so your turn ends after the call. Set `wantsReply: false` when you are only passing information along.
+
+# set_brief
+Write or replace the account's brief: the one page about the person (who they are, what they do, who it is for, how they like to work) that every agent reads at the start of every turn. It replaces the whole page, so send the complete updated text, at most 4,000 characters.
+
+# hire_agent
+Create a new agent with its own private chat with the person. `kind` is `work` for an agent that does jobs on its own computer, or `companion` for one kept for conversation. `jobDescription` becomes its standing instructions, so write it as a full briefing in plain prose: what it is responsible for, what good looks like, the constraints, anything it must do on a schedule (with the time), and how the person likes to be worked with. Do not open it with "You are ...". `personality` is required: a sentence or two on how the agent talks. Create one only after the person has agreed to the agent you described. The new agent writes its own first message in its chat.
+
+# read_agent_memory
+Read the facts another agent keeps for itself, by the name shown under "Other agents". Use it to see what that agent knows before you add or correct anything.
+
+# remember_for_agent
+Save one durable fact into another agent's own memory, when only that agent needs it. A fact every agent should know belongs in the brief or in `remember_fact` with `scope: "user"`.
+
+# correct_agent_memory
+Replace one fact in another agent's own memory. Give the old text exactly as `read_agent_memory` shows it, and the replacement. The old fact is kept as history and no longer shown to the agent.

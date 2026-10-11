@@ -46,6 +46,8 @@ export type RunModelInput = TurnInput & {
   ) => { activeTools: string[]; note: string } | null;
   /** Tools offered on the next step, re-read every step; null offers all of them. */
   activeTools?: () => string[] | null;
+  /** "required" makes the model call one of the offered tools instead of answering in text. */
+  toolChoice?: "required";
 };
 
 /**
@@ -113,6 +115,7 @@ export async function runModelHarness(
       instructions: prompt.instructions,
       messages: prompt.messages,
       tools: input.tools,
+      ...(input.toolChoice ? { toolChoice: input.toolChoice } : {}),
       ...(input.mode === "dispatcher" ? { maxOutputTokens: DISPATCHER_MAX_OUTPUT_TOKENS } : {}),
       stopWhen: [
         isStepCount(maxSteps),

@@ -3,6 +3,7 @@ import {
   agentProfileSchema,
   messageCreateSchema,
   roomCreateSchema,
+  type AgentKind,
   type AgentProfile,
   type MarkGender,
   type MarkMaterial,
@@ -48,6 +49,8 @@ export type RosterAgent = {
   role: string;
   personality: string;
   jobDescription: string;
+  /** What the agent is for. `support` is the account's default agent. */
+  kind: AgentKind;
   provider: ProviderSetting["provider"];
   modelId: string;
   linuxProfile: string | null;
@@ -82,7 +85,11 @@ export type ToolApproval = {
 export type AccountSettings = {
   autoReview: boolean;
   timezone: string;
+  /** The model new agents start on; null until setup is finished. */
+  defaultModel?: DefaultModelSetting | null;
 };
+
+export type DefaultModelSetting = { provider: ProviderSetting["provider"]; modelId: string };
 
 export type PluginCard = {
   id: string;
@@ -229,7 +236,7 @@ export type CoreClient = {
   listAgents: (accountId: string) => Promise<RosterAgent[]>;
   hireAgent: (
     accountId: string,
-    input: { name: string; role: string; personality?: string; jobDescription: string; provider: ProviderSetting["provider"]; modelId: string },
+    input: { name: string; role: string; personality?: string; jobDescription: string; kind?: "work" | "companion"; provider: ProviderSetting["provider"]; modelId: string },
   ) => Promise<RosterAgent>;
   hireSubagent: (
     accountId: string,
@@ -283,6 +290,9 @@ export type CoreClient = {
   reject: (accountId: string, proposalId: string) => Promise<Proposal[]>;
   getSettings: (accountId: string) => Promise<AccountSettings>;
   setAutoReview: (accountId: string, autoReview: boolean) => Promise<AccountSettings>;
+  setDefaultModel: (accountId: string, model: DefaultModelSetting) => Promise<DefaultModelSetting>;
+  /** Asks a new chat's agent to write its first message. */
+  sayHello: (accountId: string, conversationId: string) => Promise<unknown>;
   rememberTimezone: (accountId: string, timezone: string) => Promise<AccountSettings>;
   listToolApprovals: (accountId: string) => Promise<ToolApproval[]>;
   approveTool: (accountId: string, approvalId: string) => Promise<ToolApproval[]>;
@@ -361,6 +371,13 @@ export function createCore(baseUrl = coreBaseUrl(), fetchImpl: typeof fetch = fe
     reject: (accountId, proposalId) => decide(baseUrl, accountId, proposalId, "reject", fetchImpl),
     getSettings: (accountId) => getSettings(baseUrl, accountId, fetchImpl),
     setAutoReview: (accountId, autoReview) => setAutoReview(baseUrl, accountId, autoReview, fetchImpl),
+    sayHello: (accountId, conversationId) =>
+      readJson<unknown>(fetchImpl, `${baseUrl}/conversations/${conversationId}/hello?accountId=${accountId}`, { method: "POST" }),
+    setDefaultModel: (accountId, model) =>
+      readJson<DefaultModelSetting>(fetchImpl, `${baseUrl}/accounts/${accountId}/default-model`, {
+        method: "PUT",
+        body: JSON.stringify(model),
+      }),
     rememberTimezone: (accountId, timezone) => rememberTimezone(baseUrl, accountId, timezone, fetchImpl),
     listToolApprovals: (accountId) => listToolApprovals(baseUrl, accountId, fetchImpl),
     approveTool: (accountId, approvalId) => decideTool(baseUrl, accountId, approvalId, "approve", fetchImpl),
@@ -470,7 +487,7 @@ async function listAgents(baseUrl: string, accountId: string, fetchImpl: typeof 
 async function hireAgent(
   baseUrl: string,
   accountId: string,
-  input: { name: string; role: string; personality?: string; jobDescription: string; provider: ProviderSetting["provider"]; modelId: string },
+  input: { name: string; role: string; personality?: string; jobDescription: string; kind?: "work" | "companion"; provider: ProviderSetting["provider"]; modelId: string },
   fetchImpl: typeof fetch,
 ): Promise<RosterAgent> {
   const body = agentCreateSchema.parse({
@@ -479,6 +496,7 @@ async function hireAgent(
     role: input.role,
     personality: input.personality ?? "",
     jobDescription: input.jobDescription,
+    kind: input.kind ?? "work",
     provider: input.provider,
     modelId: input.modelId,
   });

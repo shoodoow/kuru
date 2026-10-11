@@ -5,7 +5,7 @@ import express, { type Express } from "express";
 import { pinoHttp } from "pino-http";
 import { createAuth } from "../auth/auth.js";
 import { config } from "../config.js";
-import { createAccount } from "../roster/roster.js";
+import { createAccount, ensureSupportAgentQuietly } from "../roster/roster.js";
 import { logger, requireSession, type AppContext, type Database, type Generate } from "./context.js";
 import {
   AUTH_REQUESTS_PER_MINUTE,
@@ -137,7 +137,9 @@ function mountRoutes(app: Express, ctx: AppContext): void {
 
   if (ctx.openAccess) {
     app.post("/accounts", async (req, res) => {
-      res.status(201).json(await createAccount(ctx.db, req.body));
+      const account = await createAccount(ctx.db, req.body);
+      await ensureSupportAgentQuietly(ctx.db, account.id, ctx.generate);
+      res.status(201).json(account);
     });
   }
 

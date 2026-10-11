@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sendMessageInputSchema } from "@nano-agents/agent-tools";
-import { normalizeSendMessageInput, stripInternalChatMarks } from "./normalize-send-message.js";
+import { dropRepeatedQuestion, normalizeSendMessageInput, stripInternalChatMarks } from "./normalize-send-message.js";
 
 describe("normalizeSendMessageInput", () => {
   it("strips message ids and worker labels before they reach chat", () => {
@@ -62,5 +62,22 @@ describe("normalizeSendMessageInput", () => {
       widget: "question",
       props: { prompt: "When?" },
     });
+  });
+});
+
+describe("dropRepeatedQuestion", () => {
+  const card = { kind: "widget", widget: "question", props: { prompt: "What kind of freelance work do you do?", options: [{ label: "Design" }] } };
+
+  it("cuts a question from the text when the card after it asks the same thing", () => {
+    expect(
+      dropRepeatedQuestion([{ kind: "text", markdown: "Good, so it's your own work. What kind of freelance work do you do?" }, card]),
+    ).toEqual([{ kind: "text", markdown: "Good, so it's your own work." }, card]);
+    // Nothing but the question: the text block goes.
+    expect(dropRepeatedQuestion([{ kind: "text", markdown: "What kind of freelance work do you do?" }, card])).toEqual([card]);
+  });
+
+  it("leaves text alone when it does not repeat the card", () => {
+    const blocks = [{ kind: "text", markdown: "Good, so it's your own work." }, card];
+    expect(dropRepeatedQuestion(blocks)).toEqual(blocks);
   });
 });

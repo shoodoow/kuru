@@ -141,3 +141,51 @@ export function finalTextIsReply(stepToolNames: string[][]): boolean {
   if (lastBubble < 0) return true;
   return stepToolNames.slice(lastBubble).some((names) => names.some(isWorkTool));
 }
+
+/**
+ * True when a plain reply writes a card as text instead of sending one.
+ * Why: a card reaches the person only through send_message. A reply holding
+ * "[widget:question]", or a copy of how history describes an earlier card,
+ * left them with a promise of a question and nothing to tap.
+ */
+export function announcesUnsentCard(text: string): boolean {
+  return /\[widget:[a-z]/i.test(text) || text.includes("(Shown to the person as a");
+}
+
+/**
+ * True when a plain reply ends by asking the person something.
+ * Why: the default agent must ask with a tappable card. Small models say "pick
+ * what sounds closest:" and then send no card, which leaves the person
+ * answering "What?". The loop uses this to make the card get sent.
+ * Input: the reply text. Output: true when its last lines hold a question or lead into a list of choices.
+ */
+export function asksInPlainText(text: string): boolean {
+  const tail = text.trim().slice(-400);
+  return tail.includes("?") || /[:：]\s*$/.test(tail);
+}
+
+/**
+ * Removes reasoning a model wrote into its reply by mistake.
+ * Why: small models sometimes open the reply with a long bracketed note to
+ * themselves ("(Let me think about what just happened...)"), which the person
+ * then reads as the message.
+ * Input: the reply text. Output: the text without that opening note.
+ */
+export function stripLeakedThinking(text: string): string {
+  const trimmed = text.trimStart();
+  if (!trimmed.startsWith("(")) return text;
+  let depth = 0;
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const char = trimmed[index];
+    if (char === "(") depth += 1;
+    else if (char === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        const note = trimmed.slice(0, index + 1);
+        const toSelf = /\b(let me|i need to|i should|i'll need|the person (wants|is|said)|the user (wants|is|said))\b/i.test(note);
+        return note.length > 200 && toSelf ? trimmed.slice(index + 1).trimStart() : text;
+      }
+    }
+  }
+  return text;
+}

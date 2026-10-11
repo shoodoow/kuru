@@ -8,7 +8,7 @@ import type { getDb } from "../db/client.js";
 import { accounts, agents, conversations, delegations, jobs, messages, reactions, routines, summaryItems } from "../db/schema.js";
 import { buildContext, type PersonContext } from "../memory/context.js";
 import { stallMessage } from "./narration-stall.js";
-import { factsAboutMentioned, memoriesFor, profileFor } from "../memory/memory.js";
+import { briefFor, factsAboutMentioned, memoriesFor, profileFor } from "../memory/memory.js";
 import { recallHits } from "../memory/recall.js";
 import { hitLine } from "../memory/search.js";
 import { accountHome, createProfile } from "../linux/linux.js";
@@ -20,10 +20,10 @@ import { blocksToText, mirrorGroupSpeechToOwnerDm, type TurnEvent } from "../roo
 import { runAgentLoop } from "./agent-loop.js";
 import { teamContextFor } from "./team-chat.js";
 import { computerFacts } from "../computer/computer.js";
-import { initialToolSets, TEAM_MEMBER_BLOCKED } from "./tools/tool-sets.js";
+import { allowedForKind, initialToolSets, TEAM_MEMBER_BLOCKED } from "./tools/tool-sets.js";
 import { recentWorkLogs, saveWorkLog, weaveWorkLogs } from "./work-log.js";
 import { mentionedAgents } from "./mentions.js";
-import { toModelMessages, type ReplyParent } from "./prompt-media.js";
+import { replaySentCards, toModelMessages, type ReplyParent } from "./prompt-media.js";
 import type { GenerateResult, TurnInput } from "./types.js";
 import { tailSlice, unwrapGenerateResult } from "./util.js";
 import { createTraceSession } from "./trace/plugins.js";
@@ -123,10 +123,11 @@ export async function speakOnce(
     ...recent.slice(-3).map((message) => message.body.slice(0, 600)),
     ...(cue ? [cue.slice(0, 600)] : []),
   ].join("\n");
-  const [standing, mentioned, profile] = await Promise.all([
+  const [standing, mentioned, profile, brief] = await Promise.all([
     memoriesFor(db, accountId, agentId),
     factsAboutMentioned(db, accountId, agentId, `${lastUserMessage}\n${recallQuery}`).catch(() => []),
     profileFor(db, accountId).catch(() => null),
+    briefFor(db, accountId).catch(() => null),
   ]);
   // Facts about whoever was just named come first; then the newest standing facts.
   const factIds = new Set<string>();
@@ -235,6 +236,7 @@ export async function speakOnce(
     .where(and(eq(routines.accountId, accountId), eq(routines.agentId, agentId)));
   const teamMember = room.kind === "group" && Boolean(room.ownerAgentId) && room.ownerAgentId !== agent.id;
   const toolSets = initialToolSets({
+    agentKind: agent.kind,
     teamMember,
     roomKind: room.kind,
     hasTeam: person.teammates.length > 0 || (person.groups?.length ?? 0) > 0,
@@ -250,11 +252,13 @@ export async function speakOnce(
       role: agent.role,
       personality: agent.personality,
       job: agent.jobDescription,
+      kind: agent.kind,
     },
     summary: summary.map((item) => ({ key: item.key, body: item.body, messageId: item.messageId, level: item.level })),
     messages: recent.map((message) => ({ body: tailSlice(message.body) })),
     memories: facts.map((fact) => ({ body: fact.body, subject: fact.subject })),
     profile,
+    brief,
     recall,
     catalog,
     room: {
@@ -313,13 +317,15 @@ export async function speakOnce(
   for (const row of reactionRows) {
     personReactions.set(row.messageId, [...(personReactions.get(row.messageId) ?? []), row.emoji]);
   }
-  const modelMessages = weaveWorkLogs(
-    recent,
-    toModelMessages(recent, replyParents, person.timezone, personReactions, {
-      selfId: agent.id,
-      names: speakerNames,
-    }),
-    workLogs,
+  const modelMessages = replaySentCards(
+    weaveWorkLogs(
+      recent,
+      toModelMessages(recent, replyParents, person.timezone, personReactions, {
+        selfId: agent.id,
+        names: speakerNames,
+      }),
+      workLogs,
+    ),
   );
   if (cue) modelMessages.push({ role: "user", content: cue });
   const useStub = typeof generate === "function";
@@ -368,6 +374,8 @@ export async function speakOnce(
           hiddenTurn: Boolean(cue),
           toolSets,
           blockedTools: teamMember ? [...TEAM_MEMBER_BLOCKED] : undefined,
+          allowedTools: allowedForKind(agent.kind),
+          askWithCards: agent.kind === "support",
           generate,
         });
   let result: ReturnType<typeof unwrapGenerateResult>;
@@ -425,7 +433,7 @@ export async function speakOnce(
   if (result.quiet) return;
   // Teammates' lines reach the model as "[Name]: ...", and it copies that
   // label onto its own reply. The room already shows who is speaking.
-  const raw = result.text.trim().replace(/^\[[^\]\n]{1,40}\]:\s*/, "");
+  const raw = stripWidgetEcho(result.text.trim().replace(/^\[[^\]\n]{1,40}\]:\s*/, ""));
   // Models copy the "[file: name (saved at /path)]" form history shows them.
   // Deliver those as real attachments instead of a line of text.
   const parsedReply = fileBlocksFromText(raw);
@@ -577,4 +585,18 @@ async function loadReplyParents(
     );
   for (const row of rows) parents.set(row.id, { body: row.body, agentId: row.agentId });
   return parents;
+}
+
+/**
+ * Removes a widget written as text from a plain reply.
+ * Why: a card exists only when the model calls send_message. Writing its
+ * name, or copying how history describes an earlier card, showed the person
+ * a line like "[widget:question]" with nothing to tap.
+ */
+export function stripWidgetEcho(text: string): string {
+  return text
+    .replace(/\[widget:[a-z][a-z0-9_-]*\s*(\{(?:[^{}]|\{[^{}]*\})*\})?\s*\]/gi, "")
+    .replace(/\(Shown to the person as a [^\n]*? card[^\n]*\)/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

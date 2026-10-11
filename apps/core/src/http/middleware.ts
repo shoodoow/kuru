@@ -4,7 +4,7 @@ import { rateLimit } from "express-rate-limit";
 import { localBrowserOrigins } from "../auth/auth.js";
 import { config } from "../config.js";
 import { RoomCapacityError } from "../rooms/rooms.js";
-import { AgentNameError } from "../roster/roster.js";
+import { AgentNameError, MissingProviderKeyError, ProtectedAgentError } from "../roster/roster.js";
 import { logger, type Guard } from "./context.js";
 
 export const AUTH_REQUESTS_PER_MINUTE = 60;
@@ -99,7 +99,12 @@ export function onError(error: unknown, _req: Request, res: Response, _next: Nex
   if (res.headersSent) {
     return;
   }
-  if (error instanceof RoomCapacityError || error instanceof AgentNameError) {
+  if (
+    error instanceof RoomCapacityError ||
+    error instanceof AgentNameError ||
+    error instanceof ProtectedAgentError ||
+    error instanceof MissingProviderKeyError
+  ) {
     res.status(409).json({ error: error.message });
     return;
   }

@@ -11,6 +11,8 @@ import {
   contextLine as formatContextLine,
   contextUsageShare,
   createCore,
+  type AccountSettings,
+  type DefaultModelSetting,
   type MessageBlock,
   type Proposal,
   type PluginList,
@@ -212,6 +214,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
   const [autoReview, setAutoReview] = useState(true);
+  const [defaultModel, setDefaultModel] = useState<DefaultModelSetting | null>(null);
+  // True for a signed-in account that has no default agent yet: the inbox shows the setup guide.
+  const [setupNeeded, setSetupNeeded] = useState(false);
   const [autoTimeZone, setAutoTimeZone] = useState(true);
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
@@ -249,11 +254,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const [roster, configured, settings] = await Promise.all([
       core.listAgents(accountIdFromSession),
       core.listProviders(accountIdFromSession),
-      core.getSettings(accountIdFromSession).catch(() => ({ autoReview: true, timezone: "" })),
+      core.getSettings(accountIdFromSession).catch((): AccountSettings => ({ autoReview: true, timezone: "" })),
     ]);
     setAgents(roster);
     setProviders(configured);
     setAutoReview(settings.autoReview);
+    setDefaultModel(settings.defaultModel ?? null);
+    setSetupNeeded(!roster.some((agent) => agent.kind === "support"));
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (zone) {
       await core.rememberTimezone(accountIdFromSession, zone).catch(() => {});
@@ -401,6 +408,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const roster = await core.listAgents(id);
     setAgents(roster);
     setProviders(await core.listProviders(id));
+    setDefaultModel((await core.getSettings(id).catch(() => null))?.defaultModel ?? null);
+    setSetupNeeded(!roster.some((agent) => agent.kind === "support"));
     setMenu("menu");
     setNote("");
     await loadGroups(id, roster);
@@ -420,12 +429,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     jobDescription: string,
     provider: ProviderSetting["provider"],
     modelId: string,
+    kind: "work" | "companion" = "work",
   ): Promise<void> {
     if (!accountId.trim()) {
       throw new Error("Sign in first, then create a chat.");
     }
-    const hired = await core.hireAgent(accountId, { name, role, jobDescription, provider, modelId });
+    const hired = await core.hireAgent(accountId, { name, role, jobDescription, kind, provider, modelId });
     const room = await core.openChat(accountId, hired);
+    // The agent opens the chat itself; if that fails the chat just starts empty.
+    void core.sayHello(accountId, room.id).catch(() => {});
     const rows = await core.listAgents(accountId);
     const fresh = rows.find((row) => row.id === hired.id) ?? hired;
     setAgents(rows);
@@ -1279,6 +1291,33 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     notify("Provider saved");
   }
 
+  /**
+   * Finishes first-time setup: saves the provider key and the default model.
+   * The core then creates the default agent, and its chat opens as it writes its first message.
+   * Input: provider, a new key (blank keeps a saved one), an optional server address, and the model id.
+   */
+  async function finishSetup(
+    provider: ProviderSetting["provider"],
+    secret: string,
+    baseUrl: string | null,
+    modelId: string,
+  ): Promise<void> {
+    if (secret || baseUrl) await core.saveProvider(accountId, { provider, secret, baseUrl });
+    setDefaultModel(await core.setDefaultModel(accountId, { provider, modelId }));
+    setProviders(await core.listProviders(accountId));
+    const rows = await core.listAgents(accountId);
+    setAgents(rows);
+    const support = rows.find((agent) => agent.kind === "support");
+    setSetupNeeded(!support);
+    if (support) await openAgent(support);
+  }
+
+  /** Changes the model new agents start on. Input: provider and model id. */
+  async function saveDefaultModel(provider: ProviderSetting["provider"], modelId: string): Promise<void> {
+    setDefaultModel(await core.setDefaultModel(accountId, { provider, modelId }));
+    notify("Default model saved");
+  }
+
   async function refreshPlugins(): Promise<void> {
     if (!accountId) return;
     setPlugins(await core.listPlugins(accountId));
@@ -1393,6 +1432,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     pickAvatar,
     pauseRoutine,
     saveProvider,
+    finishSetup,
+    saveDefaultModel,
+    defaultModel,
+    setupNeeded,
     refreshPlugins,
     addPlugin,
     saveCustomPlugin,
@@ -1501,6 +1544,10 @@ type SessionValue = {
   pickAvatar: () => Promise<void>;
   pauseRoutine: (routine: Routine, paused: boolean) => Promise<void>;
   saveProvider: (provider: ProviderSetting["provider"], secret: string, baseUrl: string | null) => Promise<void>;
+  finishSetup: (provider: ProviderSetting["provider"], secret: string, baseUrl: string | null, modelId: string) => Promise<void>;
+  saveDefaultModel: (provider: ProviderSetting["provider"], modelId: string) => Promise<void>;
+  defaultModel: DefaultModelSetting | null;
+  setupNeeded: boolean;
   refreshPlugins: () => Promise<void>;
   addPlugin: (id: string) => Promise<void>;
   saveCustomPlugin: (name: string, url: string, secret: string) => Promise<void>;
@@ -1513,7 +1560,14 @@ type SessionValue = {
   openDesktop: (agent: RosterAgent) => void;
   leaveChat: (roomId: string) => void;
   switchAccount: (id: string) => Promise<void>;
-  createChat: (name: string, role: string, jobDescription: string, provider: ProviderSetting["provider"], modelId: string) => Promise<void>;
+  createChat: (
+    name: string,
+    role: string,
+    jobDescription: string,
+    provider: ProviderSetting["provider"],
+    modelId: string,
+    kind?: "work" | "companion",
+  ) => Promise<void>;
   createGroup: (title: string, agentIds: string[]) => Promise<void>;
   signOut: () => void;
   deleteAccount: (id: string) => void;

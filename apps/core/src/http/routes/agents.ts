@@ -140,6 +140,7 @@ export function agentsRoutes(ctx: AppContext, guard: Guard): Router {
         role: agent.role,
         personality: agent.personality,
         job: agent.jobDescription,
+        kind: agent.kind,
       }),
     });
   });

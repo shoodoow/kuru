@@ -90,7 +90,7 @@ export function InboxScreen({
               </ScrollView>
             ) : null}
             {agents.length === 0 ? (
-              <Text style={styles.empty}>Sign up, then create a chat or a group.</Text>
+              <Text style={styles.empty}>Sign in to get started.</Text>
             ) : filtered.length === 0 ? (
               <Text style={styles.empty}>No matching agents.</Text>
             ) : null}

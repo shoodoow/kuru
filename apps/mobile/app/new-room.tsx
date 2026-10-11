@@ -7,9 +7,11 @@ export default function NewRoomRoute() {
     <NewRoomSheet
       agents={session.agents}
       providers={session.providers}
-      onCreateChat={(name, role, jobDescription, provider, modelId) =>
-        session.createChat(name, role, jobDescription, provider, modelId)
+      defaultModel={session.defaultModel}
+      onCreateChat={(name, role, jobDescription, provider, modelId, agentKind) =>
+        session.createChat(name, role, jobDescription, provider, modelId, agentKind)
       }
+      onAskSupport={(agent) => session.openAgent(agent)}
       onCreateGroup={(title, agentIds) => session.createGroup(title, agentIds)}
     />
   );

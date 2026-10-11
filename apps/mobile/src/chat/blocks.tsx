@@ -1,9 +1,10 @@
-import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import type { MessageBlock } from "../api";
+import { useState, type ReactNode } from "react";
+import { Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
+import type { MessageBlock, RosterAgent } from "../api";
 import { blocksFromMaybeWidgetText } from "@nano-agents/shared";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
-import { IconClose, IconMonitor, IconShield } from "../ui/icons";
+import { Avatar } from "../ui/Avatar";
+import { IconCheck, IconClose, IconMonitor, IconShield } from "../ui/icons";
 import { FileCard } from "./FileViewer";
 import { CopyButton, HorizontalTableScroll, MarkdownText } from "./MarkdownText";
 import { ImageGroup, VideoBlock, isVideoBlock, openFileBlock, type FetchBlob, type ImageBlock } from "./media";
@@ -19,6 +20,8 @@ type BlockHandlers = {
   onSubmitSecret?: (name: string, secret: string) => Promise<void>;
   onOpenDesktop?: () => void;
   onOpenAgent?: (agentId: string) => void;
+  /** Looks an agent up by id, so an agent card can show its face and role. */
+  agentInfo?: (agentId: string) => RosterAgent | undefined;
   fetchBlob?: FetchBlob;
 };
 
@@ -26,22 +29,54 @@ type BlockHandlers = {
  * Renders every block of one message, in order.
  * Why: pictures that sit next to each other belong together, so a run of
  * image blocks becomes one album instead of a stack of full-size photos.
- * Input: the blocks + the same handlers BlockView takes. Output: the views.
+ * Only words go in a chat bubble: with `bubbleStyle`, each run of text blocks
+ * is wrapped in one, and cards, pictures, files and code stand on their own,
+ * since they already have a surface and a bubble around a card reads as a box in a box.
+ * Input: the blocks, the handlers BlockView takes, an optional bubble style,
+ * and an optional `lead` (a reply quote) shown at the top of the first bubble.
+ * Output: the views.
  */
-export function MessageBlocks({ blocks, ...handlers }: BlockHandlers & { blocks: MessageBlock[] }) {
+export function MessageBlocks({
+  blocks,
+  bubbleStyle,
+  lead,
+  ...handlers
+}: BlockHandlers & { blocks: MessageBlock[]; bubbleStyle?: StyleProp<ViewStyle>; lead?: ReactNode }) {
   const groups: (MessageBlock | ImageBlock[])[] = [];
   for (const block of blocks) {
     const last = groups[groups.length - 1];
     if (block.kind === "image" && Array.isArray(last)) last.push(block);
     else groups.push(block.kind === "image" ? [block] : block);
   }
+  const render = (group: MessageBlock | ImageBlock[], key: number) =>
+    Array.isArray(group) ? (
+      <ImageGroup key={key} images={group} fetchBlob={handlers.fetchBlob} />
+    ) : (
+      <BlockView key={key} block={group} {...handlers} />
+    );
+  if (!bubbleStyle) {
+    return <>{groups.map(render)}</>;
+  }
+  // Runs of text become one bubble each; everything else is a segment of its own.
+  const segments: { text: boolean; groups: (MessageBlock | ImageBlock[])[] }[] = [];
+  for (const group of groups) {
+    const text = !Array.isArray(group) && group.kind === "text";
+    const last = segments[segments.length - 1];
+    if (text && last?.text) last.groups.push(group);
+    else segments.push({ text, groups: [group] });
+  }
+  const firstText = segments.findIndex((segment) => segment.text);
   return (
     <>
-      {groups.map((group, index) =>
-        Array.isArray(group) ? (
-          <ImageGroup key={index} images={group} fetchBlob={handlers.fetchBlob} />
+      {lead && firstText === -1 ? <View style={bubbleStyle}>{lead}</View> : null}
+      {segments.map((segment, index) =>
+        segment.text ? (
+          <View key={index} style={bubbleStyle}>
+            {index === firstText ? lead : null}
+            {segment.groups.map(render)}
+          </View>
         ) : (
-          <BlockView key={index} block={group} {...handlers} />
+          render(segment.groups[0]!, index)
         ),
       )}
     </>
@@ -49,7 +84,7 @@ export function MessageBlocks({ blocks, ...handlers }: BlockHandlers & { blocks:
 }
 
 /**
- * Renders one rich MessageBlock inside a bubble.
+ * Renders one rich MessageBlock.
  * Why: send_message turns carry text/image/code/file/widget payloads; the
  * thread must show them inline instead of raw JSON or bare URLs.
  * Oversized images arrive as blobRefs (bytes stripped from lists) and resolve
@@ -67,6 +102,7 @@ export function BlockView({
   onSubmitSecret,
   onOpenDesktop,
   onOpenAgent,
+  agentInfo,
   fetchBlob,
 }: BlockHandlers & { block: MessageBlock }) {
   if (block.kind === "text") {
@@ -87,6 +123,7 @@ export function BlockView({
                 onSubmitSecret={onSubmitSecret}
                 onOpenDesktop={onOpenDesktop}
                 onOpenAgent={onOpenAgent}
+                agentInfo={agentInfo}
                 fetchBlob={fetchBlob}
               />
             ))}
@@ -128,6 +165,7 @@ export function BlockView({
       onSubmitSecret={onSubmitSecret}
       onOpenDesktop={onOpenDesktop}
       onOpenAgent={onOpenAgent}
+      agentInfo={agentInfo}
     />
   );
 }
@@ -140,7 +178,18 @@ export function BlockView({
  * into the chat, and secrets save to the write-only vault.
  * Input: widget kind + props + handlers. Output: card view or fallback text.
  */
-function WidgetView({
+function WidgetView(input: Parameters<typeof WidgetBody>[0]) {
+  // Cards take the full width a message may use (85% of the thread, the same
+  // limit as a text bubble), so option labels have room and cards line up.
+  const { width } = useWindowDimensions();
+  return (
+    <View style={{ width: Math.min(Math.floor((width - 24) * 0.85), 460) }}>
+      <WidgetBody {...input} />
+    </View>
+  );
+}
+
+function WidgetBody({
   widget,
   props,
   messageId,
@@ -151,7 +200,9 @@ function WidgetView({
   onSubmitSecret,
   onOpenDesktop,
   onOpenAgent,
+  agentInfo,
 }: {
+  agentInfo?: (agentId: string) => RosterAgent | undefined;
   widget: string;
   props: Record<string, unknown>;
   messageId?: string;
@@ -215,20 +266,43 @@ function WidgetView({
   }
   if (widget === "agent-card") {
     const agentId = typeof props.agentId === "string" ? props.agentId : "";
-    const label = String(props.label ?? props.name ?? "Subagent");
+    const known = agentId ? agentInfo?.(agentId) : undefined;
+    const label = known?.label || known?.name || String(props.label ?? props.name ?? "New agent");
+    const role = known?.role?.trim() || (typeof props.role === "string" ? props.role.trim() : "");
+    const canOpen = Boolean(agentId && onOpenAgent);
     return (
-      <Pressable
-        style={styles.card}
-        disabled={!agentId || !onOpenAgent}
-        onPress={() => agentId && onOpenAgent?.(agentId)}
-        accessibilityRole="button"
-        accessibilityLabel={`Open ${label}`}
-      >
-        <Text style={styles.cardTitle}>🤖 {label}</Text>
-        <Text style={styles.cardLine}>
-          {agentId && onOpenAgent ? "Tap to open their chat." : "Specialist joined the room."}
-        </Text>
-      </Pressable>
+      <View style={styles.surface}>
+        <View style={styles.agentHead}>
+          <Avatar
+            id={agentId || label}
+            size={48}
+            round
+            shape={known?.markShape ?? null}
+            color={known?.markColor ?? null}
+            material={known?.markMaterial ?? null}
+            style={known?.markStyle ?? null}
+            gender={known?.markGender ?? null}
+            photo={known?.avatarUrl ?? null}
+          />
+          <View style={styles.agentText}>
+            <Text style={styles.agentName} numberOfLines={1}>
+              {label}
+            </Text>
+            <Text style={styles.agentRole} numberOfLines={2}>
+              {role || "Joined your team"}
+            </Text>
+          </View>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Open chat with ${label}`}
+          disabled={!canOpen}
+          onPress={() => agentId && onOpenAgent?.(agentId)}
+          style={({ pressed }) => [styles.agentOpen, !canOpen ? styles.agentOpenOff : null, pressed ? styles.pressed : null]}
+        >
+          <Text style={styles.agentOpenText}>Open chat</Text>
+        </Pressable>
+      </View>
     );
   }
   if (widget === "poll") {
@@ -367,7 +441,9 @@ function parseQuestionOptions(raw: unknown): QuestionOption[] {
 }
 
 /**
- * Compact single-choice card. Tap stays on the widget — no user chat bubble.
+ * Single-choice card: a title, lettered rows in one inset list, and a hint
+ * that typing an answer is fine too. A tap answers at once and stays on the
+ * card (no chat bubble from the person).
  */
 function QuestionWidget({
   prompt,
@@ -386,6 +462,7 @@ function QuestionWidget({
 }) {
   const [picked, setPicked] = useState(selected);
   const [custom, setCustom] = useState("");
+  const [dismissed, setDismissed] = useState(false);
   const done = picked !== null && picked.length > 0;
 
   function pick(value: string, label: string): void {
@@ -394,36 +471,67 @@ function QuestionWidget({
     onPick({ value: value.trim(), label: label.trim() || value.trim() });
   }
 
+  if (dismissed && !done) {
+    return <Text style={styles.dismissed}>Question dismissed. You can still answer in the chat.</Text>;
+  }
   return (
-    <View style={styles.questionCard}>
-      <Text style={styles.questionPrompt}>{prompt}</Text>
-      {helpText ? <Text style={styles.questionHelp}>{helpText}</Text> : null}
-      <View style={styles.questionOptions}>
-        {options.map((option) => {
+    <View style={styles.surface}>
+      <View style={styles.pollHead}>
+        <Text style={styles.pollTitle}>{prompt}</Text>
+        {done ? null : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss question"
+            hitSlop={8}
+            onPress={() => setDismissed(true)}
+            style={styles.pollX}
+          >
+            <IconClose />
+          </Pressable>
+        )}
+      </View>
+      {helpText ? <Text style={styles.pollDesc}>{helpText}</Text> : null}
+      <View style={styles.pollOptions}>
+        {options.map((option, index) => {
           const on = picked === option.value;
+          const letter = POLL_LETTERS[index] ?? String(index + 1);
           return (
             <Pressable
               key={option.value}
               accessibilityRole="button"
+              accessibilityState={{ selected: on, disabled: done }}
+              accessibilityLabel={`${letter}. ${option.label}`}
               disabled={done}
               onPress={() => pick(option.value, option.label)}
-              style={[
-                styles.questionBtn,
-                option.style === "primary" ? styles.questionPrimary : null,
-                option.style === "danger" ? styles.questionDanger : null,
-                on ? styles.questionSelected : null,
-                done && !on ? styles.questionDone : null,
+              style={({ pressed }) => [
+                styles.pollRow,
+                index > 0 ? styles.pollDivider : null,
+                on ? styles.pollRowOn : null,
+                done && !on ? styles.questionRowDone : null,
+                pressed ? styles.pollRowPressed : null,
               ]}
             >
-              <Text
-                style={[
-                  styles.questionLabel,
-                  option.style === "primary" || option.style === "danger" || on ? styles.questionLabelOn : null,
-                ]}
-                numberOfLines={1}
-              >
-                {option.label}
-              </Text>
+              <View style={[styles.pollLetter, on ? styles.pollLetterOn : null]}>
+                <Text style={[styles.pollLetterText, on ? styles.pollLetterTextOn : null]}>{letter}</Text>
+              </View>
+              <View style={styles.questionRowText}>
+                <Text
+                  style={[
+                    styles.questionLabel,
+                    option.style === "danger" ? styles.pollDanger : null,
+                    option.style === "primary" ? styles.questionPrimaryLabel : null,
+                  ]}
+                  numberOfLines={3}
+                >
+                  {option.label}
+                </Text>
+                {option.description ? (
+                  <Text style={styles.questionDescription} numberOfLines={2}>
+                    {option.description}
+                  </Text>
+                ) : null}
+              </View>
+              {on ? <IconCheck /> : null}
             </Pressable>
           );
         })}
@@ -433,7 +541,7 @@ function QuestionWidget({
           <TextInput
             value={custom}
             onChangeText={setCustom}
-            placeholder="Something else"
+            placeholder="Write your own answer"
             placeholderTextColor={colors.muted}
             keyboardAppearance="dark"
             style={styles.questionCustom}
@@ -448,7 +556,7 @@ function QuestionWidget({
           </Pressable>
         </View>
       ) : null}
-      {done ? <Text style={styles.questionPicked}>Selected</Text> : null}
+      <Text style={styles.pollHint}>{done ? "Answered" : allowCustom ? "Or write your own answer" : "Or answer in the chat below"}</Text>
     </View>
   );
 }
@@ -747,7 +855,18 @@ function createStyles(colors: ColorPalette) {
   fileWrap: { backgroundColor: colors.control, borderRadius: 10, padding: 12, gap: 2 },
   fileName: { color: colors.text, fontWeight: "600" },
   fileHint: { color: colors.muted, fontSize: 12 },
-  card: { backgroundColor: colors.control, borderRadius: 12, padding: 12, gap: 6, minWidth: 220 },
+  // The card surface every widget stands on, now that cards sit on the chat
+  // background instead of inside a bubble.
+  surface: { backgroundColor: colors.bubble, borderRadius: 20, padding: 12, gap: 10 },
+  pressed: { opacity: 0.6 },
+  card: { backgroundColor: colors.bubble, borderRadius: 20, padding: 12, gap: 8 },
+  agentHead: { flexDirection: "row", alignItems: "center", gap: 12 },
+  agentText: { flex: 1, gap: 2 },
+  agentName: { color: colors.text, fontSize: 18, fontWeight: "600" },
+  agentRole: { color: colors.muted, fontSize: 14, lineHeight: 19 },
+  agentOpen: { height: 46, borderRadius: 14, backgroundColor: colors.text, alignItems: "center", justifyContent: "center" },
+  agentOpenOff: { opacity: 0.35 },
+  agentOpenText: { color: colors.bg, fontSize: 16, fontWeight: "600" },
   cardTitle: { color: colors.text, fontWeight: "700", fontSize: 15 },
   cardLine: { color: colors.text, fontSize: 14, lineHeight: 20 },
   barRow: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -772,52 +891,50 @@ function createStyles(colors: ColorPalette) {
   allow: { backgroundColor: "#1d5c2e" },
   deny: { backgroundColor: "#6e2b2b" },
   choiceText: { color: "#fff", fontWeight: "700" },
-  pollCard: { gap: 8, minWidth: 240 },
-  pollHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  pollTitle: { color: colors.text, fontSize: 17, fontWeight: "700", flex: 1 },
-  pollX: { width: 32, height: 32, alignItems: "center", justifyContent: "center", opacity: 0.6 },
+  pollCard: { backgroundColor: colors.bubble, borderRadius: 20, padding: 12, gap: 10 },
+  pollHead: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
+  pollTitle: { color: colors.text, fontSize: 16, fontWeight: "600", lineHeight: 21, flex: 1, paddingHorizontal: 2, paddingTop: 2 },
+  pollX: { width: 24, height: 24, alignItems: "center", justifyContent: "center", opacity: 0.5 },
   pollDesc: { color: colors.muted, fontSize: 15, lineHeight: 21 },
-  pollOptions: { backgroundColor: colors.bg, borderRadius: 14, overflow: "hidden" },
-  pollRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 12 },
-  pollRowOn: { backgroundColor: "#1d3a5f" },
-  pollDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-  pollLetter: { width: 28, height: 28, borderRadius: 8, backgroundColor: colors.line, alignItems: "center", justifyContent: "center" },
-  pollLetterOn: { backgroundColor: colors.link },
-  pollLetterText: { color: colors.muted, fontSize: 15, fontWeight: "700" },
-  pollLetterTextOn: { color: "#fff" },
-  pollLabel: { color: colors.text, fontSize: 17, flex: 1 },
-  pollDanger: { color: colors.danger },
-  pollHint: { color: colors.muted, fontSize: 14 },
-  pollSubmit: { height: 48, borderRadius: 14, backgroundColor: colors.control, alignItems: "center", justifyContent: "center", marginTop: 2 },
-  pollSubmitReady: { backgroundColor: colors.link },
-  pollSubmitText: { color: colors.muted, fontSize: 16, fontWeight: "600" },
-  pollSubmitTextReady: { color: "#fff" },
-  questionOptions: { gap: 6 },
-  questionCard: { gap: 6, minWidth: 180, maxWidth: 280 },
-  questionPrompt: { color: colors.text, fontSize: 15, fontWeight: "600", lineHeight: 20 },
-  questionHelp: { color: colors.muted, fontSize: 12, lineHeight: 16 },
-  questionBtn: {
+  // One inset list, rows split by hairlines.
+  pollOptions: {
     backgroundColor: colors.bg,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    overflow: "hidden",
   },
-  questionPrimary: { backgroundColor: "#1d5c2e" },
-  questionDanger: { backgroundColor: "#6e2b2b" },
-  questionSelected: { borderWidth: 1, borderColor: colors.link },
-  questionDone: { opacity: 0.4 },
-  questionLabel: { color: colors.text, fontSize: 14, fontWeight: "600" },
-  questionLabelOn: { color: "#fff" },
+  pollRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, paddingVertical: 10, minHeight: 48 },
+  pollRowOn: { backgroundColor: colors.control },
+  pollRowPressed: { backgroundColor: colors.control },
+  pollDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  pollLetter: { width: 26, height: 26, borderRadius: 7, backgroundColor: colors.control, alignItems: "center", justifyContent: "center" },
+  pollLetterOn: { backgroundColor: colors.link },
+  pollLetterText: { color: colors.muted, fontSize: 13, fontWeight: "600" },
+  pollLetterTextOn: { color: "#fff" },
+  pollLabel: { color: colors.text, fontSize: 16, lineHeight: 21, flex: 1 },
+  // No flex here: inside the column beside the badge it would collapse the
+  // text's height and cut long labels off.
+  questionLabel: { color: colors.text, fontSize: 16, lineHeight: 21 },
+  pollDanger: { color: colors.danger },
+  pollHint: { color: colors.muted, fontSize: 13, paddingHorizontal: 2 },
+  pollSubmit: { height: 46, borderRadius: 14, backgroundColor: colors.control, alignItems: "center", justifyContent: "center" },
+  pollSubmitReady: { backgroundColor: colors.text },
+  pollSubmitText: { color: colors.muted, fontSize: 16, fontWeight: "600" },
+  pollSubmitTextReady: { color: colors.bg },
+  questionRowText: { flex: 1, gap: 2 },
+  questionRowDone: { opacity: 0.4 },
+  questionPrimaryLabel: { fontWeight: "600" },
+  questionDescription: { color: colors.muted, fontSize: 14, lineHeight: 18 },
   questionCustom: {
     flex: 1,
     backgroundColor: colors.bg,
     color: colors.text,
-    borderRadius: 10,
-    height: 36,
-    paddingHorizontal: 10,
-    fontSize: 14,
+    borderRadius: 14,
+    height: 48,
+    paddingHorizontal: 14,
+    fontSize: 16,
   },
-  questionPicked: { color: colors.muted, fontSize: 12 },
   dismissed: { color: colors.muted, fontSize: 14 },
   tableHead: { flexDirection: "row", paddingBottom: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   tableHeader: { color: colors.text, fontSize: 14, fontWeight: "700" },

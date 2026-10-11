@@ -8,7 +8,7 @@ import { startMcpOAuth } from "../../mcp/mcp-oauth.js";
 import { listAccountPlugins } from "../../mcp/plugins.js";
 import { deleteMcpServer, listMcpServers, saveMcpServer } from "../../mcp/store.js";
 import { createRoom, listConversations } from "../../rooms/rooms.js";
-import { createAgent, listAgents } from "../../roster/roster.js";
+import { createAgent, defaultModelFor, ensureSupportAgentQuietly, listAgents, setDefaultModel } from "../../roster/roster.js";
 import { listProposals } from "../../skills/proposals.js";
 import { getAccountSettings, isTimeZone, listToolApprovals, rememberTimezone, setAutoReview } from "../../turn/auto-review.js";
 import { logger, pathParam, type AppContext, type Database, type Guard } from "../context.js";
@@ -68,7 +68,10 @@ export function accountsRoutes(ctx: AppContext, guard: Guard): Router {
     res.status(204).end();
   });
   accounts.get("/:accountId/agents", guard, async (req, res) => {
-    res.json(await listAgents(ctx.db, pathParam(req, "accountId")));
+    const accountId = pathParam(req, "accountId");
+    // Accounts made before the default agent existed get theirs here.
+    await ensureSupportAgentQuietly(ctx.db, accountId, ctx.generate);
+    res.json(await listAgents(ctx.db, accountId));
   });
   accounts.post("/:accountId/agents", guard, async (req, res) => {
     res.status(201).json(await createAgent(ctx.db, pathParam(req, "accountId"), req.body));
@@ -101,12 +104,21 @@ export function accountsRoutes(ctx: AppContext, guard: Guard): Router {
     res.json(await listProposals(ctx.db, pathParam(req, "accountId")));
   });
   accounts.get("/:accountId/settings", guard, async (req, res) => {
-    const settings = await getAccountSettings(ctx.db, pathParam(req, "accountId"));
+    const accountId = pathParam(req, "accountId");
+    const settings = await getAccountSettings(ctx.db, accountId);
     if (!settings) {
       res.status(404).json({ error: "Account not found." });
       return;
     }
-    res.json(settings);
+    res.json({ ...settings, defaultModel: await defaultModelFor(ctx.db, accountId) });
+  });
+  // Setup step two: the person names the model their agents start on. This is
+  // what creates the default agent, which then writes its first message.
+  accounts.put("/:accountId/default-model", guard, async (req, res) => {
+    const accountId = pathParam(req, "accountId");
+    const saved = await setDefaultModel(ctx.db, accountId, req.body);
+    await ensureSupportAgentQuietly(ctx.db, accountId, ctx.generate);
+    res.json(saved);
   });
   accounts.patch("/:accountId/settings", guard, async (req, res) => {
     const body = (req.body ?? {}) as { autoReview?: unknown; timezone?: unknown };

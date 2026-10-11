@@ -96,6 +96,41 @@ export const teamBriefInputSchema = z.object({
   conversationId: z.string().uuid().optional(),
 });
 
+export const accountBriefInputSchema = z.object({
+  brief: z.string().trim().min(10).max(4_000),
+});
+
+export const hireAgentInputSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  role: z.string().trim().min(1).max(100),
+  /** "work" does jobs on its own computer. "companion" is for conversation only. */
+  kind: z.enum(["work", "companion"]),
+  /** The agent's voice: a sentence or two on how it talks. */
+  personality: z.string().trim().min(10).max(500),
+  jobDescription: z.string().trim().min(20).max(10_000),
+});
+
+/** Another agent on this account, by the name listed under "Other agents" (or its id). */
+const otherAgentField = z.string().trim().min(1).max(120);
+
+export const agentMemoryReadInputSchema = z.object({
+  agent: otherAgentField,
+});
+
+export const agentMemoryAddInputSchema = z.object({
+  agent: otherAgentField,
+  body: z.string().trim().min(3).max(1000),
+  kind: z.enum(["fact", "person", "org", "project", "preference", "decision", "commitment"]).optional(),
+  /** The person, company or project the fact is about. Leave out for facts about the person themself. */
+  subject: z.string().trim().max(120).optional(),
+});
+
+export const agentMemoryCorrectInputSchema = z.object({
+  agent: otherAgentField,
+  oldBody: z.string().trim().min(3).max(1000),
+  body: z.string().trim().min(3).max(1000),
+});
+
 export type GroupCreateInput = z.infer<typeof groupCreateInputSchema>;
 
 /** Retry fields after Auto-review. Stripped from the input hash so approve-and-retry matches. */

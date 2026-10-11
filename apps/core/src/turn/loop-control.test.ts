@@ -129,3 +129,31 @@ describe("claimsWorkInProgress", () => {
     }
   });
 });
+
+describe("announcesUnsentCard", () => {
+  it("catches a card written as text, and leaves ordinary replies alone", async () => {
+    const { announcesUnsentCard } = await import("./loop-control.js");
+    expect(announcesUnsentCard("Great, let me ask a quick one.\n\n[widget:question]")).toBe(true);
+    expect(announcesUnsentCard('(Shown to the person as a tappable question card: "When?" Choices: A | B.)')).toBe(true);
+    expect(announcesUnsentCard("Here is the plan (in three parts).")).toBe(false);
+  });
+});
+
+describe("asksInPlainText", () => {
+  it("sees a closing question or a lead-in to choices, not a plain statement", async () => {
+    const { asksInPlainText } = await import("./loop-control.js");
+    expect(asksInPlainText("Got it. Quick one more: what would you most like to hand off first?")).toBe(true);
+    expect(asksInPlainText("Sorry, let me make this easier. Pick what sounds closest:")).toBe(true);
+    expect(asksInPlainText("Done, Scout is set up and has its own chat.")).toBe(false);
+  });
+});
+
+describe("stripLeakedThinking", () => {
+  it("drops a long opening note to self and keeps ordinary brackets", async () => {
+    const { stripLeakedThinking } = await import("./loop-control.js");
+    const note = `(Let me think about what just happened. The person wants a team (niche, video). ${"I should suggest options. ".repeat(10)})`;
+    expect(stripLeakedThinking(`${note}No worries, here are some ideas.`)).toBe("No worries, here are some ideas.");
+    expect(stripLeakedThinking("(By the way) the report is ready.")).toBe("(By the way) the report is ready.");
+    expect(stripLeakedThinking("All good (let me know if not).")).toBe("All good (let me know if not).");
+  });
+});

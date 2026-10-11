@@ -4,8 +4,13 @@
  */
 import { hitLine, mergeRanked, searchFacts, searchMessages, searchSummaries, searchTerms } from "../../memory/search.js";
 import { prompt } from "../../prompt/prompts.js";
-import { isToolSetName, toolNamesInSet, toolSetGuidance } from "./tool-sets.js";
+import { isRequestableToolSet, toolNamesInSet, toolSetGuidance } from "./tool-sets.js";
 import {
+  accountBriefInputSchema,
+  agentMemoryAddInputSchema,
+  agentMemoryCorrectInputSchema,
+  agentMemoryReadInputSchema,
+  hireAgentInputSchema,
   deleteRoutinesInputSchema,
   correctMemoryToolInputSchema,
   delegateSchema,
@@ -31,7 +36,7 @@ import { recentWorkLogs } from "../work-log.js";
 import { accountHome } from "../../linux/linux.js";
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { agents, conversations, delegations, members, messages, workerTranscripts } from "../../db/schema.js";
-import { correct, readHistory, remember } from "../../memory/memory.js";
+import { agentFacts, briefFor, correct, readHistory, remember, saveBrief } from "../../memory/memory.js";
 import { embedSummaryBacklog } from "../../memory/recall.js";
 import { todoList, todoWrite } from "../../memory/todos.js";
 import { saveNotification } from "../../notify/notify.js";
@@ -53,7 +58,9 @@ import {
   messageRunningWorker,
   workerStatuses,
 } from "../../rooms/subagents.js";
-import { updateAgentFlags } from "../../roster/roster.js";
+import { AgentNameError, createAgent, updateAgentFlags } from "../../roster/roster.js";
+import { createRoom } from "../../rooms/rooms.js";
+import { createProfile } from "../../linux/linux.js";
 import { catalogTextForAgent, readSkillForAgent, skillCatalogForAgent } from "../../skills/agent-skills.js";
 import { bumpAccountPromptVersions } from "../../skills/install.js";
 import { publishLocalSkills } from "../../skills/local.js";
@@ -69,6 +76,7 @@ import { MAX_DELEGATION_DEPTH } from "../constants.js";
 import { normalizeSendMessageInput } from "./normalize-send-message.js";
 import { validateWorkerTask } from "./worker-task.js";
 import type { ToolContext } from "./context.js";
+import { startFirstHello } from "../first-hello.js";
 import { ZodError } from "zod";
 import { noted } from "../../log/logger.js";
 
@@ -98,8 +106,16 @@ async function memorySourceId(ctx: ToolContext, given?: string): Promise<string>
     )
     .orderBy(desc(messages.createdAt))
     .limit(1);
-  if (!latest) throw new Error("There is no message in this room to cite as the source.");
-  return latest.id;
+  if (latest) return latest.id;
+  // The person may only have tapped answers so far; then the newest message of any kind is the source.
+  const [any] = await ctx.db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(and(eq(messages.accountId, ctx.accountId), eq(messages.conversationId, ctx.conversationId)))
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+  if (!any) throw new Error("There is no message in this room to cite as the source.");
+  return any.id;
 }
 
 async function executeRememberFact(ctx: ToolContext, input: Record<string, unknown>) {
@@ -1081,6 +1097,9 @@ async function workerContext(ctx: ToolContext): Promise<string> {
     .from(conversations)
     .where(and(eq(conversations.id, ctx.conversationId), eq(conversations.accountId, ctx.accountId)));
   if (here?.kind === "group" && here.brief?.trim()) lines.push(`Team brief:\n${here.brief.trim().slice(0, 2_000)}`);
+  // The worker does the real job, so it needs to know who the job is for.
+  const brief = await briefFor(ctx.db, ctx.accountId).catch(() => null);
+  if (brief) lines.push(`About the person (their standing brief):\n${brief.slice(0, 2_000)}`);
   // Skills are not listed here: the ones that matter are loaded into the worker.
   const touched = [...(ctx.touched ?? [])].filter((item) => !item.startsWith("skill ")).slice(0, 20);
   if (touched.length > 0) lines.push(prompt("worker-rules", "context-touched", { list: touched.join(", ") }));
@@ -1237,9 +1256,171 @@ export async function executeSearchMemory(ctx: ToolContext, input: Record<string
 }
 
 /** Turns on one optional tool set for the rest of the turn and explains how to use it. */
+/**
+ * Finds another agent on this account by name, label or id.
+ * Input: the tool context and what the model wrote. Output: the agent, or an error listing who exists.
+ */
+async function otherAgentByName(ctx: ToolContext, wanted: string) {
+  const roster = await ctx.store
+    .select({ id: agents.id, name: agents.name, label: agents.label })
+    .from(agents)
+    .where(and(eq(agents.accountId, ctx.accountId), eq(agents.hidden, false)));
+  const others = roster.filter((row) => row.id !== ctx.agentId);
+  const id = others.find((row) => row.id === wanted)?.id ?? resolveMention(wanted.replace(/^@/, ""), others);
+  const target = others.find((row) => row.id === id);
+  if (target) return { ...target, label: target.label?.trim() || target.name };
+  const names = others.map((row) => row.label || row.name).slice(0, 15).join(", ") || "none";
+  return { error: `No agent called "${wanted}" on this account. Agents here: ${names}.` };
+}
+
+/** The support tools belong to the account's default agent; a turn by anyone else is refused. */
+async function supportOnly(ctx: ToolContext): Promise<{ provider: string; modelId: string } | { error: string }> {
+  const [me] = await ctx.store
+    .select({ kind: agents.kind, provider: agents.provider, modelId: agents.modelId })
+    .from(agents)
+    .where(and(eq(agents.id, ctx.agentId), eq(agents.accountId, ctx.accountId)));
+  if (me?.kind !== "support") return { error: "This tool is not available to you." };
+  return { provider: me.provider, modelId: me.modelId };
+}
+
+async function executeSetBrief(ctx: ToolContext, input: Record<string, unknown>) {
+  const me = await supportOnly(ctx);
+  if ("error" in me) return me;
+  const parsed = accountBriefInputSchema.safeParse(input);
+  if (!parsed.success) return { error: "Write the whole brief, between 10 and 4,000 characters." };
+  const saved = await saveBrief(ctx.store, ctx.accountId, parsed.data.brief);
+  return { saved: true, characters: saved.length, note: "Every agent on this account reads this brief from its next turn." };
+}
+
+/**
+ * Creates a top-level agent with its own private chat.
+ * Why: the support agent writes the job description from what it learned, so
+ * the person never faces an empty instructions field. The new agent runs on
+ * the caller's model, which the account is known to hold a key for.
+ */
+async function executeHireAgent(ctx: ToolContext, input: Record<string, unknown>) {
+  const me = await supportOnly(ctx);
+  if ("error" in me) return me;
+  const parsed = hireAgentInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      error:
+        "Invalid hire_agent input. Required: name, role, kind (work or companion), personality (at least 10 characters), jobDescription (at least 20 characters).",
+    };
+  }
+  let agent: Awaited<ReturnType<typeof createAgent>>;
+  try {
+    agent = await createAgent(ctx.db, ctx.accountId, {
+      name: parsed.data.name,
+      label: parsed.data.name,
+      role: parsed.data.role,
+      personality: parsed.data.personality,
+      jobDescription: parsed.data.jobDescription,
+      kind: parsed.data.kind,
+      provider: me.provider,
+      modelId: me.modelId,
+    });
+  } catch (error) {
+    if (error instanceof AgentNameError) return { error: `An agent called "${parsed.data.name}" already exists. Pick another name.` };
+    throw error;
+  }
+  const room = await createRoom(ctx.db, ctx.accountId, {
+    kind: "direct",
+    title: agent.label,
+    ownerAgentId: agent.id,
+    memberAgentIds: [],
+  });
+  // A work agent needs its computer profile; if the computer is still starting, its first chat sets it up.
+  if (agent.kind === "work") await createProfile(ctx.store, ctx.accountId, agent.id).catch(noted("Setting up a hired agent's computer profile"));
+  const card = await saveSendMessage(ctx.store, {
+    accountId: ctx.accountId,
+    conversationId: ctx.conversationId,
+    agentId: ctx.agentId,
+    runId: ctx.runId,
+    blocks: [{ kind: "widget", widget: "agent-card", props: { agentId: agent.id, label: agent.label, name: agent.name } }],
+    createdAt: ctx.nextTime(),
+  });
+  ctx.emittedMessages.push(card);
+  await ctx.emit({ type: "message", message: card });
+  // The new agent opens its own chat, so the person finds a hello waiting, not an empty screen.
+  if (room) {
+    startFirstHello(ctx.db, {
+      accountId: ctx.accountId,
+      conversationId: room.id,
+      agentId: agent.id,
+      kind: agent.kind,
+      generate: ctx.generate,
+      skillsRoot: ctx.skillsRoot,
+    });
+  }
+  return {
+    agentId: agent.id,
+    name: agent.name,
+    kind: agent.kind,
+    conversationId: room?.id ?? null,
+    note: `${agent.label} now has their own chat with the person and is writing a first message there. A card linking to it was posted here.`,
+  };
+}
+
+async function executeReadAgentMemory(ctx: ToolContext, input: Record<string, unknown>) {
+  const me = await supportOnly(ctx);
+  if ("error" in me) return me;
+  const parsed = agentMemoryReadInputSchema.safeParse(input);
+  if (!parsed.success) return { error: "Give the agent's name." };
+  const target = await otherAgentByName(ctx, parsed.data.agent);
+  if ("error" in target) return target;
+  const facts = await agentFacts(ctx.store, ctx.accountId, target.id);
+  return {
+    agent: target.label,
+    facts: facts.map((fact) => ({ kind: fact.kind, subject: fact.subject, body: fact.body })),
+    note: "These are the facts only this agent keeps. It also reads the Brief and every fact shared with the whole account.",
+  };
+}
+
+async function executeRememberForAgent(ctx: ToolContext, input: Record<string, unknown>) {
+  const me = await supportOnly(ctx);
+  if ("error" in me) return me;
+  const parsed = agentMemoryAddInputSchema.safeParse(input);
+  if (!parsed.success) return { error: "Give the agent's name and the fact (3 to 1,000 characters)." };
+  const target = await otherAgentByName(ctx, parsed.data.agent);
+  if ("error" in target) return target;
+  const saved = await remember(ctx.db, ctx.accountId, {
+    scope: "agent",
+    agentId: target.id,
+    body: parsed.data.body,
+    messageId: await memorySourceId(ctx),
+    kind: parsed.data.kind,
+    subject: parsed.data.subject,
+  });
+  await embedSummaryBacklog(ctx.db, ctx.accountId, ctx.conversationId).catch(noted("Embedding new summaries"));
+  return { memoryId: saved.id, agent: target.label, body: saved.body };
+}
+
+async function executeCorrectAgentMemory(ctx: ToolContext, input: Record<string, unknown>) {
+  const me = await supportOnly(ctx);
+  if ("error" in me) return me;
+  const parsed = agentMemoryCorrectInputSchema.safeParse(input);
+  if (!parsed.success) return { error: "Give the agent's name, the old fact exactly as read_agent_memory shows it, and the replacement." };
+  const target = await otherAgentByName(ctx, parsed.data.agent);
+  if ("error" in target) return target;
+  const known = await agentFacts(ctx.store, ctx.accountId, target.id);
+  if (!known.some((fact) => fact.body === parsed.data.oldBody)) {
+    return { error: `${target.label} keeps no fact with that exact text. Call read_agent_memory and copy the fact as it is written.` };
+  }
+  const saved = await correct(ctx.db, ctx.accountId, {
+    scope: "agent",
+    agentId: target.id,
+    oldBody: parsed.data.oldBody,
+    body: parsed.data.body,
+    messageId: await memorySourceId(ctx),
+  });
+  await embedSummaryBacklog(ctx.db, ctx.accountId, ctx.conversationId).catch(noted("Embedding new summaries"));
+  return { memoryId: saved.id, agent: target.label, body: saved.body };
+}
+
 export async function executeEnableTools(ctx: ToolContext, input: Record<string, unknown>) {
   const set = String(input.set ?? "");
-  if (!isToolSetName(set)) return { error: "Unknown tool set. Use team, routines, or admin." };
+  if (!isRequestableToolSet(set)) return { error: "Unknown tool set. Use team, routines, or admin." };
   (ctx.enabledToolSets ??= new Set()).add(set);
   return { enabled: set, tools: toolNamesInSet(set), guidance: toolSetGuidance(set) };
 }
@@ -1298,6 +1479,11 @@ export const dispatcherExecutors: Record<string, ToolExecutor> = {
     };
   },
   message_agent: executeMessageAgent,
+  set_brief: executeSetBrief,
+  hire_agent: executeHireAgent,
+  read_agent_memory: executeReadAgentMemory,
+  remember_for_agent: executeRememberForAgent,
+  correct_agent_memory: executeCorrectAgentMemory,
   set_team_brief: async (ctx, input) => {
     const brief = String(input.brief ?? "").trim();
     if (brief.length < 10) return { error: "Write the brief: the goal, who does what, how work is handed on, where files live." };

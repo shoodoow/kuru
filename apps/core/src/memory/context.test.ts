@@ -17,6 +17,16 @@ const agent = {
 };
 
 describe("buildContext", () => {
+  it("shows the account brief in the tail, capped, and nothing when there is none", () => {
+    const withBrief = buildContext({ ...agent, summary: [], messages: [], brief: `Sells handmade soap. ${"x".repeat(5_000)}` });
+    const without = buildContext({ ...agent, summary: [], messages: [], brief: "  " });
+    expect(withBrief.tail).toContain("## Brief");
+    expect(withBrief.tail).toContain("Sells handmade soap.");
+    expect(withBrief.tail.length).toBeLessThan(4_600);
+    expect(withBrief.prefix).toBe(without.prefix);
+    expect(without.tail).not.toContain("## Brief");
+  });
+
   it("keeps the prefix stable and puts cited durable context only in the tail", () => {
     const first = buildContext({
       ...agent,

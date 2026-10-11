@@ -43,6 +43,8 @@ export function MenuSheet({
   onApprovals,
   onComputer,
   onSaveProvider,
+  defaultModel,
+  onSaveDefaultModel,
   onAddPlugin,
   onRemovePlugin,
   onRefreshPlugins,
@@ -53,6 +55,8 @@ export function MenuSheet({
   onSignOut,
   onDelete,
 }: {
+  defaultModel?: { provider: ProviderSetting["provider"]; modelId: string } | null;
+  onSaveDefaultModel?: (provider: ProviderSetting["provider"], modelId: string) => void | Promise<unknown>;
   page: MenuPage;
   account: SignedAccount | null;
   accounts: SignedAccount[];
@@ -138,6 +142,8 @@ export function MenuSheet({
       {page === "providers" ? (
         <ProviderPage
           providers={providers}
+          defaultModel={defaultModel}
+          onSaveDefaultModel={onSaveDefaultModel}
           onSave={onSaveProvider}
           scrollStyle={scrollStyle}
         />
@@ -295,9 +301,13 @@ const providerNames: ProviderSetting["provider"][] = ["openai", "anthropic", "xa
  */
 function ProviderPage({
   providers,
+  defaultModel,
+  onSaveDefaultModel,
   onSave,
   scrollStyle,
 }: {
+  defaultModel?: { provider: ProviderSetting["provider"]; modelId: string } | null;
+  onSaveDefaultModel?: (provider: ProviderSetting["provider"], modelId: string) => void | Promise<unknown>;
   providers: ProviderSetting[];
   onSave: (provider: ProviderSetting["provider"], secret: string, baseUrl: string | null) => void | Promise<unknown>;
   scrollStyle: ViewStyle;
@@ -306,11 +316,15 @@ function ProviderPage({
   const [secret, setSecret] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const configured = providers.find((row) => row.provider === provider);
+  const [modelId, setModelId] = useState("");
 
   useEffect(() => {
     setSecret("");
     setBaseUrl(configured?.baseUrl ?? "");
   }, [configured?.baseUrl, provider]);
+  useEffect(() => {
+    setModelId(defaultModel?.provider === provider ? defaultModel.modelId : "");
+  }, [defaultModel?.provider, defaultModel?.modelId, provider]);
 
   const ready = provider === "local" ? baseUrl.trim().length > 0 : secret.trim().length > 0 || configured?.configured;
   return (
@@ -353,6 +367,31 @@ function ProviderPage({
         disabled={!ready}
         onPress={() => onSave(provider, secret, provider === "local" ? baseUrl.trim() : null)}
       />
+      {onSaveDefaultModel && configured?.configured ? (
+        <>
+          <Text style={styles.hint}>
+            {defaultModel
+              ? `New agents start on ${defaultModel.provider} · ${defaultModel.modelId}. To change it, enter a model for the provider selected above.`
+              : "Choose the model new agents start on."}
+          </Text>
+          <TextInput
+            value={modelId}
+            onChangeText={setModelId}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardAppearance="dark"
+            placeholder="Default model id"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+          />
+          <PrimaryButton
+            label="Use as default model"
+            variant="secondary"
+            disabled={modelId.trim().length === 0}
+            onPress={() => onSaveDefaultModel(provider, modelId.trim())}
+          />
+        </>
+      ) : null}
     </ScrollView>
   );
 }

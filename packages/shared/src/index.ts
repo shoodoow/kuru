@@ -53,6 +53,23 @@ export const agentIdentityInputSchema = z.object({
 
 export type AgentIdentityInput = z.infer<typeof agentIdentityInputSchema>;
 
+/**
+ * What an agent is for. `work` does jobs on its own computer, `companion` is
+ * for conversation only, `support` is the account's default agent that sets
+ * the others up. Each kind has its own standing prompt and tool list.
+ */
+export const agentKinds = ["work", "companion", "support"] as const;
+export type AgentKind = (typeof agentKinds)[number];
+/** Kinds a person or an agent may choose. `support` is created by the core only. */
+export const hireableAgentKinds = ["work", "companion"] as const;
+
+/** Model suggested for each provider when the person picks the account's default model. */
+export const defaultModelIds: Partial<Record<(typeof providerNames)[number], string>> = {
+  openai: "gpt-5",
+  anthropic: "claude-sonnet-5-5",
+  xai: "grok-4",
+};
+
 export const agentCreateSchema = z.object({
   name: z.string().trim().min(1).max(100),
   label: z.string().trim().min(1).max(100),
@@ -61,6 +78,7 @@ export const agentCreateSchema = z.object({
   jobDescription: z.string().trim().min(1).max(10_000),
   provider: z.enum(providerNames),
   modelId: z.string().trim().min(1).max(200),
+  kind: z.enum(hireableAgentKinds).optional().default("work"),
 });
 
 export const agentFlagsSchema = z.object({
@@ -259,6 +277,9 @@ export const agentProfileSchema = agentFlagsSchema.extend({
   jobDescription: z.string().trim().min(1).max(10_000).optional(),
   provider: z.enum(providerNames).optional(),
   modelId: z.string().trim().min(1).max(200).optional(),
+  // The app sends the whole profile back, so every kind parses here; the core
+  // refuses a change to or from `support`.
+  kind: z.enum(agentKinds).optional(),
   markShape: z.enum(markShapes).nullable().optional(),
   markColor: z
     .string()
@@ -553,3 +574,9 @@ export const deviceSchema = z.object({
 export type DeviceInput = z.infer<typeof deviceSchema>;
 
 export const eventTypeSchema = z.enum(["message", "reaction", "run", "error", "notify"]);
+
+export const defaultModelSchema = z.object({
+  provider: z.enum(providerNames),
+  modelId: z.string().trim().min(1).max(200),
+});
+export type DefaultModel = z.infer<typeof defaultModelSchema>;
