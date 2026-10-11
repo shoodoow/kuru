@@ -24,7 +24,7 @@
     "@kuru/shared": "workspace:*",
     "@novnc/novnc": "1.7.0",
     "ai": "7.0.118",
-    "better-auth": "1.6.23",
+    "better-auth": "1.7.7",
     "dockerode": "5.0.1",
     "drizzle-orm": "0.45.3",
     "express": "5.2.1",
