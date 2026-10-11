@@ -12,7 +12,7 @@ Chat from your phone. Agents team up, run workers, remember, schedule routines, 
 [![Expo](https://img.shields.io/badge/expo-57-black)](https://expo.dev)
 [![Status](https://img.shields.io/badge/status-active%20development-orange)](CONTRIBUTING.md)
 
-[Quickstart](#-60-second-quickstart) · [Features](#-features) · [How it works](#-how-it-works) · [Setup](deploy/SETUP.md) · [Contributing](CONTRIBUTING.md)
+[Install](#-install) · [Features](#-features) · [How it works](#-how-it-works) · [Setup guide](deploy/SETUP.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -28,7 +28,7 @@ Chat from your phone. Agents team up, run workers, remember, schedule routines, 
 
 ## Table of contents
 
-- [⚡ 60-second quickstart](#-60-second-quickstart)
+- [⚡ Install](#-install)
 - [✨ Features](#-features)
 - [🧠 How it works](#-how-it-works)
 - [📱 Phone app](#-phone-app)
@@ -37,21 +37,56 @@ Chat from your phone. Agents team up, run workers, remember, schedule routines, 
 - [⏰ Routines & teams](#-routines--teams)
 - [⚙️ Configuration](#️-configuration)
 - [🧪 Develop](#-develop)
-- [🗺️ Roadmap](#️-roadmap)
 - [🤝 Contributing & Security](#-contributing--security)
 
 ---
 
-## ⚡ How to run
+## ⚡ Install
 
-> Tunnel, Google OAuth, and VPS details: [`deploy/SETUP.md`](deploy/SETUP.md)
+> Every step in detail — Google OAuth, the tunnel, building the phone app: [`deploy/SETUP.md`](deploy/SETUP.md)
 
-Need **Node.js ≥ 22.13**, **pnpm 12.6** (`packageManager` in the root `package.json`), and **Docker** (Postgres). A phone also needs **Expo Go**, **cloudflared**, a domain, and a Google OAuth web client. Copy env files only when they are missing so you do not wipe secrets.
+There are two ways to run Kuru: on your own Linux machine with Docker, or from source for development. Both need a public HTTPS address (a Cloudflare Tunnel is the easy way) and a Google OAuth web client for sign-in.
+
+### On your own Linux laptop or server (recommended)
+
+The database, the core, and one Linux computer per account all run in Docker. A Cloudflare Tunnel makes it reachable from your phone anywhere, with no static IP and no open ports. Node.js is not needed. You need a domain on Cloudflare (free plan) and a Google OAuth client.
+
+```bash
+# Docker and the code
+curl -fsSL https://get.docker.com | sh
+git clone https://github.com/shoodoow/kuru.git && cd kuru
+
+# The tunnel (after installing cloudflared)
+cloudflared tunnel login
+cloudflared tunnel create kuru
+cloudflared tunnel route dns kuru api.example.com
+# write ~/.cloudflared/config.yml: api.example.com -> http://127.0.0.1:3000
+
+# Settings
+cp -n apps/core/.env.example apps/core/.env
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .env
+# apps/core/.env: BETTER_AUTH_SECRET (openssl rand -hex 32),
+# BETTER_AUTH_URL=https://api.example.com, GOOGLE_CLIENT_ID,
+# GOOGLE_CLIENT_SECRET, NODE_ENV=production
+
+# Start
+docker build -t kuru-linux:1 apps/core/linux          # the agents' computer image
+docker compose --profile core up -d --build
+curl -fsS http://127.0.0.1:3000/health                # {"ok":true}
+sudo cloudflared --config ~/.cloudflared/config.yml service install
+```
+
+On the phone, tap the server address at the bottom of the welcome screen and enter yours under **Server**. Every step explained, with the Google sign-in setup: [Install on Linux with Docker and a tunnel](deploy/SETUP.md#install-on-linux-with-docker-and-a-tunnel).
+
+### For development (laptop)
+
+Need **Node.js ≥ 22.13**, **pnpm 12.6** (`packageManager` in the root `package.json`), and **Docker**. A phone also needs **Expo Go** and **cloudflared**. Copy env files only when they are missing so you do not wipe secrets.
 
 ```bash
 git clone git@github.com:shoodoow/kuru.git && cd kuru
 pnpm install
 
+docker build -t kuru-linux:1 apps/core/linux   # the agents' computer image
 docker compose up -d postgres          # waits until healthy on :5432
 cp -n apps/core/.env.example apps/core/.env
 cp -n apps/mobile/.env.example apps/mobile/.env
@@ -75,7 +110,7 @@ Local emulator without a tunnel: Android `pnpm --filter mobile android:local` (`
 | Need | Why |
 |------|-----|
 | Node.js ≥ 22.13, pnpm 12.6 | monorepo build |
-| Docker | Postgres + one Linux per account |
+| Docker | Postgres + one Linux per account (`kuru-linux:1` image) |
 | `cloudflared` + domain | phone reaches your laptop/VPS without a static IP |
 | Google OAuth client (Web) | sign-in, redirect `https://<host>/api/auth/callback/google` |
 | Expo Go | run the app on a physical phone |
@@ -157,6 +192,18 @@ Full engine doc: [`apps/core/src/turn/GUIDE.md`](apps/core/src/turn/GUIDE.md).
 
 > Emulator only? Android: `pnpm --filter mobile android:local` (`10.0.2.2:3000`). iOS sim: `http://127.0.0.1:3000`. Physical phone = public HTTPS core URL.
 
+### Getting the app onto a phone
+
+| Phone | How | Needs |
+|-------|-----|-------|
+| Any, to try it | Expo Go, scanning the QR from `pnpm --filter mobile start` | Your laptop running; no push notifications |
+| Android | An APK: `npx eas-cli build --profile preview --platform android` | A free Expo account |
+| iPhone, a few people | Ad hoc build: `npx eas-cli device:create`, then `npx eas-cli build --profile preview --platform ios` | Paid Apple Developer account; each phone registered first |
+| iPhone, many people | TestFlight | Paid Apple Developer account |
+| Your own iPhone | `npx expo run:ios --device --configuration Release` from a Mac | A free Apple ID; installed again every 7 days |
+
+Run the commands from `apps/mobile`. One build works with any server: the address is set on the sign-in screen. Details: [Build the phone app](deploy/SETUP.md#build-the-phone-app).
+
 ---
 
 ## 🖥️ Agent desktops
@@ -173,13 +220,11 @@ Each account gets an isolated Linux; each chat gets a private home.
 
 **Skills** = markdown playbooks. Model sees names in the cached prefix, loads bodies on demand:
 
-```bash
-SKILLS_DIR=../../skills   # in apps/core/.env
-```
-
 ```text
 skills/my-skill/SKILL.md   # ---\nname: my-skill\ndescription: ...\n---\nsteps...
 ```
+
+The `skills/` folder holds the defaults every account starts with (`SKILLS_DIR` in `apps/core/.env` points somewhere else if you want). Skills that belong to one account — installed by an agent, approved by the person, or shipped with a plugin — live on that account's computer under `/shared/skills`.
 
 Bundled: `computer-use-linux`, `chrome-devtools`, `docx`/`xlsx`/`pptx`, `create-skill`, `find-skills`.
 
@@ -242,9 +287,7 @@ Deep dives: [turn engine](apps/core/src/turn/GUIDE.md) · [DB trace](apps/core/s
 
 ---
 
-
-
-Vote with issues — [feature request](.github/ISSUE_TEMPLATE/feature_request.md).
+Missing something? Open a [feature request](.github/ISSUE_TEMPLATE/feature_request.md).
 
 ---
 

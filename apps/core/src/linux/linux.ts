@@ -171,6 +171,7 @@ export async function createLinux(accountId: string, emailHint?: string): Promis
     }
     await ensureFirewall(name, { now: true });
     await ensureMemory(existing, info.HostConfig?.Memory ?? 0);
+    await ensureRestart(existing, info.HostConfig?.RestartPolicy?.Name);
     await ensureBaseToolchain(accountId);
     return info.Id;
   } catch (error) {
@@ -680,9 +681,20 @@ export function accountContainerHostConfig(accountId: string): Dockerode.HostCon
     // Raw sockets would let one container answer for another's address on the shared bridge.
     CapDrop: ["NET_RAW"],
     PidsLimit: 8192,
+    // The computer comes back when the machine restarts. Without this a
+    // rebooted laptop left every agent without its computer until a new chat was opened.
+    RestartPolicy: { Name: RESTART_POLICY },
     ...(config.containerRuntime() ? { Runtime: config.containerRuntime() } : {}),
     ...(config.containerFirewall() === "host" ? { NetworkMode: ACCOUNT_NETWORK, Dns: config.containerDns() } : {}),
   };
+}
+
+const RESTART_POLICY = "unless-stopped";
+
+/** Gives a computer made by an older version the restart rule new ones start with. */
+async function ensureRestart(container: Dockerode.Container, current?: string): Promise<void> {
+  if (current === RESTART_POLICY) return;
+  await container.update({ RestartPolicy: { Name: RESTART_POLICY } }).catch(() => undefined);
 }
 
 async function ensureMemory(container: Dockerode.Container, current: number): Promise<void> {

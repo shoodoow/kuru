@@ -17,6 +17,8 @@ services:
       interval: 2s
       timeout: 5s
       retries: 20
+    # Comes back after the machine restarts, like the core below.
+    restart: unless-stopped
 
   # The core as a container, for a server: docker compose --profile core up -d
   # Development runs the core with `pnpm --filter core dev` and skips this.

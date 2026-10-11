@@ -1,8 +1,14 @@
 # Kuru — setup on a new machine
 
-This guide covers **production-style hosting on a VPS** (recommended) and **development on your laptop** with a **Cloudflare Tunnel** so phones can reach the API without a static home IP.
+This guide covers **running Kuru on your own Linux machine with Docker and a Cloudflare Tunnel** (what most people want), building the phone app, and **development on a laptop**.
 
 Replace `api.example.com` with your public hostname (this repo’s dev example uses `api.example.com`).
+
+**In a hurry?**
+
+- Running it for yourself on a Linux laptop or server, with a tunnel: go straight to [Install on Linux with Docker and a tunnel](#install-on-linux-with-docker-and-a-tunnel).
+- Getting the app onto phones (Android APK, iPhone without the App Store): [Build the phone app](#build-the-phone-app).
+- Developing on a laptop: follow sections 1 to 9 in order.
 
 ---
 
@@ -287,7 +293,7 @@ Core does **not** need an Expo secret for basic push send; optional [Expo access
 | **NODE_ENV** | `production` — requires HTTPS `BETTER_AUTH_URL` and Google credentials |
 | **Firewall** | Allow SSH; deny public 3000/5432; optional Cloudflare Access on `api.example.com` |
 | **Backups** | Volume snapshots or `pg_dump` for Postgres |
-| **Updates** | Pull repo, `pnpm install`, `pnpm db:migrate`, restart core |
+| **Updates** | `git pull`, rebuild, `docker compose --profile core up -d --build` (see [Install on Linux](#install-on-linux-with-docker-and-a-tunnel)) |
 
 Laptop + tunnel is fine for **personal dev**; for anything shared or always-on, run core on a VPS and point `EXPO_PUBLIC_CORE_URL` at that hostname.
 
@@ -331,24 +337,225 @@ Laptop + tunnel is fine for **personal dev**; for anything shared or always-on, 
 | `apps/mobile/.env` | `EXPO_PUBLIC_CORE_URL` |
 | `~/.cloudflared/config.yml` | Tunnel ingress |
 | `deploy/cloudflared/config.example.yml` | Template for tunnel config |
-| `docker-compose.yml` | Local Postgres |
+| `docker-compose.yml` | Postgres, and the core with `--profile core` |
+| `apps/mobile/eas.json` | Build profiles for the phone app |
 
-## Running the core as a container
+## Install on Linux with Docker and a tunnel
 
-On a server the core can run from an image instead of `pnpm --filter core dev`:
+The usual way to run Kuru for yourself or a small group: a Linux laptop,
+home PC or server that stays on, with a Cloudflare Tunnel so phones can
+reach it from anywhere. No static IP, no open ports, no Node.js on the
+machine. Everything runs in Docker: the database, the core, and one Linux
+computer per account.
+
+**You need:**
+
+- A Linux machine with 2+ CPU cores and 4 GB+ memory
+- A domain managed by Cloudflare (the free plan is enough), for an address
+  like `api.example.com`
+- A Google account, to create the sign-in client
+
+### Step 1. Docker and the code
 
 ```bash
-docker build -t kuru-linux:1 apps/core/linux   # the agents' computer image
-export POSTGRES_PASSWORD="$(openssl rand -hex 24)"    # keep it; the database volume remembers it
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker "$USER" && newgrp docker
+
+git clone https://github.com/shoodoow/kuru.git && cd kuru
+```
+
+### Step 2. The tunnel
+
+Install `cloudflared` ([downloads](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)).
+On Debian or Ubuntu:
+
+```bash
+curl -fsSL -o cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+sudo dpkg -i cloudflared.deb
+```
+
+Create the tunnel and give it your address:
+
+```bash
+cloudflared tunnel login                      # opens a browser; pick your domain
+cloudflared tunnel create kuru                # prints the tunnel id
+cloudflared tunnel route dns kuru api.example.com
+```
+
+Write `~/.cloudflared/config.yml` (the example is in
+`deploy/cloudflared/config.example.yml`):
+
+```yaml
+tunnel: kuru
+credentials-file: /home/YOU/.cloudflared/<TUNNEL-ID>.json
+
+ingress:
+  - hostname: api.example.com
+    service: http://127.0.0.1:3000
+  - service: http_status:404
+```
+
+The last line is required; without it every request answers 503.
+
+### Step 3. Google sign-in
+
+In [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials),
+create an **OAuth 2.0 Client ID** of type **Web application** and add this
+redirect address exactly:
+
+`https://api.example.com/api/auth/callback/google`
+
+Keep the client id and secret for the next step.
+
+### Step 4. Settings
+
+```bash
+cp -n apps/core/.env.example apps/core/.env
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .env    # read by docker compose
+```
+
+Fill in `apps/core/.env`:
+
+| Variable | Value |
+|----------|-------|
+| `BETTER_AUTH_SECRET` | `openssl rand -hex 32`. Keep it safe: it signs sessions and seals saved provider keys. A lost secret makes every saved key unreadable. |
+| `BETTER_AUTH_URL` | `https://api.example.com` |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | From step 3 |
+| `NODE_ENV` | `production` |
+
+`DATABASE_URL`, `HOST` and `TRUST_PROXY` are set by compose; leave them
+alone. `SKILLS_DIR` can stay empty: the image ships the default skills.
+
+The database password in `.env` is used only when the database is first
+created. Do not change it afterwards, and back the file up with your data.
+
+### Step 5. Start
+
+```bash
+docker build -t kuru-linux:1 apps/core/linux         # the agents' computer image; takes a while the first time
+docker compose --profile core up -d --build
+
+curl -fsS http://127.0.0.1:3000/health               # {"ok":true}
+
+sudo cloudflared --config ~/.cloudflared/config.yml service install   # the tunnel starts with the machine
+curl -s -o /dev/null -w "%{http_code}\n" https://api.example.com/api/auth/get-session   # 200
+```
+
+To run the tunnel by hand instead of as a service: `cloudflared tunnel run kuru`.
+
+### Step 6. The phone
+
+Install the app (see [Build the phone app](#build-the-phone-app)), tap the
+server address at the bottom of the welcome screen, enter
+`https://api.example.com` under **Server**, and sign in with Google. Then
+add a model key under **Account → AI Providers**. One build of the app works
+with any server.
+
+### Good to know
+
+- **The image name** must be exactly `kuru-linux:1`, or a new account's
+  computer cannot be created.
+- **After a restart** of the machine the database, the core, the agents'
+  computers and the tunnel come back by themselves. If something is missing, run
+  `docker compose --profile core up -d` in the `kuru` folder.
+- **A laptop that sleeps stops answering.** To keep it running with the lid
+  closed, set `HandleLidSwitch=ignore` in `/etc/systemd/logind.conf` and
+  restart `systemd-logind`; also turn off automatic suspend in the power
+  settings.
+- **Database migrations** run each time the core container starts.
+- **The core listens on `127.0.0.1:3000` only.** The tunnel is the one way in;
+  the database is never offered to the network.
+- **The Docker socket** is mounted into the core so it can create account
+  computers. That gives the core container full control of the machine. Use
+  a machine where that is acceptable.
+- **People you do not know:** with plain Docker every account's computer
+  shares the machine's kernel. Read the Kata section below before opening
+  sign-up to strangers.
+- **No domain yet?** `cloudflared tunnel --url http://127.0.0.1:3000` gives a
+  temporary `trycloudflare.com` address for a first look. It changes on every
+  start, and `BETTER_AUTH_URL` and the Google redirect address must change
+  with it, so it is not for regular use.
+- **Logs:** `docker compose logs -f core`.
+
+**Updating later:**
+
+```bash
+git pull
+docker build -t kuru-linux:1 apps/core/linux
 docker compose --profile core up -d --build
 ```
 
-- Settings come from `apps/core/.env`. `DATABASE_URL`, `HOST` and `TRUST_PROXY` are set by compose.
-- Database migrations run each time the container starts.
-- The core is published on `127.0.0.1:3000` only; point the tunnel or reverse proxy at it.
-- The Docker socket is mounted into the core so it can create account
-  containers. That gives the core container full control of the host, which
-  is the same trust the core has when run directly.
+## Build the phone app
+
+Expo Go is enough to try the app, but it cannot receive push notifications
+and needs your laptop running. A real build is a file you install once.
+Builds are made with [EAS](https://docs.expo.dev/build/introduction/); the
+profiles are in `apps/mobile/eas.json`.
+
+Set the server a build opens with in `apps/mobile/.env`
+(`EXPO_PUBLIC_CORE_URL`). It is only the default: anyone can change it on the
+sign-in screen. For a build that may talk to a plain `http://` server on a
+home network, also set `EXPO_PUBLIC_ALLOW_HTTP=1`.
+
+### Android: an APK anyone can install
+
+```bash
+cd apps/mobile
+npx eas-cli login                                        # a free Expo account
+npx eas-cli build --profile preview --platform android
+```
+
+The build runs on Expo's servers and ends with a link to an `.apk`. Send
+the link or the file; the person opens it on their phone and allows
+"install from unknown sources". No Google Play account is needed. Push
+notifications on Android also need the FCM key from section 10.
+
+To build on your own machine instead (needs the Android SDK and JDK 17):
+
+```bash
+cd apps/mobile
+npx expo prebuild --platform android
+cd android && ./gradlew assembleRelease
+# the file: android/app/build/outputs/apk/release/app-release.apk
+```
+
+### iPhone without the App Store
+
+Apple does not allow a freely installable file like an APK. The choices:
+
+| Way | Needs | Limits |
+|-----|-------|--------|
+| **Ad hoc build** (recommended for a few people) | Paid Apple Developer account ($99 a year) | Each iPhone is registered first; up to 100 phones a year; a build lasts one year |
+| **TestFlight** | Paid Apple Developer account | Up to 10,000 testers by email or link; a build lasts 90 days; outside testers wait for a short Apple review |
+| **Your own phone from Xcode** | A free Apple ID and a Mac | Your own devices only; the app stops opening after 7 days and is installed again |
+
+Ad hoc, step by step:
+
+```bash
+cd apps/mobile
+npx eas-cli device:create                                # gives a link; each person opens it on their iPhone to register it
+npx eas-cli build --profile preview --platform ios       # sign in with the Apple Developer account when asked
+```
+
+The build ends with a link and a QR code. A registered iPhone opens it in
+Safari and installs the app. A phone added later needs a new build.
+
+Free, on your own iPhone, from a Mac with Xcode:
+
+```bash
+cd apps/mobile
+npx expo run:ios --device --configuration Release
+```
+
+Xcode signs it with your Apple ID. On the phone, trust the developer under
+Settings → General → VPN & Device Management.
+
+### Keeping the app's identity
+
+The app name is Kuru, but its bundle id (`com.nanoagents.app`) and link
+scheme (`nano-agents://`) keep the earlier name. Sign-in returns to the app
+through that scheme, and a phone treats a different bundle id as a different
+app, so they are left as they are.
 
 ## Stronger isolation with Kata Containers (Linux servers)
 
