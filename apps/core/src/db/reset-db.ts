@@ -4,7 +4,7 @@
  */
 import postgres from "postgres";
 
-const defaultUrl = "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
+const defaultUrl = "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const databaseUrl = process.env.DATABASE_URL ?? defaultUrl;
 
 const args = new Set(process.argv.slice(2));

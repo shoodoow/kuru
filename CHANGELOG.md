@@ -38,7 +38,12 @@ nano-agents).
   `docker build -t kuru-linux:1 apps/core/linux` (`./update.sh` does this).
 - If you cloned the repository under its old name, point it at the new one:
   `git remote set-url origin https://github.com/shoodoow/kuru.git`.
-- Nothing changes in `apps/core/.env`. The database name, the app's bundle id
-  and its `nano-agents://` link scheme keep the earlier name on purpose.
+- A new install names its database `kuru_database`. An install made before
+  this release keeps `nano_agents`: leave `DATABASE_URL` in `apps/core/.env`
+  as it is. Running the core with `docker compose --profile core` on an
+  older database volume needs the old name; set it back in
+  `docker-compose.yml` or start from a fresh volume.
+- The app's bundle id and its `nano-agents://` link scheme keep the earlier
+  name on purpose.
 - Over-the-air updates need one new build of the phone app; builds made
   before this release keep working but do not receive them.

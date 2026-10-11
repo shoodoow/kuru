@@ -5,6 +5,6 @@ export default defineConfig({
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents",
+    url: process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database",
   },
 });

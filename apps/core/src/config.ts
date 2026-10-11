@@ -6,7 +6,7 @@
  * test can change one and see the change.
  */
 
-const LOCAL_DATABASE_URL = "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
+const LOCAL_DATABASE_URL = "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const LOCAL_PUBLIC_URL = "http://127.0.0.1:3000";
 const MIN_SECRET_LENGTH = 32;
 

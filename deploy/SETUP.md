@@ -60,7 +60,7 @@ pnpm db:migrate
 
 Default local DB (override in env):
 
-`postgres://postgres:postgres@127.0.0.1:5432/nano_agents`
+`postgres://postgres:postgres@127.0.0.1:5432/kuru_database`
 
 ---
 

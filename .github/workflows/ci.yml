@@ -23,16 +23,16 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: nano_agents
+          POSTGRES_DB: kuru_database
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U postgres -d nano_agents"
+          --health-cmd="pg_isready -U postgres -d kuru_database"
           --health-interval=2s
           --health-timeout=5s
           --health-retries=20
     env:
-      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/nano_agents
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/kuru_database
       BETTER_AUTH_URL: http://127.0.0.1:3000
       BETTER_AUTH_SECRET: ci-test-secret-at-least-32-chars-long
       GOOGLE_CLIENT_ID: ci-placeholder

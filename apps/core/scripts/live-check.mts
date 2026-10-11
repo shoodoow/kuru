@@ -15,7 +15,7 @@ const args = process.argv.slice(2);
 const fresh = args[0] === "--new";
 const [agentId, ...texts] = fresh ? args.slice(1) : args;
 if (!agentId || texts.length === 0) throw new Error("Usage: live-check.mts <agentId> <message...>");
-const db = getDb(process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents");
+const db = getDb(process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database");
 const [source] = await db.select().from(agents).where(eq(agents.id, agentId));
 if (!source) throw new Error("Agent not found.");
 let agent = source;

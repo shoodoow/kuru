@@ -6,14 +6,14 @@ services:
       # "postgres" suits a laptop. Set POSTGRES_PASSWORD for anything shared.
       # It is read only when the database volume is first created.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: nano_agents
+      POSTGRES_DB: kuru_database
     ports:
       # This machine only: the database is never offered to the network.
       - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d nano_agents"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d kuru_database"]
       interval: 2s
       timeout: 5s
       retries: 20
@@ -29,7 +29,7 @@ services:
       dockerfile: apps/core/Dockerfile
     env_file: apps/core/.env
     environment:
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/nano_agents
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/kuru_database
       HOST: 0.0.0.0
       # Requests arrive through Docker's port forward, one hop from the tunnel
       # or proxy on this machine that names the real client.
