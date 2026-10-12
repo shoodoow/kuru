@@ -71,6 +71,14 @@ export const config = {
   skillsDir: (): string | undefined => read("SKILLS_DIR"),
   dockerSocket: (): string => read("DOCKER_SOCKET") ?? "/var/run/docker.sock",
   /**
+   * The everyday memory limit of one account's computer, in GB. Unset, it is
+   * worked out from the machine's memory (see linux/memory-plan.ts).
+   */
+  accountMemoryGb: (): number | undefined => {
+    const value = Number(read("ACCOUNT_MEMORY_GB"));
+    return Number.isFinite(value) && value > 0 ? value : undefined;
+  },
+  /**
    * The Docker runtime account containers are created with, for example
    * "kata" on a Linux server. Unset uses Docker's default (runc), which is
    * what a Mac can run.

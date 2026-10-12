@@ -2,6 +2,7 @@ import { config } from "./config.js";
 import { sharedDb } from "./db/client.js";
 import { ensureGatewayModelsLoaded, registerGatewayModelInfoProvider } from "./model/gateway-models.js";
 import { startServer } from "./http/server.js";
+import { settleAccountComputers } from "./linux/linux.js";
 import { resolveSkillsDir } from "./skills/paths.js";
 import { startScheduler } from "./routines/scheduler.js";
 import { ensureWorkerLifecycle } from "./turn/orchestrator.js";
@@ -26,6 +27,8 @@ const stopScheduler = startScheduler(db, { skillsRoot: config.skillsDir() });
 // from their saved conversation, old ones are closed so nothing reads as
 // "running" with no one working on it.
 ensureWorkerLifecycle(db);
+// A job that had borrowed memory when the process stopped: its computer goes back to the everyday limit.
+void settleAccountComputers().catch(() => undefined);
 void recoverInterruptedWorkers(db, config.skillsDir()).catch((error: unknown) => {
   console.error("Interrupted workers were not recovered:", error);
 });

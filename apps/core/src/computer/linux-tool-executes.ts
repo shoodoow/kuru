@@ -16,6 +16,7 @@ import { globFiles, grepFiles } from "./find.js";
 import { webSearch } from "./search.js";
 import { webFetch } from "./web.js";
 import { openOnScreen, runBrowserTool } from "./browser-bridge.js";
+import { memoryStatus, releaseMemory, requestMemory } from "../linux/linux.js";
 
 type Database = ReturnType<typeof getDb>;
 
@@ -56,6 +57,12 @@ export function linuxToolExecutes(
   const seenQueries = new Map<string, number>();
   let consecutiveEmpty = 0;
   return {
+    computer_memory: async (input) => {
+      if (input.action === "release") return releaseMemory(accountId);
+      if (input.action === "status") return memoryStatus(accountId);
+      if (typeof input.gb !== "number") return { granted: false, note: "Say how much the job needs: gb, a number." };
+      return requestMemory(accountId, input.gb, typeof input.minutes === "number" ? input.minutes : undefined);
+    },
     read: async (input) => {
       const path = String(input.path);
       if (opts?.skillFilesNote && isSkillPath(path)) return opts.skillFilesNote(path);

@@ -11,6 +11,8 @@ import {
   DESKTOP_HEIGHT,
 } from "../desktop/desktop.js";
 import { accountShared, exec, execBytes, execStdin } from "../linux/linux.js";
+import { machinePlan } from "../linux/linux.js";
+import { inGb, largestGrant } from "../linux/memory-plan.js";
 import { expandHome, assertInside } from "./find.js";
 import { noted } from "../log/logger.js";
 
@@ -257,13 +259,15 @@ export async function computerFacts(accountId: string): Promise<string> {
     const probe = await exec(accountId, [
       "sh",
       "-c",
-      "echo \"cpu=$(nproc) arch=$(uname -m)\"; awk '/MemTotal/{printf \"ram_gb=%.0f\\n\", $2/1048576}' /proc/meminfo; " +
+      "echo \"cpu=$(nproc) arch=$(uname -m)\"; " +
         "df -BG --output=avail / | tail -1 | tr -dc '0-9' | sed 's/^/disk_free_gb=/'; echo; " +
         "(command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=name --format=csv,noheader | head -1 | sed 's/^/gpu=/') || echo gpu=none",
     ]);
     const get = (key: string): string => new RegExp(`${key}=(\\S+)`).exec(probe.stdout)?.[1] ?? "?";
     const gpu = /gpu=(.*)/.exec(probe.stdout)?.[1]?.trim() ?? "none";
-    const text = `Linux, ${get("cpu")} CPU cores (${get("arch")}), ${get("ram_gb")} GB RAM, ${get("disk_free_gb")} GB free disk, ${gpu === "none" ? "no GPU" : `GPU: ${gpu}`}.`;
+    // The memory is this computer's own limit, not the machine's: /proc/meminfo shows the whole machine.
+    const { plan } = await machinePlan();
+    const text = `Linux, ${get("cpu")} CPU cores (${get("arch")}), ${inGb(plan.baselineBytes)} RAM for everyday work (a worker can borrow up to about ${inGb(largestGrant(plan, 0))} for one heavy job with computer_memory), ${get("disk_free_gb")} GB free disk, ${gpu === "none" ? "no GPU" : `GPU: ${gpu}`}.`;
     factsCache.set(accountId, { at: Date.now(), text });
     return text;
   } catch {

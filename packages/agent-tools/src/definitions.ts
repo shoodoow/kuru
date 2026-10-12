@@ -18,6 +18,7 @@ import {
   agentMemoryCorrectInputSchema,
   messageAgentInputSchema,
   keyInputSchema,
+  computerMemoryInputSchema,
   memberAddInputSchema,
   notifyInputSchema,
   reactionSchema,
@@ -339,6 +340,12 @@ export const allToolDefinitions: ToolDefinition[] = [
     surfaces: ["worker"],
     requiresLinux: true,
     inputSchema: keyInputSchema,
+  },
+  {
+    name: "computer_memory",
+    surfaces: ["worker"],
+    requiresLinux: true,
+    inputSchema: computerMemoryInputSchema,
   },
   {
     name: "web_fetch",

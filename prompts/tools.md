@@ -134,6 +134,9 @@ Write one file by absolute path under your home or `/shared`.
 # bash
 Run one shell command on your Linux computer. `DISPLAY` already points at your 1280x800 desktop, so `chromium` and `xterm` open on the screen the person can watch. Start long-running programs in the background so the command returns.
 
+# computer_memory
+Your computer has a modest everyday memory limit. Before a job that needs more (rendering video, a large build, a big data file), call this with action `request`, `gb` (what the job needs in all) and `minutes` (how long it may take). The answer says how much you got: plan the job's thread or worker count to fit that, since a job that goes over is killed. If the answer is "not granted", another account's job has the spare memory: run with fewer threads, or do other work and ask again. Call action `release` as soon as the job is done, because other accounts wait for that memory. `status` shows your limit and what is in use.
+
 # computer_screenshot
 Take a PNG of your 1280x800 desktop. It is saved under `/shared/screenshots/` and the path is returned. Look before you click or type so coordinates match the screen, and cite the path in your report.
 

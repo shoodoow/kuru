@@ -1,4 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
+
+// A small everyday limit, so this machine has memory left to lend whatever else is running on it.
+process.env.ACCOUNT_MEMORY_GB = "1";
 import type { AddressInfo } from "node:net";
 import Dockerode from "dockerode";
 import { eq } from "drizzle-orm";
@@ -6,7 +9,7 @@ import { getDb } from "../db/client.js";
 import { agents } from "../db/schema.js";
 import { startServer } from "../http/server.js";
 import { createAccount, createAgent } from "../roster/roster.js";
-import { accountHome, accountShared, createLinux, createProfile, exec, removeAccountContainers } from "./linux.js";
+import { accountHome, accountShared, createLinux, createProfile, exec, machinePlan, memoryStatus, releaseMemory, removeAccountContainers, requestMemory } from "./linux.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
 const db = getDb(databaseUrl);
@@ -123,6 +126,43 @@ describe("linux", () => {
       filters: { label: [`nano.account=${account.id}`] },
     });
     expect(listed).toHaveLength(1);
+  });
+
+  it("starts a computer on the everyday limit and lends one job more at a time", async () => {
+    const docker = new Dockerode({ socketPath: process.env.DOCKER_SOCKET ?? "/var/run/docker.sock" });
+    const first = await createAccount(db, { name: "Renderer" });
+    const second = await createAccount(db, { name: "Waiting" });
+    const { plan, cpus } = await machinePlan();
+    const limitOf = async (accountId: string) => (await docker.getContainer(`nano-${accountId}`).inspect()).HostConfig;
+    const made = await limitOf(first.id);
+    expect(made.Memory).toBe(plan.baselineBytes);
+    expect(made.NanoCpus).toBe(cpus * 1_000_000_000);
+    expect(made.CpuShares).toBe(512);
+    expect(made.OomScoreAdj).toBe(500);
+
+    // Asking for what it already has changes nothing.
+    expect((await requestMemory(first.id, 1)).granted).toBe(true);
+    expect((await limitOf(first.id)).Memory).toBe(plan.baselineBytes);
+
+    // The other computers are taken as idle: what this machine has spare while the whole suite runs is not the subject here.
+    const idle = { waitMs: 0, othersInUse: 0 };
+    const granted = await requestMemory(first.id, 512, 5, idle);
+    expect(granted.granted).toBe(true);
+    const raised = (await limitOf(first.id)).Memory ?? 0;
+    expect(raised).toBeGreaterThan(plan.baselineBytes);
+    expect(raised).toBeLessThanOrEqual(plan.poolBytes);
+
+    // The machine's spare memory is out: the second account is told to wait.
+    const refused = await requestMemory(second.id, 512, 5, idle);
+    expect(refused.granted).toBe(false);
+    expect(refused.note).toMatch(/Another account/);
+    expect((await limitOf(second.id)).Memory).toBe(plan.baselineBytes);
+
+    expect((await releaseMemory(first.id)).note).toMatch(/Given back/);
+    expect((await limitOf(first.id)).Memory).toBe(plan.baselineBytes);
+    expect((await requestMemory(second.id, 512, 5, idle)).granted).toBe(true);
+    await releaseMemory(second.id);
+    expect((await memoryStatus(second.id)).note).toMatch(/may use/);
   });
 
   it("labels test computers and spares unlabeled ones on scoped cleanup", async () => {

@@ -6,10 +6,12 @@ import { and, eq } from "drizzle-orm";
 import type { Store } from "../db/client.js";
 import { sharedDb } from "../db/client.js";
 import { agents, user } from "../db/schema.js";
+import { logger } from "../log/logger.js";
 import { ACCOUNT_NETWORK, applyFirewall, applyHostFirewall, ensureAccountNetwork } from "./firewall.js";
+import { inGb, largestGrant, planMemory, type MemoryPlan } from "./memory-plan.js";
 
 const image = "kuru-linux:1";
-const memoryBytes = 10 * 1024 * 1024 * 1024;
+const GB = 1024 * 1024 * 1024;
 const storageSize = "50G";
 const toolchainRepairs = new Map<string, Promise<void>>();
 const containerNameByAccount = new Map<string, string>();
@@ -170,7 +172,7 @@ export async function createLinux(accountId: string, emailHint?: string): Promis
       await existing.start();
     }
     await ensureFirewall(name, { now: true });
-    await ensureMemory(existing, info.HostConfig?.Memory ?? 0);
+    await ensureLimits(existing, accountId, info.HostConfig ?? {});
     await ensureRestart(existing, info.HostConfig?.RestartPolicy?.Name);
     await ensureBaseToolchain(accountId);
     return info.Id;
@@ -182,11 +184,16 @@ export async function createLinux(accountId: string, emailHint?: string): Promis
   }
   try {
     if (config.containerFirewall() === "host") await ensureAccountNetwork(docker);
-    const container = await docker.createContainer({
-      name,
-      Image: image,
-      Labels: labels,
-      HostConfig: accountContainerHostConfig(accountId),
+    const { plan, cpus } = await machinePlan();
+    const hostConfig = accountContainerHostConfig(accountId, { memoryBytes: plan.baselineBytes, cpus });
+    const container = await docker.createContainer({ name, Image: image, Labels: labels, HostConfig: hostConfig }).catch((error: unknown) => {
+      // Docker can cap a container's disk only on some storage setups (xfs with
+      // project quotas). On an ordinary Linux disk it refuses the option, and
+      // no account could be created. The computer is made without the cap then.
+      if (!/storage[- ]?opt|storage driver|pquota|quota/i.test(error instanceof Error ? error.message : "")) throw error;
+      logger.warn({ accountId }, `This machine's Docker cannot limit a container's disk, so the ${storageSize} disk limit is not applied.`);
+      const { StorageOpt: _dropped, ...withoutDiskLimit } = hostConfig;
+      return docker.createContainer({ name, Image: image, Labels: labels, HostConfig: withoutDiskLimit });
     });
     await container.start();
     await ensureFirewall(name, { now: true });
@@ -666,15 +673,25 @@ function assertOwnContainer(
  * Why: the container must not see the Docker socket or another account's volume.
  * Input: account id. Output: Docker HostConfig. Privileged stays off.
  */
-export function accountContainerHostConfig(accountId: string): Dockerode.HostConfig {
+export function accountContainerHostConfig(
+  accountId: string,
+  limits: { memoryBytes: number; cpus: number } = { memoryBytes: 2 * GB, cpus: 2 },
+): Dockerode.HostConfig {
   const binds = [`nano-account-${accountId}:/var/nano`];
   if (binds.some((bind) => bind.includes("docker.sock") || bind.startsWith("/") && !bind.startsWith("nano-account-"))) {
     throw new Error("Account containers cannot mount the host.");
   }
   return {
-    Memory: memoryBytes,
-    MemorySwap: memoryBytes,
-    NanoCpus: 2_000_000_000,
+    // The everyday limit. A heavy job borrows more for a while (requestMemory).
+    Memory: limits.memoryBytes,
+    MemorySwap: limits.memoryBytes,
+    // Every core, at half the weight of the server and the database: an
+    // account gets the whole machine when it is free, and the server stays
+    // quick when several computers are busy at once.
+    NanoCpus: limits.cpus * 1_000_000_000,
+    CpuShares: ACCOUNT_CPU_SHARES,
+    // If the machine itself runs out of memory, a computer's processes go first, not the server's.
+    OomScoreAdj: 500,
     StorageOpt: { size: storageSize },
     Binds: binds,
     Privileged: false,
@@ -697,11 +714,199 @@ async function ensureRestart(container: Dockerode.Container, current?: string): 
   await container.update({ RestartPolicy: { Name: RESTART_POLICY } }).catch(() => undefined);
 }
 
-async function ensureMemory(container: Dockerode.Container, current: number): Promise<void> {
-  if (current >= memoryBytes) {
-    return;
+const ACCOUNT_CPU_SHARES = 512;
+const DEFAULT_GRANT_MINUTES = 30;
+const MAX_GRANT_MINUTES = 180;
+/** How long a request waits for another account's job to finish before answering "busy". */
+const GRANT_WAIT_MS = 45_000;
+const GRANT_RETRY_MS = 60_000;
+
+let machine: Promise<{ plan: MemoryPlan; cpus: number }> | null = null;
+
+/** This machine's memory plan and core count, read from Docker once. */
+export function machinePlan(): Promise<{ plan: MemoryPlan; cpus: number }> {
+  machine ??= docker
+    .info()
+    .then((info: { MemTotal?: number; NCPU?: number }) => ({
+      plan: planMemory(Number(info.MemTotal) || 8 * GB, config.accountMemoryGb()),
+      cpus: Number(info.NCPU) || 2,
+    }))
+    .catch((error: unknown) => {
+      machine = null;
+      throw error;
+    });
+  return machine;
+}
+
+/** The one job on this machine that has borrowed memory, if any. */
+let grant: { accountId: string; bytes: number; until: number; timer: NodeJS.Timeout } | null = null;
+
+export type MemoryAnswer = { granted: boolean; memoryGb: number; minutes?: number; note: string };
+
+/** Memory a computer's processes hold now, without the file cache Linux gives back on demand. */
+async function memoryInUse(container: Dockerode.Container): Promise<number> {
+  // One reading, not the default pair a second apart that Docker takes to work out CPU use.
+  const stats = (await container.stats({ stream: false, "one-shot": true })) as { memory_stats?: { usage?: number; stats?: { inactive_file?: number } } };
+  return Math.max(0, (stats.memory_stats?.usage ?? 0) - (stats.memory_stats?.stats?.inactive_file ?? 0));
+}
+
+/** Memory every other running computer holds between them, each counted as at least 256 MB. */
+async function othersInUse(accountId: string): Promise<number> {
+  const rows = (await docker.listContainers({ filters: { label: ["nano.account"] } })).filter((row) => row.Labels["nano.account"] !== accountId);
+  const used = await Promise.all(rows.map((row) => memoryInUse(docker.getContainer(row.Id)).catch(() => 0)));
+  return used.reduce((sum, bytes) => sum + Math.max(bytes, 256 * 1024 * 1024), 0);
+}
+
+/**
+ * Sets a computer's memory limit, unless that would cut into memory in use.
+ * Why: a limit dropped below what is in use makes Linux kill processes in
+ * that computer at once. Output: true when the limit is now `target`.
+ */
+async function setMemoryLimit(container: Dockerode.Container, current: number, target: number, force = false): Promise<boolean> {
+  if (current === target) return true;
+  if (!force && target < current && (await memoryInUse(container).catch(() => 0)) > target * 0.85) return false;
+  await container.update({ Memory: target, MemorySwap: target });
+  return true;
+}
+
+/** Brings a computer made by an older version to today's memory and CPU rules. */
+async function ensureLimits(container: Dockerode.Container, accountId: string, current: Dockerode.HostConfig): Promise<void> {
+  const { plan, cpus } = await machinePlan();
+  if (current.NanoCpus !== cpus * 1_000_000_000 || current.CpuShares !== ACCOUNT_CPU_SHARES) {
+    await container.update({ NanoCpus: cpus * 1_000_000_000, CpuShares: ACCOUNT_CPU_SHARES }).catch(() => undefined);
   }
-  await container.update({ Memory: memoryBytes, MemorySwap: memoryBytes });
+  // A job that borrowed memory keeps it until its grant ends.
+  if (grant?.accountId === accountId) return;
+  await setMemoryLimit(container, current.Memory ?? 0, plan.baselineBytes).catch(() => false);
+}
+
+/**
+ * Puts every running computer back on its everyday limit.
+ * Why: a grant lives in this process. If the server stopped while a job had
+ * borrowed memory, that computer would keep the large limit for good.
+ * Called once when the server starts.
+ */
+export async function settleAccountComputers(): Promise<void> {
+  const running = await docker.listContainers({ filters: { label: ["nano.account"] } });
+  for (const row of running) {
+    const container = docker.getContainer(row.Id);
+    const info = await container.inspect().catch(() => null);
+    const accountId = row.Labels["nano.account"];
+    if (info && accountId) await ensureLimits(container, accountId, info.HostConfig ?? {}).catch(() => undefined);
+  }
+}
+
+/**
+ * Lends one account's computer more memory for a heavy job.
+ * Why: see memory-plan.ts. One job at a time on the machine; a second
+ * request waits a little, then is told when to ask again.
+ * Input: account id, the GB wanted, and for how many minutes.
+ * Output: what was granted, in words the agent can act on.
+ */
+export async function requestMemory(
+  accountId: string,
+  wantGb: number,
+  minutes = DEFAULT_GRANT_MINUTES,
+  /** For tests: how long to wait for another account's job, and what the other computers are taken to use. */
+  probe: { waitMs?: number; othersInUse?: number } = {},
+): Promise<MemoryAnswer> {
+  const { plan } = await machinePlan();
+  const everyday = plan.baselineBytes;
+  const wanted = Math.round(wantGb * GB);
+  if (wanted <= everyday && grant?.accountId !== accountId) {
+    return { granted: true, memoryGb: everyday / GB, note: `Your computer already has ${inGb(everyday)}. There is nothing to ask for.` };
+  }
+  const deadline = Date.now() + (probe.waitMs ?? GRANT_WAIT_MS);
+  while (grant && grant.accountId !== accountId && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+  }
+  if (grant && grant.accountId !== accountId) {
+    const wait = Math.max(1, Math.ceil((grant.until - Date.now()) / 60_000));
+    return {
+      granted: false,
+      memoryGb: everyday / GB,
+      note: `Another account's job has this machine's spare memory for about ${wait} more minutes. You have ${inGb(everyday)} now. Either run the job with fewer threads so it fits, or do other work and ask again then.`,
+    };
+  }
+  const bytes = Math.min(wanted, largestGrant(plan, probe.othersInUse ?? (await othersInUse(accountId))));
+  if (bytes <= everyday) {
+    return { granted: false, memoryGb: everyday / GB, note: `This machine has no memory to spare beyond your ${inGb(everyday)}. Run the job with fewer threads so it fits.` };
+  }
+  const length = Math.min(MAX_GRANT_MINUTES, Math.max(1, Math.round(minutes)));
+  await (await accountContainer(accountId)).update({ Memory: bytes, MemorySwap: bytes });
+  if (grant) clearTimeout(grant.timer);
+  const timer = setTimeout(() => void endGrant(accountId, 0), length * 60_000);
+  timer.unref();
+  grant = { accountId, bytes, until: Date.now() + length * 60_000, timer };
+  return {
+    granted: true,
+    memoryGb: Math.round((bytes / GB) * 10) / 10,
+    minutes: length,
+    note:
+      (bytes < wanted ? `Only ${inGb(bytes)} is free on this machine, not the ${inGb(wanted)} you asked for; choose a thread count that fits. ` : "") +
+      `Your computer has ${inGb(bytes)} for ${length} minutes. Release it with computer_memory (action "release") as soon as the job is done; other accounts wait for it.`,
+  };
+}
+
+/** Gives borrowed memory back. Input: account id. Output: what happened, in words. */
+export async function releaseMemory(accountId: string): Promise<MemoryAnswer> {
+  const { plan } = await machinePlan();
+  if (grant?.accountId !== accountId) {
+    return { granted: false, memoryGb: plan.baselineBytes / GB, note: "Your computer has no borrowed memory to give back." };
+  }
+  const lowered = await endGrant(accountId, 0);
+  return {
+    granted: false,
+    memoryGb: (lowered ? plan.baselineBytes : grant?.bytes ?? plan.baselineBytes) / GB,
+    note: lowered
+      ? `Given back. Your computer is at its everyday ${inGb(plan.baselineBytes)}.`
+      : "Something on your computer still holds most of that memory, so the limit stays for now and is lowered when it lets go. Stop the job's processes if it is finished.",
+  };
+}
+
+/**
+ * Ends a grant: lowers the limit, or tries again in a minute while the memory is still in use.
+ * After ten tries the limit is lowered anyway, so one stuck process cannot hold the machine's spare memory for ever.
+ */
+async function endGrant(accountId: string, attempt: number): Promise<boolean> {
+  const held = grant;
+  if (!held || held.accountId !== accountId) return true;
+  clearTimeout(held.timer);
+  try {
+    const { plan } = await machinePlan();
+    const lowered = await setMemoryLimit(await accountContainer(accountId), held.bytes, plan.baselineBytes, attempt >= 10);
+    if (!lowered) {
+      held.timer = setTimeout(() => void endGrant(accountId, attempt + 1), GRANT_RETRY_MS);
+      held.timer.unref();
+      held.until = Date.now() + GRANT_RETRY_MS;
+      return false;
+    }
+  } catch {
+    // The computer is gone or unreachable: nothing is holding the memory.
+  }
+  if (grant === held) grant = null;
+  return true;
+}
+
+/** What a computer has now. Input: account id. Output: its limit and what is in use, in words. */
+export async function memoryStatus(accountId: string): Promise<MemoryAnswer> {
+  const { plan } = await machinePlan();
+  const container = await accountContainer(accountId);
+  const limit = (await container.inspect()).HostConfig?.Memory ?? plan.baselineBytes;
+  const used = await memoryInUse(container).catch(() => 0);
+  const others = await othersInUse(accountId);
+  const held = grant?.accountId === accountId;
+  return {
+    granted: held,
+    memoryGb: Math.round((limit / GB) * 10) / 10,
+    note: `Your computer may use ${inGb(limit)} and is using ${inGb(used)}. ${
+      held
+        ? `That includes memory borrowed for about ${Math.max(1, Math.ceil(((grant?.until ?? 0) - Date.now()) / 60_000))} more minutes.`
+        : grant
+          ? "Another account's job has the machine's spare memory right now."
+          : `A heavy job can ask for up to ${inGb(largestGrant(plan, others))}.`
+    }`,
+  };
 }
 
 /**

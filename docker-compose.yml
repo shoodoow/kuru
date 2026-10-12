@@ -19,6 +19,8 @@ services:
       retries: 20
     # Comes back after the machine restarts, like the core below.
     restart: unless-stopped
+    # If the machine runs out of memory, an agent's computer is given up before the database.
+    oom_score_adj: -500
 
   # The core as a container, for a server: docker compose --profile core up -d
   # Development runs the core with `pnpm --filter core dev` and skips this.
@@ -47,6 +49,8 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    # If the machine runs out of memory, an agent's computer is given up before the server.
+    oom_score_adj: -500
 
 volumes:
   pgdata:

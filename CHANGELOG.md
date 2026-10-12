@@ -6,6 +6,36 @@ What changed in each release, newest first. Update your server with
 Each entry says whether it needs anything from the person running the
 server (a new setting, a new app build) under **To update**.
 
+## 0.3.0
+
+**New**
+
+- Memory is shared out from what the machine has. Each account's computer
+  gets a small everyday limit (3 GB on a 16 GB machine), and one heavy job
+  at a time may borrow most of the rest: about 10 GB on that machine, enough
+  to render video. Workers ask with the new `computer_memory` tool and give
+  it back when done; a second heavy job waits its turn.
+- A computer may use every CPU core, at a lower priority than the server and
+  the database. It was capped at two cores.
+
+**Fixed**
+
+- On an ordinary Linux disk, Docker refuses a per-container disk limit, and
+  no account's computer could be created. The computer is now made without
+  the limit there, with a warning in the log.
+- If the machine runs out of memory, an agent's computer is given up before
+  the server or the database.
+
+**To update**
+
+- Run `./update.sh`. Existing computers move from the old 10 GB limit to the
+  everyday limit the next time the server starts, unless they are using more
+  than that at the time.
+- Optional: set `ACCOUNT_MEMORY_GB` in `apps/core/.env` to choose the
+  everyday limit yourself.
+- Protection from the memory killer applies to computers created from now
+  on; Docker cannot change it on an existing one.
+
 ## 0.2.0
 
 The first numbered release. The project is now called **Kuru** (it was

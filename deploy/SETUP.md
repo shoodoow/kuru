@@ -455,6 +455,21 @@ with any server.
 
 - **The image name** must be exactly `kuru-linux:1`, or a new account's
   computer cannot be created.
+- **Memory is shared out by the server, from what the machine has.** It keeps
+  about 4 GB back for itself, the database and the system. Each account's
+  computer gets a small everyday limit (3 GB on a 16 GB machine), and one
+  heavy job at a time, such as a video render, may borrow most of the rest
+  (about 10 GB on that machine) and gives it back when done. A second heavy
+  job waits its turn. To fix the everyday limit yourself, set
+  `ACCOUNT_MEMORY_GB` in `apps/core/.env`.
+- **CPU is not capped.** A computer may use every core, at a lower priority
+  than the server and the database, so chats stay quick while agents work.
+- **If the machine still runs out of memory,** Linux stops a process in an
+  agent's computer before it touches the server or the database. Adding swap
+  to the machine turns a small overshoot into a slowdown instead.
+- **Disk:** each computer is limited to 50 GB where Docker supports that
+  (xfs with project quotas). On an ordinary disk the limit is not applied and
+  the server logs a warning once per new computer.
 - **After a restart** of the machine the database, the core, the agents'
   computers and the tunnel come back by themselves. If something is missing, run
   `docker compose --profile core up -d` in the `kuru` folder.

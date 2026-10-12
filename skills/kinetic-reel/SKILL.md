@@ -54,6 +54,10 @@ frames on a cut, legibility at 1600 px wide, and that each transition *starts on
 Budget: a sheet per chapter, a full-res still per dense shot, a strip per transition type.
 
 ### 4. Score, render, encode
+
+Rendering every frame in parallel is the one memory-heavy step. On an agent computer, ask for memory first with
+`computer_memory` (action `request`, about 2 GB per render worker plus 2 GB), set `--workers` to fit what you were
+given, and `release` it when the MP4 is encoded.
 ```bash
 node music/score.mjs && ffmpeg -y -i music/score.wav -af "highpass=f=30,equalizer=f=250:t=q:w=1:g=-2,loudnorm=I=-14:TP=-1.2:LRA=8" -c:a aac -b:a 192k assets/score.m4a
 node render.mjs --frames --workers=4                                    # ~8–40 ms/frame on a Mac GPU: seconds, not minutes

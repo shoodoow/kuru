@@ -432,6 +432,14 @@ export const urlInputSchema = z.object({
   url: z.string().min(1),
 });
 
+export const computerMemoryInputSchema = z.object({
+  action: z.enum(["request", "release", "status"]),
+  /** For "request": how much memory the job needs in all, in GB. */
+  gb: z.number().min(1).max(512).optional(),
+  /** For "request": how long the job may take, in minutes. */
+  minutes: z.number().int().min(1).max(180).optional(),
+});
+
 export const webSearchInputSchema = z.object({
   query: z.string().min(1),
   numResults: z.number().int().min(1).max(20).optional(),
