@@ -105,6 +105,10 @@ export type PluginCard = {
   installed: boolean;
   configured: boolean;
   lastError: string | null;
+  /** The accounts signed in to this plugin, by username. */
+  accounts?: string[];
+  /** True when signing in again adds another account beside the ones already there. */
+  multiAccount?: boolean;
 };
 
 export type PluginList = { installed: number; plugins: PluginCard[] };

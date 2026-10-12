@@ -1,3 +1,4 @@
+import { SOCIAL_PLUGINS } from "../social/catalog.js";
 import type { McpToolCacheEntry } from "./types.js";
 
 /** Icon is shown when set. Letter and color are the fallback when it is missing or fails to load. */
@@ -11,7 +12,10 @@ export type CatalogPlugin = {
   name: string;
   description: string;
   section: string;
+  /** A featured plugin the person signs in to through this server. The name is historical: not all are Google's. */
   kind: "google";
+  /** Whose sign-in and API it uses. Google plugins share one Google token; the others keep their own. */
+  provider: "google" | "instagram" | "tiktok";
   mark: PluginMark;
   skills: PluginSkill[];
   scopes: string[];
@@ -28,6 +32,7 @@ export const PLUGIN_CATALOG: CatalogPlugin[] = [
     description: "Search, read, draft, and send email. Sending waits for your approval.",
     section: "Featured",
     kind: "google",
+    provider: "google",
     mark: { icon: "https://www.gstatic.com/images/branding/product/1x/gmail_2020q4_32dp.png", letter: "M", color: "#EA4335" },
     skills: [
       { name: "gmail-search", description: "Look up and read messages in this account.", body: "Use gmail_search and gmail_read. Do not send mail from this skill." },
@@ -81,6 +86,7 @@ export const PLUGIN_CATALOG: CatalogPlugin[] = [
     description: "Search events and create events.",
     section: "Featured",
     kind: "google",
+    provider: "google",
     mark: { icon: "https://www.gstatic.com/images/branding/product/1x/calendar_2020q4_32dp.png", letter: "31", color: "#4285F4" },
     skills: [
       { name: "calendar-find", description: "Look up events on the primary calendar.", body: "Use google-calendar_search_events." },
@@ -117,6 +123,7 @@ export const PLUGIN_CATALOG: CatalogPlugin[] = [
     description: "Search and read files.",
     section: "Featured",
     kind: "google",
+    provider: "google",
     mark: { icon: "https://www.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png", letter: "D", color: "#34A853" },
     skills: [
       { name: "drive-search", description: "Find files in this account's Drive.", body: "Use google-drive_search." },
@@ -136,6 +143,7 @@ export const PLUGIN_CATALOG: CatalogPlugin[] = [
       },
     ],
   },
+  ...SOCIAL_PLUGINS,
 ];
 
 export function catalogPlugin(id: string): CatalogPlugin | undefined {

@@ -99,6 +99,38 @@ export function deletesOnlyOwnFiles(command: string, home: string): boolean {
   return parsed > 0 && parsed === mentions;
 }
 
+/** What each publishing or deleting tool of the YouTube, Instagram and TikTok plugins does, for the approval card. */
+const SOCIAL_ACTIONS: Record<string, string> = {
+  youtube_upload_video: "Upload to YouTube",
+  youtube_delete_video: "Delete a YouTube video",
+  youtube_delete_playlist: "Delete a YouTube playlist",
+  youtube_post_comment: "Comment on YouTube",
+  youtube_reply_to_comment: "Reply to a YouTube comment",
+  instagram_publish_photo: "Publish a photo on Instagram",
+  instagram_publish_reel: "Publish a reel on Instagram",
+  instagram_publish_story: "Publish a story on Instagram",
+  instagram_publish_carousel: "Publish a carousel on Instagram",
+  instagram_post_comment: "Comment on Instagram",
+  instagram_reply_to_comment: "Reply to an Instagram comment",
+  instagram_delete_comment: "Delete an Instagram comment",
+  tiktok_post_video: "Post a video on TikTok",
+  tiktok_post_photos: "Post photos on TikTok",
+  tiktok_upload_draft: "Send a draft to the TikTok inbox",
+};
+
+/**
+ * The approval line for a social plugin call that publishes or deletes, or null for any other call.
+ * Why in code and not only in the prompt: a post is public the moment it is
+ * made. With Auto-review on, the person sees what is about to go out and where.
+ */
+function socialRisk(name: string, input: Record<string, unknown>): string | null {
+  const action = SOCIAL_ACTIONS[name];
+  if (!action) return null;
+  const what = input.title ?? input.caption ?? input.text ?? input.path ?? (Array.isArray(input.paths) ? input.paths.join(", ") : undefined) ?? input.id ?? input.commentId ?? "";
+  const where = [typeof input.account === "string" ? `as ${input.account}` : "", typeof input.privacy === "string" ? input.privacy : ""].filter(Boolean).join(", ");
+  return `${action}${where ? ` (${where})` : ""}: ${String(what).replace(/\s+/g, " ")}`.slice(0, 180);
+}
+
 /**
  * Classifies whether this call is risky enough to wait on a person.
  * Input: tool name + args, and the agent's home folder when known.
@@ -123,6 +155,8 @@ export function classifyRisk(name: string, input: Record<string, unknown>, home?
     const to = String(input.to ?? input.draftId ?? "a recipient");
     return `Send email to ${to}`.slice(0, 180);
   }
+  const social = socialRisk(name, input);
+  if (social) return social;
   if (name === "delete_routines") {
     if (input.all === true) return "Delete all of your routines";
     const ids = Array.isArray(input.routineIds) ? input.routineIds.map(String) : [];

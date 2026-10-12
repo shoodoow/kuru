@@ -288,6 +288,13 @@
       "when": 1791154000000,
       "tag": "0040_last-read",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791240400000,
+      "tag": "0041_social-plugins",
+      "breakpoints": true
     }
   ]
 }

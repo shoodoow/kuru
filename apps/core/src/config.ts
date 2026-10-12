@@ -67,6 +67,12 @@ export const config = {
 
   googleClientId: (): string | undefined => read("GOOGLE_CLIENT_ID"),
   googleClientSecret: (): string | undefined => read("GOOGLE_CLIENT_SECRET"),
+  /** The Instagram app (Meta developer portal) this server signs people in with. Unset, the Instagram plugin cannot be connected. */
+  instagramAppId: (): string | undefined => read("INSTAGRAM_APP_ID"),
+  instagramAppSecret: (): string | undefined => read("INSTAGRAM_APP_SECRET"),
+  /** The TikTok app (TikTok for Developers) this server signs people in with. Unset, the TikTok plugin cannot be connected. */
+  tiktokClientKey: (): string | undefined => read("TIKTOK_CLIENT_KEY"),
+  tiktokClientSecret: (): string | undefined => read("TIKTOK_CLIENT_SECRET"),
 
   skillsDir: (): string | undefined => read("SKILLS_DIR"),
   dockerSocket: (): string => read("DOCKER_SOCKET") ?? "/var/run/docker.sock",

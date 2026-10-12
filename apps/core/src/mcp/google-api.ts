@@ -1,6 +1,7 @@
 import type { getDb } from "../db/client.js";
 import { googleAccessToken } from "./google-oauth.js";
 import { googleRefreshToken } from "./plugins.js";
+import { youtube } from "../social/youtube.js";
 
 const MAX_OUTPUT = 20_000;
 const TIMEOUT_MS = 30_000;
@@ -24,6 +25,8 @@ export async function runGoogleTool(
   slug: string,
   toolName: string,
   args: Args,
+  /** The agent's Linux user, for tools that send a file from its computer (YouTube). */
+  profile?: string | null,
 ): Promise<string> {
   const stored = await googleRefreshToken(db, accountId);
   if (!stored?.refreshToken) return "Connect this Google plugin again.";
@@ -33,6 +36,7 @@ export async function runGoogleTool(
     if (slug === "gmail") result = await gmail(toolName, args, token);
     else if (slug === "google-calendar") result = await calendar(toolName, args, token);
     else if (slug === "google-drive") result = await drive(toolName, args, token);
+    else if (slug === "youtube") result = await youtube(toolName, args, token, { accountId, profile });
     else throw new Error(`Unknown Google plugin ${slug}.`);
     const text = JSON.stringify(result);
     return text.length > MAX_OUTPUT ? `${text.slice(0, MAX_OUTPUT)}\n[truncated]` : text;

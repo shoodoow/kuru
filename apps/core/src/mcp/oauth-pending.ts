@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 export type PendingOAuth = {
   accountId: string;
-  kind: "google" | "mcp";
+  kind: "google" | "mcp" | "instagram" | "tiktok";
   pluginId?: string;
   slug?: string;
   url?: string;

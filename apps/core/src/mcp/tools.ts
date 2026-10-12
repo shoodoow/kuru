@@ -6,6 +6,7 @@ import type { getDb } from "../db/client.js";
 import type { ToolContext } from "../turn/tools/context.js";
 import { catalogPlugin } from "./catalog.js";
 import { runGoogleTool } from "./google-api.js";
+import { runSocialTool } from "../social/run.js";
 import { mcpRowsForAccount, refreshStaleMcpTools, runMcpTool } from "./store.js";
 import type { McpToolCacheEntry } from "./types.js";
 
@@ -73,7 +74,7 @@ export async function appendMcpTools(
   const rows = await mcpRowsForAccount(ctx.db, ctx.accountId);
   refreshStaleMcpTools(ctx.db, rows);
   for (const row of rows) {
-    const catalog = row.kind === "google" ? catalogPlugin(row.slug) : undefined;
+    const catalog = row.kind === "google" || row.kind === "social" ? catalogPlugin(row.slug) : undefined;
     const tools = catalog?.tools ?? ((Array.isArray(row.toolsCache) ? row.toolsCache : []) as McpToolCacheEntry[]);
     if (tools.length === 0) continue;
     // Every tool's schema is resent on each model step. A plugin with many
@@ -110,7 +111,8 @@ export async function appendMcpTools(
         description: (entry.description || `MCP ${row.slug}/${entry.name}`) + askFirst,
         inputSchema: mcpInputSchema(entry) as never,
         execute: wrapExecute(fullName, async (input) => {
-          if (row.kind === "google") return runGoogleTool(ctx.db, ctx.accountId, row.slug, entry.name, input);
+          if (catalog?.provider === "google") return runGoogleTool(ctx.db, ctx.accountId, row.slug, entry.name, input, ctx.linuxProfile);
+          if (catalog) return runSocialTool(ctx.db, { accountId: ctx.accountId, profile: ctx.linuxProfile }, row.slug, entry.name, input);
           return runMcpTool(ctx.db, ctx.accountId, row.slug, entry.name, input);
         }) as never,
       });

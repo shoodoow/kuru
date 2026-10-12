@@ -235,7 +235,7 @@ export async function runMcpTool(
     .select()
     .from(mcpServers)
     .where(and(eq(mcpServers.accountId, accountId), eq(mcpServers.slug, slug), eq(mcpServers.enabled, true)));
-  if (!row || row.kind === "google") return `No MCP server named ${slug} is connected.`;
+  if (!row || row.kind !== "remote") return `No MCP server named ${slug} is connected.`;
   try {
     const result = await withBearer(db, row, (bearer) => callMcpTool(row.url, bearer, toolName, args, fetchImpl), fetchImpl);
     const { text } = toolResultText(result);
@@ -252,7 +252,7 @@ async function bearerForRow(
   forceRefresh = false,
   fetchImpl?: typeof fetch,
 ): Promise<string> {
-  if (row.kind === "google") return "";
+  if (row.kind !== "remote") return "";
   const opened = readSecret(row.secret);
   if (!opened.oauth) return opened.bearer;
   if (opened.bearer && !forceRefresh) return opened.bearer;

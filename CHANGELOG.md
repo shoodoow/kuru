@@ -6,6 +6,32 @@ What changed in each release, newest first. Update your server with
 Each entry says whether it needs anything from the person running the
 server (a new setting, a new app build) under **To update**.
 
+## 0.4.0
+
+**New**
+
+- **YouTube, Instagram and TikTok plugins.** Agents publish to the person's
+  own accounts and manage them, with no service in between. The person signs
+  in once under Plugins; the server keeps and renews the sign-in.
+  - YouTube: upload videos and Shorts, schedule, thumbnails, playlists,
+    comments, captions, search, analytics.
+  - Instagram: photos, reels, stories, carousels, comments, insights.
+  - TikTok: videos, photo posts, drafts to the inbox, video statistics.
+- Several Instagram or TikTok accounts can be connected to one Kuru account;
+  the agent says which one by its username.
+- With Auto-review on, a post, a delete or a public reply waits for the
+  person's approval.
+
+**To update**
+
+- Run `./update.sh`. The database gains one small change by itself.
+- YouTube: enable the YouTube Data API v3 and YouTube Analytics API on your
+  Google project, and add the YouTube scopes to its consent screen.
+- Instagram and TikTok: optional. Each needs a developer app and two lines in
+  `apps/core/.env`. Steps: deploy/SETUP.md, "Social plugins".
+- The phone app needs this release to show "Add another account"; older
+  builds can still connect one account per plugin.
+
 ## 0.3.0
 
 **New**

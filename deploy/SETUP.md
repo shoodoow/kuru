@@ -8,6 +8,7 @@ Replace `api.example.com` with your public hostname (this repo’s dev example u
 
 - Running it for yourself on a Linux laptop or server, with a tunnel: go straight to [Install on Linux with Docker and a tunnel](#install-on-linux-with-docker-and-a-tunnel).
 - Getting the app onto phones (Android APK, iPhone without the App Store): [Build the phone app](#build-the-phone-app).
+- Letting agents post to YouTube, Instagram and TikTok: [Social plugins](#social-plugins-youtube-instagram-tiktok).
 - Developing on a laptop: follow sections 1 to 9 in order.
 
 ---
@@ -621,6 +622,114 @@ The app name is Kuru, but its bundle id (`com.nanoagents.app`) and link
 scheme (`nano-agents://`) keep the earlier name. Sign-in returns to the app
 through that scheme, and a phone treats a different bundle id as a different
 app, so they are left as they are.
+
+## Social plugins: YouTube, Instagram, TikTok
+
+Agents can publish to the person's own YouTube channel, Instagram and TikTok
+accounts, and manage what is there, with no service in between. The person
+adds each one under **Account → Plugins** and signs in once. The sign-in is
+kept sealed on the server and renewed by the server; it never reaches an
+agent's computer. An agent names a file by its path on its computer and the
+server sends it.
+
+Each platform wants the server to have its own developer app, the same way
+Google sign-in needs a Google client. That is a one-time job for whoever runs
+the server. All three use this redirect address:
+
+`https://api.example.com/plugins/oauth/callback`
+
+With Auto-review on (the default), a post, a delete or a public reply shows
+the person an approval card first.
+
+### YouTube
+
+Uses the Google client the server already has.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/library), enable **YouTube Data API v3** and **YouTube Analytics API** for the project.
+2. Under **Credentials**, add the redirect address above to the OAuth client.
+3. On the **OAuth consent screen**, add the scopes `youtube`, `youtube.upload`, `youtube.force-ssl` and `yt-analytics.readonly`, and add each person as a test user while the app is in testing.
+
+What agents can do: upload videos and Shorts (title, description, tags,
+category, privacy, scheduled publishing, thumbnail, playlist), edit and
+delete videos, manage playlists, read and answer comments and moderate them,
+add and remove captions, search, and read channel analytics.
+
+Limits to know:
+
+- YouTube allows about 100 uploads a day for the whole Google project, and
+  10,000 units a day for everything else (most changes cost 50).
+- While the consent screen is in **testing**, Google ends a sign-in after 7
+  days and the person connects again. Publishing the app removes that.
+- One YouTube channel per Kuru account, because it shares the account's one
+  Google sign-in with Gmail and Drive.
+- Live streaming is not included.
+
+### Instagram
+
+Works with a professional account (business or creator). A personal account
+must be switched in the Instagram app first.
+
+1. At [developers.facebook.com](https://developers.facebook.com/apps), create an app and add the **Instagram** product, choosing **API setup with Instagram login**.
+2. Under **Business login settings**, add the redirect address above.
+3. Copy the **Instagram app ID** and **Instagram app secret** into `apps/core/.env`:
+
+   ```bash
+   INSTAGRAM_APP_ID=...
+   INSTAGRAM_APP_SECRET=...
+   ```
+
+4. While the app is in development, add each Instagram account as an **Instagram tester** under App roles, and accept the invite in the Instagram app (Settings → Apps and websites). Other people's accounts need the app to pass Meta's review of `instagram_business_content_publish`.
+
+What agents can do: publish photos, reels, stories and carousels (caption,
+alt text, collaborators, tagged people, cover, trial reels), list posts and
+stories, read and answer comments, hide or delete them, turn comments off,
+and read insights for a post or the account.
+
+Limits to know:
+
+- Instagram does not take file uploads. It downloads the photo or video from
+  the server, so the server needs its public https address (the tunnel).
+  The link it is given is signed, opens that one file, and lasts two hours.
+- Photos must be JPEG. The agent converts other formats on its computer.
+- About 100 posts per account per day.
+- Several Instagram accounts can be connected to one Kuru account: open the
+  plugin and tap **Add another account**. The agent says which one to post
+  to by its username.
+
+### TikTok
+
+1. At [developers.tiktok.com](https://developers.tiktok.com/apps), create an app. Add the products **Login Kit** and **Content Posting API**, and turn on **Direct Post**.
+2. Add the redirect address above under Login Kit.
+3. Add the scopes `user.info.basic`, `user.info.profile`, `user.info.stats`, `video.list`, `video.publish` and `video.upload`.
+4. Copy the **Client key** and **Client secret** into `apps/core/.env`:
+
+   ```bash
+   TIKTOK_CLIENT_KEY=...
+   TIKTOK_CLIENT_SECRET=...
+   ```
+
+What agents can do: post videos (caption, privacy, comments, duet and stitch
+settings, cover, branded-content and AI labels), send a video to the
+person's TikTok inbox as a draft, post photo posts, check a post's progress,
+and read the account and its videos' statistics.
+
+Limits to know:
+
+- **Until TikTok has audited the app, it can only post privately.** Agents
+  post with privacy "only me" and the person makes it public in the app, or
+  send a draft to the inbox. Passing the audit lifts this.
+- Photo posts are downloaded by TikTok from the server, which TikTok allows
+  only for a domain verified under **URL properties** in its developer
+  portal. Videos need no verification.
+- TikTok offers no API for comments or deeper analytics.
+- Several TikTok accounts can be connected, the same way as Instagram.
+
+### How uploads use the server
+
+A video is read from the agent's computer and passed on as a stream, so its
+size does not matter for the server's memory. One upload runs per account at
+a time, and three on the whole server. A YouTube upload that breaks partway
+carries on from where it stopped.
 
 ## Stronger isolation with Kata Containers (Linux servers)
 

@@ -6,6 +6,7 @@ import { catalogPlugin, PLUGIN_CATALOG, scopesCover, type CatalogPlugin, type Pl
 import { bumpAccountPromptVersions } from "../skills/install.js";
 import { writeSharedSkill } from "../skills/local.js";
 import { readSecret } from "./credential.js";
+import { socialIdentities } from "../social/accounts.js";
 
 type Database = ReturnType<typeof getDb>;
 
@@ -20,6 +21,10 @@ export type PluginCard = {
   installed: boolean;
   configured: boolean;
   lastError: string | null;
+  /** The accounts signed in to this plugin, by username. Only Instagram and TikTok hold more than one. */
+  accounts?: string[];
+  /** True when signing in again adds another account beside the ones already there. */
+  multiAccount?: boolean;
 };
 
 const customColors = ["#7C5CFF", "#FF2D55", "#0A84FF", "#2DD4BF", "#30D158", "#A78BFA", "#FF9F0A"];
@@ -40,7 +45,7 @@ export async function listAccountPlugins(db: Database, accountId: string): Promi
   const [google] = await db.select().from(accountGoogleOauth).where(eq(accountGoogleOauth.accountId, accountId));
   const granted = google?.scopes ?? "";
   const featured: PluginCard[] = PLUGIN_CATALOG.map((plugin) => {
-    const row = rows.find((item) => item.slug === plugin.id && item.kind === "google");
+    const row = rows.find((item) => item.slug === plugin.id && (item.kind === "google" || item.kind === "social"));
     return {
       id: plugin.id,
       name: plugin.name,
@@ -50,12 +55,14 @@ export async function listAccountPlugins(db: Database, accountId: string): Promi
       mark: plugin.mark,
       skills: plugin.skills,
       installed: Boolean(row),
-      configured: Boolean(row) && scopesCover(granted, plugin.scopes),
+      // A Google plugin works when the shared Google sign-in covers it; the others carry their own.
+      configured: Boolean(row) && (plugin.provider === "google" ? scopesCover(granted, plugin.scopes) : !row?.lastError),
       lastError: row?.lastError ?? null,
+      ...(plugin.provider === "google" ? {} : { multiAccount: true, accounts: socialIdentities(row?.kind === "social" ? row.secret : undefined) }),
     };
   });
   const custom: PluginCard[] = rows
-    .filter((row) => row.kind !== "google")
+    .filter((row) => row.kind === "remote")
     .map((row) => ({
       id: row.slug,
       name: row.slug,

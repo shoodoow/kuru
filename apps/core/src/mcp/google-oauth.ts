@@ -3,6 +3,7 @@ import type { getDb } from "../db/client.js";
 import { catalogPlugin } from "./catalog.js";
 import { codeChallenge, codeVerifier, pluginCallbackUrl, savePending, takePending } from "./oauth-pending.js";
 import { applyGoogleConnection, grantedGoogleScopes, installGooglePluginIfGranted } from "./plugins.js";
+import { startSocialOAuth } from "../social/accounts.js";
 
 type Database = ReturnType<typeof getDb>;
 
@@ -17,7 +18,9 @@ export async function startGoogleOAuth(
   pluginId: string,
 ): Promise<{ installed: true } | { installed: false; url: string }> {
   const plugin = catalogPlugin(pluginId);
-  if (!plugin) throw new Error("Unknown Google plugin.");
+  if (!plugin) throw new Error("Unknown plugin.");
+  // Instagram and TikTok have their own sign-in; the phone starts every featured plugin here.
+  if (plugin.provider !== "google") return startSocialOAuth(accountId, plugin);
   const clientId = config.googleClientId();
   if (!clientId || !config.googleClientSecret()) {
     throw new Error("Google OAuth is not configured on this server.");

@@ -597,7 +597,7 @@ export const mcpServers = pgTable(
   (table) => [
     unique("mcp_servers_account_id_slug_unique").on(table.accountId, table.slug),
     check("mcp_servers_slug_check", sql`${table.slug} ~ '^[a-z][a-z0-9_-]{0,31}$'`),
-    check("mcp_servers_kind_check", sql`${table.kind} in ('remote', 'google')`),
+    check("mcp_servers_kind_check", sql`${table.kind} in ('remote', 'google', 'social')`),
   ],
 );
 

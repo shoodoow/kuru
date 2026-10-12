@@ -55,7 +55,7 @@ async function toolSizes(
   // A restricted kind (companion, support) is never given connector tools.
   const rows = allowed ? [] : await mcpRowsForAccount(db, accountId).catch(() => []);
   for (const row of rows) {
-    const tools = (row.kind === "google" ? catalogPlugin(row.slug)?.tools : undefined) ?? ((Array.isArray(row.toolsCache) ? row.toolsCache : []) as McpToolCacheEntry[]);
+    const tools = (row.kind !== "remote" ? catalogPlugin(row.slug)?.tools : undefined) ?? ((Array.isArray(row.toolsCache) ? row.toolsCache : []) as McpToolCacheEntry[]);
     if (tools.length === 0) continue;
     if (tools.length > LAZY_PLUGIN_TOOLS) {
       // A large plugin is one small "load" tool until the agent asks for the rest.
