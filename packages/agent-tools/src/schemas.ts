@@ -432,6 +432,16 @@ export const urlInputSchema = z.object({
   url: z.string().min(1),
 });
 
+export const connectSocialInputSchema = z.object({
+  platform: z.enum(["instagram", "tiktok"]),
+  /** True to connect for every agent on the account; left out, the connection is this agent's own. */
+  forAllAgents: z.boolean().optional(),
+  /** True to connect one more account beside those already connected. */
+  addAccount: z.boolean().optional(),
+  /** True to replace the app keys with new ones. */
+  newKeys: z.boolean().optional(),
+});
+
 export const computerMemoryInputSchema = z.object({
   action: z.enum(["request", "release", "status"]),
   /** For "request": how much memory the job needs in all, in GB. */

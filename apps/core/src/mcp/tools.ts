@@ -7,6 +7,7 @@ import type { ToolContext } from "../turn/tools/context.js";
 import { catalogPlugin } from "./catalog.js";
 import { runGoogleTool } from "./google-api.js";
 import { runSocialTool } from "../social/run.js";
+import { socialUsableBy } from "../social/accounts.js";
 import { mcpRowsForAccount, refreshStaleMcpTools, runMcpTool } from "./store.js";
 import type { McpToolCacheEntry } from "./types.js";
 
@@ -77,6 +78,8 @@ export async function appendMcpTools(
     const catalog = row.kind === "google" || row.kind === "social" ? catalogPlugin(row.slug) : undefined;
     const tools = catalog?.tools ?? ((Array.isArray(row.toolsCache) ? row.toolsCache : []) as McpToolCacheEntry[]);
     if (tools.length === 0) continue;
+    // Instagram and TikTok are offered only to an agent that has an account to act with.
+    if (row.kind === "social" && !socialUsableBy(row, ctx.voiceAgentId ?? ctx.agentId)) continue;
     // Every tool's schema is resent on each model step. A plugin with many
     // tools would dominate every request, so it starts as one small "load"
     // tool and its real tools appear once the agent asks for them.
@@ -112,7 +115,7 @@ export async function appendMcpTools(
         inputSchema: mcpInputSchema(entry) as never,
         execute: wrapExecute(fullName, async (input) => {
           if (catalog?.provider === "google") return runGoogleTool(ctx.db, ctx.accountId, row.slug, entry.name, input, ctx.linuxProfile);
-          if (catalog) return runSocialTool(ctx.db, { accountId: ctx.accountId, profile: ctx.linuxProfile }, row.slug, entry.name, input);
+          if (catalog) return runSocialTool(ctx.db, { accountId: ctx.accountId, profile: ctx.linuxProfile }, row.slug, entry.name, input, ctx.voiceAgentId ?? ctx.agentId);
           return runMcpTool(ctx.db, ctx.accountId, row.slug, entry.name, input);
         }) as never,
       });

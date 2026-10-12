@@ -53,3 +53,22 @@ export async function secretFor(db: Store, accountId: string, name: string): Pro
   }
   return open(row.secret);
 }
+
+/**
+ * Reads one vault secret that may not be there, and by default removes it.
+ * Why: some values pass through the vault on their way somewhere else (a
+ * plugin's app keys typed into a secret widget). Once moved, the vault copy
+ * is one copy too many.
+ * Input: db, account id, secret name; `remove` false only looks.
+ * Output: the plain value, or null when there is none.
+ */
+export async function takeSecret(db: Store, accountId: string, name: string, remove = true): Promise<string | null> {
+  const [row] = await db
+    .select({ secret: accountSecrets.secret })
+    .from(accountSecrets)
+    .where(and(eq(accountSecrets.accountId, accountId), eq(accountSecrets.name, name)))
+    .limit(1);
+  if (!row) return null;
+  if (remove) await db.delete(accountSecrets).where(and(eq(accountSecrets.accountId, accountId), eq(accountSecrets.name, name)));
+  return open(row.secret);
+}

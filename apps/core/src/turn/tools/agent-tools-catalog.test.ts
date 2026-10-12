@@ -7,6 +7,7 @@ describe("agent-tools catalog", () => {
     expect(dispatcherToolNames()).toEqual([
       "add_to_group",
       "check_worker",
+      "connect_social",
       "correct_agent_memory",
       "correct_memory",
       "create_group",

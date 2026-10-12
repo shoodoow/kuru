@@ -17,8 +17,13 @@ server (a new setting, a new app build) under **To update**.
     comments, captions, search, analytics.
   - Instagram: photos, reels, stories, carousels, comments, insights.
   - TikTok: videos, photo posts, drafts to the inbox, video statistics.
-- Several Instagram or TikTok accounts can be connected to one Kuru account;
-  the agent says which one by its username.
+- Instagram and TikTok are connected in chat. The person tells an agent
+  "connect my Instagram"; it asks for their own developer app's two keys in
+  hidden fields and sends a sign-in link. The connection belongs to that
+  agent, so different agents can run different accounts with different apps,
+  or one can be shared with all agents.
+- One agent can hold several accounts on a platform and says which one by its
+  username.
 - With Auto-review on, a post, a delete or a public reply waits for the
   person's approval.
 
@@ -27,10 +32,8 @@ server (a new setting, a new app build) under **To update**.
 - Run `./update.sh`. The database gains one small change by itself.
 - YouTube: enable the YouTube Data API v3 and YouTube Analytics API on your
   Google project, and add the YouTube scopes to its consent screen.
-- Instagram and TikTok: optional. Each needs a developer app and two lines in
-  `apps/core/.env`. Steps: deploy/SETUP.md, "Social plugins".
-- The phone app needs this release to show "Add another account"; older
-  builds can still connect one account per plugin.
+- Instagram and TikTok: nothing on the server. Each person brings their own
+  developer app. Steps: deploy/SETUP.md, "Social plugins".
 
 ## 0.3.0
 

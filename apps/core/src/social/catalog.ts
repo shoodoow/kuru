@@ -239,6 +239,18 @@ export const SOCIAL_PLUGINS: CatalogPlugin[] = [
     section: "Featured",
     kind: "google",
     provider: "instagram",
+    app: {
+      keyLabel: "Instagram app ID",
+      secretLabel: "Instagram app secret",
+      portal: "https://developers.facebook.com/apps",
+      steps: [
+        "Your Instagram account must be a professional one (business or creator). Switch it in the Instagram app's settings if it is not.",
+        "At developers.facebook.com, create an app and add the Instagram product. Choose \"API setup with Instagram login\".",
+        "Under Business login settings, add the redirect address shown below.",
+        "Under App roles, add your Instagram account as an Instagram tester, then accept the invite in the Instagram app (Settings, Apps and websites).",
+        "Copy the Instagram app ID and Instagram app secret into the two fields here.",
+      ],
+    },
     mark: { icon: null, letter: "I", color: "#E1306C" },
     skills: [
       {
@@ -267,6 +279,19 @@ export const SOCIAL_PLUGINS: CatalogPlugin[] = [
     section: "Featured",
     kind: "google",
     provider: "tiktok",
+    app: {
+      keyLabel: "Client key",
+      secretLabel: "Client secret",
+      portal: "https://developers.tiktok.com/apps",
+      steps: [
+        "At developers.tiktok.com, create an app.",
+        "Add the products Login Kit and Content Posting API, and turn on Direct Post.",
+        "Under Login Kit, add the redirect address shown below.",
+        "Add the scopes user.info.basic, user.info.profile, user.info.stats, video.list, video.publish and video.upload.",
+        "Copy the client key and client secret into the two fields here.",
+        "Until TikTok has audited your app, posts can only be private; your agent posts as \"only me\" or sends a draft to your TikTok inbox.",
+      ],
+    },
     mark: { icon: null, letter: "T", color: "#111111" },
     skills: [
       {

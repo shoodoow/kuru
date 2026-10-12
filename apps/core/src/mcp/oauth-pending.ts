@@ -5,6 +5,8 @@ export type PendingOAuth = {
   accountId: string;
   kind: "google" | "mcp" | "instagram" | "tiktok";
   pluginId?: string;
+  /** For Instagram and TikTok: the agent the signed-in account will belong to. Absent, every agent shares it. */
+  agentId?: string;
   slug?: string;
   url?: string;
   verifier: string;

@@ -2,6 +2,7 @@
  * Tool execute bodies for the dispatcher registry.
  * DB: per tool — messages, delegations, agents, routines, notifications.
  */
+import { connectSocial } from "../../social/connect.js";
 import { chartData } from "@kuru/shared";
 import { hitLine, mergeRanked, searchFacts, searchMessages, searchSummaries, searchTerms } from "../../memory/search.js";
 import { prompt } from "../../prompt/prompts.js";
@@ -1464,6 +1465,8 @@ export async function executeEnableTools(ctx: ToolContext, input: Record<string,
 }
 
 export const dispatcherExecutors: Record<string, ToolExecutor> = {
+  // The connection belongs to the agent the person is talking to, also when a helper makes the call.
+  connect_social: (ctx, input) => connectSocial(ctx.db, ctx.accountId, ctx.voiceAgentId ?? ctx.agentId, input),
   enable_tools: executeEnableTools,
   search_memory: executeSearchMemory,
   send_message: executeSendMessage,

@@ -15,14 +15,15 @@ type Database = ReturnType<typeof getDb>;
 const MAX_OUTPUT = 20_000;
 
 /**
- * Input: database, whose computer files come from, the plugin slug, tool name and arguments.
+ * Input: database, whose computer files come from, the plugin slug, tool name, arguments, and the agent asking
+ * (it acts with its own signed-in accounts when it has any, otherwise with the shared ones).
  * Output: the result as JSON text, or a plain sentence when the call failed.
  */
-export async function runSocialTool(db: Database, computer: Computer, slug: string, toolName: string, args: Args): Promise<string> {
+export async function runSocialTool(db: Database, computer: Computer, slug: string, toolName: string, args: Args, agentId?: string): Promise<string> {
   try {
     const provider = catalogPlugin(slug)?.provider;
     const which = typeof args.account === "string" ? args.account : undefined;
-    const { token, connected } = await socialAccessToken(db, computer.accountId, slug, which);
+    const { token, connected } = await socialAccessToken(db, computer.accountId, slug, which, agentId);
     const answer = provider === "instagram" ? await instagram(toolName, args, token, computer) : await tiktok(toolName, args, token, computer);
     // With several accounts connected, the agent is shown the others so it can tell them apart.
     const result = toolName === "account" && connected.length > 1 ? { ...(answer as object), connectedAccounts: connected } : answer;

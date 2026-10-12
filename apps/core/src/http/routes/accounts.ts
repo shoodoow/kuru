@@ -8,6 +8,7 @@ import { listProviderKeys, saveProviderKey } from "../../keys/keys.js";
 import { saveSecret } from "../../keys/secrets.js";
 import { createProfile } from "../../linux/linux.js";
 import { startGoogleOAuth } from "../../mcp/google-oauth.js";
+import { saveSocialApp } from "../../social/accounts.js";
 import { startMcpOAuth } from "../../mcp/mcp-oauth.js";
 import { listAccountPlugins } from "../../mcp/plugins.js";
 import { deleteMcpServer, listMcpServers, mcpRowsForAccount, refreshStaleMcpTools, saveMcpServer } from "../../mcp/store.js";
@@ -84,6 +85,15 @@ export function accountsRoutes(ctx: AppContext, guard: Guard): Router {
       res.json(await startGoogleOAuth(ctx.db, pathParam(req, "accountId"), id));
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "Could not start Google sign-in." });
+    }
+  });
+  // The developer app a person connects Instagram or TikTok with. Write-only: the keys never come back.
+  accounts.put("/:accountId/plugins/:pluginId/app", guard, async (req, res) => {
+    try {
+      await saveSocialApp(ctx.db, pathParam(req, "accountId"), pathParam(req, "pluginId"), req.body);
+      res.json({ saved: true });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Could not save the app keys." });
     }
   });
   accounts.post("/:accountId/plugins/mcp/oauth/start", guard, async (req, res) => {

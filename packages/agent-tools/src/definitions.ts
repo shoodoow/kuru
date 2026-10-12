@@ -19,6 +19,7 @@ import {
   messageAgentInputSchema,
   keyInputSchema,
   computerMemoryInputSchema,
+  connectSocialInputSchema,
   memberAddInputSchema,
   notifyInputSchema,
   reactionSchema,
@@ -102,6 +103,11 @@ export const allToolDefinitions: ToolDefinition[] = [
     set: "team",
     surfaces: ["dispatcher"],
     inputSchema: teamBriefInputSchema,
+  },
+  {
+    name: "connect_social",
+    surfaces: ["dispatcher"],
+    inputSchema: connectSocialInputSchema,
   },
   {
     name: "set_my_profile",

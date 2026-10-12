@@ -2,6 +2,7 @@ import { Router } from "express";
 import { finishGoogleOAuth } from "../../mcp/google-oauth.js";
 import { finishMcpOAuth } from "../../mcp/mcp-oauth.js";
 import { peekPending } from "../../mcp/oauth-pending.js";
+import { installCatalogSkills } from "../../mcp/plugins.js";
 import { finishSocialOAuth } from "../../social/accounts.js";
 import { openFile, readFileLink } from "../../social/files.js";
 import { fileSize } from "../../rooms/uploads.js";
@@ -15,6 +16,12 @@ import type { AppContext } from "../context.js";
  */
 export function pluginCallbackRoutes(ctx: AppContext): Router {
   const router = Router();
+  /** Instagram or TikTok: saves the sign-in, then puts the plugin's how-to on the account's computer. */
+  const finishSocial = async (state: string, code: string): Promise<string> => {
+    const done = await finishSocialOAuth(ctx.db, state, code);
+    await installCatalogSkills(ctx.db, done.accountId, done.pluginId);
+    return done.name;
+  };
   router.get("/plugins/oauth/callback", async (req, res) => {
     const code = typeof req.query.code === "string" ? req.query.code : "";
     const state = typeof req.query.state === "string" ? req.query.state : "";
@@ -31,7 +38,7 @@ export function pluginCallbackRoutes(ctx: AppContext): Router {
           ? (await finishGoogleOAuth(ctx.db, state, code)).name
           : pending.kind === "mcp"
             ? (await finishMcpOAuth(ctx.db, state, code)).slug
-            : (await finishSocialOAuth(ctx.db, state, code)).name;
+            : await finishSocial(state, code);
       res.type("html").send(pluginPage(`${name} is connected. You can close this window.`));
     } catch (error) {
       res.status(400).type("html").send(pluginPage(error instanceof Error ? error.message : "The plugin was not connected."));

@@ -9,6 +9,7 @@ describe("dispatcher SDK tools", () => {
     expect(names).toEqual([
       "add_to_group",
       "check_worker",
+      "connect_social",
       "correct_agent_memory",
       "correct_memory",
       "create_group",

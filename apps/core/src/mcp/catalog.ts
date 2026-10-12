@@ -16,6 +16,8 @@ export type CatalogPlugin = {
   kind: "google";
   /** Whose sign-in and API it uses. Google plugins share one Google token; the others keep their own. */
   provider: "google" | "instagram" | "tiktok";
+  /** For a plugin each person connects with their own developer app: what to ask for and how to get it. */
+  app?: { keyLabel: string; secretLabel: string; portal: string; steps: string[] };
   mark: PluginMark;
   skills: PluginSkill[];
   scopes: string[];

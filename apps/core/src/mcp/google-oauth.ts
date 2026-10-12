@@ -20,7 +20,7 @@ export async function startGoogleOAuth(
   const plugin = catalogPlugin(pluginId);
   if (!plugin) throw new Error("Unknown plugin.");
   // Instagram and TikTok have their own sign-in; the phone starts every featured plugin here.
-  if (plugin.provider !== "google") return startSocialOAuth(accountId, plugin);
+  if (plugin.provider !== "google") return startSocialOAuth(db, accountId, plugin);
   const clientId = config.googleClientId();
   if (!clientId || !config.googleClientSecret()) {
     throw new Error("Google OAuth is not configured on this server.");

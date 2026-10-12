@@ -229,7 +229,7 @@ The `skills/` folder holds the defaults every account starts with (`SKILLS_DIR` 
 
 Bundled: `computer-use-linux`, `chrome-devtools`, `docx`/`xlsx`/`pptx`, `create-skill`, `find-skills`.
 
-**Built-in plugins** (`Plugins` page in app): Gmail, Google Calendar, Google Drive, and **YouTube, Instagram and TikTok** — agents upload and publish from their own computer to the person's own accounts, answer comments and read the numbers, with no service in between. Setup: [Social plugins](deploy/SETUP.md#social-plugins-youtube-instagram-tiktok).
+**Built-in plugins** (`Plugins` page in app): Gmail, Google Calendar, Google Drive, and **YouTube, Instagram and TikTok** — agents upload and publish from their own computer to the person's own accounts, answer comments and read the numbers, with no service in between. Instagram and TikTok are connected in chat with the person's own developer app, per agent, so each agent can run different accounts. Setup: [Social plugins](deploy/SETUP.md#social-plugins-youtube-instagram-tiktok).
 
 **MCP** = per-account HTTP connectors (`Plugins` page in app):
 
