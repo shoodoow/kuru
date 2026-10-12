@@ -64,7 +64,7 @@ export function PluginsPage({
         <Text style={styles.chevron}>›</Text>
       ) : (
         <View style={styles.add}>
-          <Text style={styles.addText}>{live.app ? "Set up" : "Add"}</Text>
+          <Text style={styles.addText}>Add</Text>
         </View>
       )}
     </Pressable>
@@ -195,37 +195,7 @@ function PluginDetail({
             {plugin.installed ? (
               <View style={styles.includeCard}>
                 <Text style={[styles.includeSummary, plugin.lastError || !plugin.configured ? styles.error : styles.status]}>{pluginStatus(plugin)}</Text>
-                {(plugin.accounts ?? []).map((account) => (
-                  <View key={account} style={styles.skillRow}>
-                    <Text style={styles.skillName}>{account}</Text>
-                  </View>
-                ))}
               </View>
-            ) : null}
-            {plugin.app ? (
-              <>
-                <Text style={styles.section}>How to connect</Text>
-                <View style={styles.includeCard}>
-                  <Text style={styles.includeSummary}>
-                    Open a chat with the agent that should use {plugin.name} and say "Connect my {plugin.name}". It asks for your app's {plugin.app.keyLabel.toLowerCase()} and{" "}
-                    {plugin.app.secretLabel.toLowerCase()} in a hidden field, then sends you a sign-in link. The connection belongs to that agent, so each agent can have its own; say "for all
-                    agents" to share one.
-                  </Text>
-                  {plugin.app.steps.map((step, index) => (
-                    <View key={step} style={styles.skillRow}>
-                      <Text style={styles.description}>
-                        {index + 1}. {step}
-                      </Text>
-                    </View>
-                  ))}
-                  <View style={styles.skillRow}>
-                    <Text style={styles.skillName}>Redirect address</Text>
-                    <Text style={styles.description} selectable>
-                      {plugin.app.redirect}
-                    </Text>
-                  </View>
-                </View>
-              </>
             ) : null}
             <Text style={styles.section}>Includes</Text>
             <View style={styles.includeCard}>
@@ -242,13 +212,11 @@ function PluginDetail({
           </ScrollView>
           {plugin.installed ? (
             <View style={styles.actions}>
-              {/* With shared app keys the page can start a sign-in for every agent; an agent's own account is added in its chat. */}
-              {plugin.multiAccount && plugin.app?.saved ? <PrimaryButton label="Add an account for all agents" onPress={() => onAdd(plugin.id)} /> : null}
-              {!plugin.app && (plugin.lastError || !plugin.configured) ? <PrimaryButton label="Connect again" onPress={() => onAdd(plugin.id)} /> : null}
+              {plugin.lastError || !plugin.configured ? <PrimaryButton label="Connect again" onPress={() => onAdd(plugin.id)} /> : null}
               <PrimaryButton label="Remove" variant="danger" onPress={() => confirmRemove(plugin, onRemove)} />
             </View>
-          ) : plugin.app && !plugin.app.saved ? null : (
-            <PrimaryButton label={plugin.app ? `Sign in to ${plugin.name} for all agents` : `Add ${plugin.name}`} onPress={() => onAdd(plugin.id)} />
+          ) : (
+            <PrimaryButton label={`Add ${plugin.name}`} onPress={() => onAdd(plugin.id)} />
           )}
         </View>
       ) : null}
@@ -260,16 +228,12 @@ function PluginDetail({
 function pluginStatus(plugin: PluginCard): string {
   if (plugin.lastError) return plugin.lastError;
   if (!plugin.configured) return "Needs to be connected again";
-  const accounts = plugin.accounts ?? [];
-  if (accounts.length === 1) return `Connected as ${accounts[0]}`;
-  if (accounts.length > 1) return `Connected · ${accounts.length} accounts`;
   return "Connected";
 }
 
-/** Removing a plugin signs out every account in it, so it asks first. */
+/** Removing a plugin takes it from every agent, so it asks first. */
 function confirmRemove(plugin: PluginCard, onRemove: (id: string) => void): void {
-  const several = (plugin.accounts?.length ?? 0) > 1;
-  Alert.alert(`Remove ${plugin.name}?`, several ? `This signs out all ${plugin.accounts?.length} accounts. Your agents can no longer use it.` : "Your agents can no longer use it. You can add it again later.", [
+  Alert.alert(`Remove ${plugin.name}?`, "Your agents can no longer use it. You can add it again later.", [
     { text: "Cancel", style: "cancel" },
     { text: "Remove", style: "destructive", onPress: () => onRemove(plugin.id) },
   ]);

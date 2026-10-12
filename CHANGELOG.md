@@ -17,15 +17,21 @@ server (a new setting, a new app build) under **To update**.
     comments, captions, search, analytics.
   - Instagram: photos, reels, stories, carousels, comments, insights.
   - TikTok: videos, photo posts, drafts to the inbox, video statistics.
-- Instagram and TikTok are connected in chat. The person tells an agent
-  "connect my Instagram"; it asks for their own developer app's two keys in
-  hidden fields and sends a sign-in link. The connection belongs to that
+- Instagram and TikTok are connected in chat, not on the Plugins page. The
+  person tells an agent "connect my Instagram"; it shows hidden fields for
+  their own developer app's two keys and then a sign-in link. The model never
+  sees a key, a token or the sign-in address. The connection belongs to that
   agent, so different agents can run different accounts with different apps,
   or one can be shared with all agents.
 - One agent can hold several accounts on a platform and says which one by its
   username.
 - With Auto-review on, a post, a delete or a public reply waits for the
   person's approval.
+
+**Fixed**
+
+- A secret field an agent typed out as text, `(widget: secret envName=...)`,
+  is now shown as the hidden field it was meant to be.
 
 **To update**
 

@@ -156,27 +156,37 @@ export async function socialStateFor(db: Database, accountId: string, pluginId: 
   return { ownApp: Boolean(scopeOf(stored, agentId).app), anyApp, accounts: usable.scope.accounts.map(label), own: usable.owner !== undefined };
 }
 
+/**
+ * Signs accounts out of a platform.
+ * Input: database, account id, plugin id, whose connection (an agent's own, or
+ * the shared one when no agent is named), and one username or none for all of
+ * that owner's accounts. An owner left with no account also loses its app keys.
+ * Output: the usernames removed. The row goes when nothing is left in it.
+ */
+export async function removeSocialAccounts(db: Database, accountId: string, pluginId: string, agentId?: string, username?: string): Promise<string[]> {
+  const plugin = socialPlugin(pluginId);
+  const row = await findRow(db, accountId, plugin.id);
+  if (!row) return [];
+  const stored = readStored(row.secret);
+  const scope = scopeOf(stored, agentId);
+  const wanted = username?.trim().replace(/^@/, "").toLowerCase();
+  const gone = scope.accounts.filter((token) => !wanted || token.username?.toLowerCase() === wanted || token.userId === wanted);
+  if (gone.length === 0) return [];
+  const left = scope.accounts.filter((token) => !gone.includes(token));
+  const next = withScope(stored, agentId, left.length > 0 ? { ...scope, accounts: left } : { accounts: [] });
+  if (agentId && left.length === 0) delete next.agents[agentId];
+  const empty = !next.app && next.accounts.length === 0 && Object.keys(next.agents).length === 0;
+  if (empty) await db.delete(mcpServers).where(eq(mcpServers.id, row.id));
+  else await writeRow(db, accountId, plugin, next);
+  return gone.map(label);
+}
+
 /** True when this agent has a signed-in account to act with: its own, or one every agent shares. */
 export function socialUsableBy(row: { kind: string; secret: string }, agentId?: string): boolean {
   try {
     return usableBy(readStored(row.kind === "social" ? row.secret : undefined), agentId).scope.accounts.length > 0;
   } catch {
     return false;
-  }
-}
-
-/**
- * What the phone shows about one plugin: whether shared app keys are saved, and who is signed in.
- * An account that belongs to one agent is shown with that agent's name. Never the keys.
- * Input: the plugin's row and the account's agents by id.
- */
-export function socialCardState(row: { kind: string; secret: string } | undefined, agentNames: ReadonlyMap<string, string> = new Map()): { hasApp: boolean; accounts: string[] } {
-  try {
-    const stored = readStored(row?.kind === "social" ? row.secret : undefined);
-    const perAgent = Object.entries(stored.agents).flatMap(([agentId, scope]) => scope.accounts.map((token) => `${label(token)} (${agentNames.get(agentId) ?? "one agent"})`));
-    return { hasApp: Boolean(stored.app), accounts: [...stored.accounts.map(label), ...perAgent] };
-  } catch {
-    return { hasApp: false, accounts: [] };
   }
 }
 
@@ -201,12 +211,17 @@ function appKeysOf(stored: Stored, provider: SocialProvider, agentId?: string): 
 /**
  * Starts the sign-in for Instagram or TikTok.
  * Input: database, account id, the plugin, and the agent the signed-in account
- * will belong to (left out, every agent shares it). Output: the address the person opens.
+ * will belong to (left out, every agent shares it).
+ * Output: `url`, a short link on this server that the person opens, and
+ * `authorizeUrl`, the platform's own address it forwards to. Only the short
+ * link is given to an agent: the platform's address carries the app's key,
+ * and an agent is never shown any part of the person's app keys.
  */
-export async function startSocialOAuth(db: Database, accountId: string, plugin: CatalogPlugin, agentId?: string): Promise<{ installed: false; url: string }> {
+export async function startSocialOAuth(db: Database, accountId: string, plugin: CatalogPlugin, agentId?: string): Promise<{ installed: false; url: string; authorizeUrl: string }> {
   const provider = plugin.provider as SocialProvider;
   const keys = appKeysOf(readStored((await findRow(db, accountId, plugin.id))?.secret), provider, agentId);
-  const state = savePending({ accountId, kind: provider, pluginId: plugin.id, verifier: "", scopes: plugin.scopes, ...(agentId ? { agentId } : {}) });
+  const pending: Parameters<typeof savePending>[0] = { accountId, kind: provider, pluginId: plugin.id, verifier: "", scopes: plugin.scopes, ...(agentId ? { agentId } : {}) };
+  const state = savePending(pending);
   const url = new URL(provider === "instagram" ? "https://www.instagram.com/oauth/authorize" : "https://www.tiktok.com/v2/auth/authorize/");
   url.searchParams.set(provider === "instagram" ? "client_id" : "client_key", keys.id);
   url.searchParams.set("redirect_uri", pluginCallbackUrl());
@@ -217,7 +232,9 @@ export async function startSocialOAuth(db: Database, accountId: string, plugin: 
   // without this the platform silently reuses the one their browser is logged in to.
   if (provider === "instagram") url.searchParams.set("force_reauth", "true");
   else url.searchParams.set("disable_auto_auth", "1");
-  return { installed: false, url: url.toString() };
+  // Kept with the pending sign-in so the short link can forward to it.
+  pending.url = url.toString();
+  return { installed: false, url: `${config.publicUrl().replace(/\/$/, "")}/plugins/connect/${state}`, authorizeUrl: url.toString() };
 }
 
 /**

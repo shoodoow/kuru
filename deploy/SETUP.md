@@ -642,6 +642,10 @@ the person an approval card first.
 | Instagram | Nothing | Brings their own Meta developer app and gives its keys to an agent in chat |
 | TikTok | Nothing | Brings their own TikTok developer app and gives its keys to an agent in chat |
 
+Instagram and TikTok are not on the Plugins page. They are not connectors a
+person switches on for the account: an agent connects them in its own chat
+and they are that agent's.
+
 Instagram and TikTok give an app key and secret to whoever registers an app
 with them, and that app's limits and reviews are its owner's. So the keys are
 not a server setting: each person uses their own, and can give different
@@ -652,12 +656,20 @@ agents different apps.
 The person opens a chat with the agent that should handle the account and
 says "connect my Instagram" (or TikTok). The agent then:
 
-1. Explains the steps and asks for the app's two keys with **secret
-   widgets**: masked fields whose values go straight to the server and never
-   appear in the conversation.
-2. Sends a **sign-in link**. The person opens it and signs in to the account
+1. Shows the setup steps and two **hidden fields** for the app's keys. What
+   is typed there goes straight to the server and never appears in the
+   conversation.
+2. Shows a **sign-in link**. The person opens it and signs in to the account
    the agent should use.
 3. Confirms, and from its next turn has the platform's tools.
+
+**The model never sees the keys.** The server posts the fields and the link
+itself; the agent is only told that it did. The keys pass through the
+account's vault until the agent's next step moves them into sealed storage
+and deletes the vault copy. The sign-in link is a short address on the
+server that forwards to the platform, so even the app's public id stays out
+of the model's sight. Tokens are used only by the server and are never
+written to the agent's computer.
 
 The connection belongs to **that agent**. Another agent on the same account
 does not see those tools, and can be connected to a different account with a
@@ -669,12 +681,11 @@ One agent can hold several accounts on a platform ("connect another
 Instagram"). It then says which one to act on by username, and asks when the
 person did not say.
 
-The Plugins page shows what is connected and to which agent, the steps, and
-the redirect address to paste into the developer portal. Removing the plugin
-there signs out every account in it and forgets the keys.
+To see what an agent has connected, ask it. To sign an account out, tell it
+"disconnect my Instagram"; an agent left with no account also forgets its keys.
 
 **The developer app, once per person.** Both platforms need this redirect
-address, shown on the plugin's page in the app:
+address, which the agent shows with the steps:
 
 `https://api.example.com/plugins/oauth/callback`
 

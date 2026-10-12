@@ -22,6 +22,19 @@ export function pluginCallbackRoutes(ctx: AppContext): Router {
     await installCatalogSkills(ctx.db, done.accountId, done.pluginId);
     return done.name;
   };
+  /**
+   * The sign-in link an agent hands the person for Instagram or TikTok.
+   * Why a link on this server: the platform's own address carries the app's
+   * key. The agent is given this short one and never sees that address.
+   */
+  router.get("/plugins/connect/:state", (req, res) => {
+    const pending = peekPending(String(req.params.state ?? ""));
+    if (!pending?.url || (pending.kind !== "instagram" && pending.kind !== "tiktok")) {
+      res.status(404).type("html").send(pluginPage("This sign-in link has run out. Ask your agent for a new one."));
+      return;
+    }
+    res.redirect(302, pending.url);
+  });
   router.get("/plugins/oauth/callback", async (req, res) => {
     const code = typeof req.query.code === "string" ? req.query.code : "";
     const state = typeof req.query.state === "string" ? req.query.state : "";

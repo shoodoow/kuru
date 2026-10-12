@@ -7,21 +7,32 @@
  * sign-in link. One tool walks the whole way; each call says what comes next.
  * The values rest in the account's vault only until the next call, which
  * moves them into the plugin's own sealed row and removes them from the vault.
+ * What the agent can see: the names it asked for, and a short link on this
+ * server. Never a key, a secret, a token, or the platform's sign-in address
+ * (which carries the app's key). Nothing this returns contains one.
  */
 import type { getDb } from "../db/client.js";
 import { takeSecret } from "../keys/secrets.js";
 import { catalogPlugin } from "../mcp/catalog.js";
 import { pluginCallbackUrl } from "../mcp/oauth-pending.js";
-import { saveSocialApp, socialStateFor, startSocialOAuth } from "./accounts.js";
+import { removeSocialAccounts, saveSocialApp, socialStateFor, startSocialOAuth } from "./accounts.js";
 
 type Database = ReturnType<typeof getDb>;
 
 /**
- * Takes the next step in connecting a platform for one agent.
- * Input: database, account id, the agent asking, and { platform, forAllAgents, newKeys }.
- * Output: what the agent should do now, with the exact secret names to ask for or the link to send.
+ * What one call answers. `show` is a message the server posts to the person
+ * itself (the hidden fields, the sign-in link); it is not given to the agent.
+ * Why the server posts it: left to write a widget, a model sometimes types it
+ * out as text, and the person sees words where the hidden field should be.
  */
-export async function connectSocial(db: Database, accountId: string, agentId: string, input: Record<string, unknown>): Promise<unknown> {
+export type ConnectAnswer = { step?: string; do?: string; error?: string; show?: unknown[]; [detail: string]: unknown };
+
+/**
+ * Takes the next step in connecting a platform for one agent.
+ * Input: database, account id, the agent asking, and { platform, forAllAgents, addAccount, newKeys, disconnect, account }.
+ * Output: what happened and what the agent does next, plus the message to show the person, if any.
+ */
+export async function connectSocial(db: Database, accountId: string, agentId: string, input: Record<string, unknown>): Promise<ConnectAnswer> {
   const platform = String(input.platform ?? "").toLowerCase();
   const plugin = catalogPlugin(platform);
   if (!plugin?.app || (platform !== "instagram" && platform !== "tiktok")) {
@@ -34,6 +45,12 @@ export async function connectSocial(db: Database, accountId: string, agentId: st
   const keyName = `${platform.toUpperCase()}_APP_KEY_${tag}`;
   const secretName = `${platform.toUpperCase()}_APP_SECRET_${tag}`;
 
+  if (input.disconnect === true) {
+    const removed = await removeSocialAccounts(db, accountId, platform, owner, typeof input.account === "string" ? input.account : undefined);
+    return removed.length > 0
+      ? { step: "disconnected", removed, do: `Tell the person ${removed.join(", ")} ${removed.length === 1 ? "is" : "are"} disconnected from ${plugin.name}.` }
+      : { step: "nothing_to_disconnect", do: `No ${plugin.name} account${shared ? " shared by all agents" : " of yours"} matched. Tell the person what is connected, if anything.`, connectedAccounts: (await socialStateFor(db, accountId, platform, owner)).accounts };
+  }
   const state = await socialStateFor(db, accountId, platform, owner);
   const wantsKeys = input.newKeys === true || !(shared ? state.ownApp : state.anyApp);
   if (wantsKeys) {
@@ -44,13 +61,29 @@ export async function connectSocial(db: Database, accountId: string, agentId: st
       await takeSecret(db, accountId, keyName);
       await takeSecret(db, accountId, secretName);
     } else {
+      const field = (envName: string, title: string) => ({
+        kind: "widget",
+        widget: "secret",
+        props: { envName, title, description: `From your ${plugin.name} developer app.`, placeholder: `Paste the ${title.toLowerCase()}`, footnote: "Stored sealed on the server. Your agent never sees it." },
+      });
+      const missing = key ? [field(secretName, plugin.app.secretLabel)] : secret ? [field(keyName, plugin.app.keyLabel)] : [field(keyName, plugin.app.keyLabel), field(secretName, plugin.app.secretLabel)];
+      const intro =
+        key || secret
+          ? `One more to go: the ${key ? plugin.app.secretLabel : plugin.app.keyLabel}.`
+          : [
+              `To connect ${plugin.name} I need the two keys of your own ${plugin.name} developer app. It is a one-time setup:`,
+              "",
+              ...plugin.app.steps.map((step, index) => `${index + 1}. ${step}`),
+              "",
+              `Developer page: ${plugin.app.portal}`,
+              `Redirect address: \`${pluginCallbackUrl()}\``,
+              "",
+              "Then paste the two keys into the fields below. They go straight to the server and never appear in this chat.",
+            ].join("\n");
       return {
-        step: "ask_for_app_keys",
-        do: `Tell the person in a sentence what you need and why, then send ONE message with the setup steps as text and two secret widgets: props { envName: "${keyName}", label: "${plugin.app.keyLabel}" } and props { envName: "${secretName}", label: "${plugin.app.secretLabel}" }. The turn ends there. When they have filled both in, call connect_social again with the same arguments.`,
-        ...(key || secret ? { note: `Only the ${key ? plugin.app.keyLabel : plugin.app.secretLabel} has arrived so far. Ask for the other one.` } : {}),
-        stepsForThePerson: plugin.app.steps,
-        developerPage: plugin.app.portal,
-        redirectAddress: pluginCallbackUrl(),
+        step: "asked_for_app_keys",
+        do: "The person now sees the setup steps and hidden fields for the keys, and your turn has ended. Do not repeat the steps and never ask them to type a key into the chat. When they have filled the fields in you are woken: call connect_social again with the same arguments.",
+        show: [{ kind: "text", markdown: intro }, ...missing],
       };
     }
   }
@@ -66,9 +99,14 @@ export async function connectSocial(db: Database, accountId: string, agentId: st
     };
   }
   return {
-    step: "send_sign_in_link",
-    do: `Send the person this link and ask them to open it and sign in to the ${plugin.name} account you should use. It works for ten minutes. When they say they are done, call connect_social again with only the platform${shared ? " and forAllAgents" : ""} to confirm.`,
-    signInLink: link,
+    step: "sent_sign_in_link",
+    do: `The person has been sent a sign-in link for ${plugin.name}. Do not send another. When they say they have signed in, call connect_social again with only the platform${shared ? " and forAllAgents" : ""} to confirm.`,
+    show: [
+      {
+        kind: "text",
+        markdown: `Last step: [sign in to ${plugin.name}](${link}) with the account I should use${now.accounts.length > 0 ? ` (already connected: ${now.accounts.join(", ")})` : ""}. The link works for ten minutes. Tell me when you are done.`,
+      },
+    ],
     ...(now.accounts.length > 0 ? { alreadyConnected: now.accounts } : {}),
   };
 }

@@ -105,15 +105,6 @@ export type PluginCard = {
   installed: boolean;
   configured: boolean;
   lastError: string | null;
-  /** The accounts signed in to this plugin, by username. */
-  accounts?: string[];
-  /** True when signing in again adds another account beside the ones already there. */
-  multiAccount?: boolean;
-  /**
-   * Set for a plugin connected with the person's own developer app (Instagram, TikTok).
-   * The keys are given to an agent in its chat; `saved` is true when keys every agent shares are there.
-   */
-  app?: { saved: boolean; keyLabel: string; secretLabel: string; portal: string; redirect: string; steps: string[] };
 };
 
 export type PluginList = { installed: number; plugins: PluginCard[] };

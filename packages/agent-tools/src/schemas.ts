@@ -440,6 +440,10 @@ export const connectSocialInputSchema = z.object({
   addAccount: z.boolean().optional(),
   /** True to replace the app keys with new ones. */
   newKeys: z.boolean().optional(),
+  /** True to sign accounts out: the one named in `account`, or all of this connection's when none is named. */
+  disconnect: z.boolean().optional(),
+  /** With disconnect: the username to sign out. */
+  account: z.string().optional(),
 });
 
 export const computerMemoryInputSchema = z.object({

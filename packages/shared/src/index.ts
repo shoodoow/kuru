@@ -434,6 +434,25 @@ const WIDGET_MARKUP =
   /\[widget:([a-z][a-z0-9_-]*)\s*(\{(?:[^{}]|\{[^{}]*\})*\})?\s*\]/gi;
 
 /**
+ * Rewrites a secret widget a model typed out in words, `(widget: secret envName=API_KEY label="API key")`,
+ * into the bracket form the expander below understands.
+ * Why: asked for a secret widget, a model sometimes writes this line into its
+ * text. The person then saw a line of code and no field to type into, and
+ * the only way forward was to paste the secret into the chat.
+ */
+function secretNotesAsMarkup(markdown: string): string {
+  return markdown.replace(/\(\s*widget:\s*secret\b([^)\n]*)\)/gi, (whole, rest: string) => {
+    const props: Record<string, string> = {};
+    for (const pair of rest.matchAll(/([A-Za-z]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"']+))/g)) {
+      props[pair[1]!] = pair[2] ?? pair[3] ?? pair[4] ?? "";
+    }
+    if (!props.envName || !secretNameRegex.test(props.envName)) return whole;
+    if (props.label && !props.title) props.title = props.label;
+    return `[widget:secret ${JSON.stringify(props)}]`;
+  });
+}
+
+/**
  * Turns markdown that looks like `[widget:secret {…}]` into real widget blocks.
  * Why: models sometimes dump the widget as text; the phone then shows code.
  */
@@ -453,7 +472,7 @@ export function expandWidgetMarkupBlocks(blocks: unknown[]): unknown[] {
       out.push(block);
       continue;
     }
-    const markdown = row.markdown;
+    const markdown = secretNotesAsMarkup(row.markdown);
     if (!/\[widget:/i.test(markdown)) {
       out.push(block);
       continue;

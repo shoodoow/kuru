@@ -28,12 +28,13 @@ export function codeChallenge(verifier: string): string {
 
 /** Remembers one in-flight consent. The browser comes back with this id, not with the account id. */
 export function savePending(record: Omit<PendingOAuth, "expires">): string {
+  // The record itself is kept, so a caller can add to it (the sign-in address) after it has the id.
   const now = Date.now();
   for (const [id, row] of pending) {
     if (row.expires < now) pending.delete(id);
   }
   const id = randomBytes(24).toString("base64url");
-  pending.set(id, { ...record, expires: now + 10 * 60 * 1000 });
+  pending.set(id, Object.assign(record, { expires: now + 10 * 60 * 1000 }));
   return id;
 }
 

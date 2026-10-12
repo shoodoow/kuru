@@ -13,6 +13,7 @@ vi.mock("./files.js", async (original) => ({
   })),
 }));
 
+import { expandWidgetMarkupBlocks } from "@kuru/shared";
 import { PLUGIN_CATALOG } from "../mcp/catalog.js";
 import { classifyRisk } from "../turn/auto-review.js";
 import { publicFileUrl, readFileLink, type ComputerFile } from "./files.js";
@@ -134,6 +135,19 @@ describe("social plugins in the catalog", () => {
         expect((entry.inputSchema as { properties: Record<string, unknown> }).properties.account).toBeDefined();
       }
     }
+  });
+});
+
+describe("a secret field a model typed out as text", () => {
+  it("becomes the hidden field, and other brackets are left alone", () => {
+    const blocks = expandWidgetMarkupBlocks([
+      { kind: "text", markdown: 'Copy them below.\n\n(widget: secret envName=INSTAGRAM_APP_KEY_EBBAC980 label="Instagram app ID")\n\nThen I finish (see the docs). (widget: secret envName=not-a-name)' },
+    ]);
+    expect(blocks).toEqual([
+      { kind: "text", markdown: "Copy them below." },
+      { kind: "widget", widget: "secret", props: { envName: "INSTAGRAM_APP_KEY_EBBAC980", label: "Instagram app ID", title: "Instagram app ID" } },
+      { kind: "text", markdown: "Then I finish (see the docs). (widget: secret envName=not-a-name)" },
+    ]);
   });
 });
 

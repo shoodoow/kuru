@@ -1464,9 +1464,22 @@ export async function executeEnableTools(ctx: ToolContext, input: Record<string,
   return { enabled: set, tools: toolNamesInSet(set), guidance: toolSetGuidance(set) };
 }
 
-export const dispatcherExecutors: Record<string, ToolExecutor> = {
+/**
+ * Connects Instagram or TikTok for this agent, one step per call.
+ * The message for the person (hidden fields for the keys, the sign-in link)
+ * is posted here, by the server. The agent is told only what happened and
+ * what to do next, so no key and no sign-in address passes through the model.
+ */
+async function executeConnectSocial(ctx: ToolContext, input: Record<string, unknown>) {
   // The connection belongs to the agent the person is talking to, also when a helper makes the call.
-  connect_social: (ctx, input) => connectSocial(ctx.db, ctx.accountId, ctx.voiceAgentId ?? ctx.agentId, input),
+  const { show, ...answer } = await connectSocial(ctx.db, ctx.accountId, ctx.voiceAgentId ?? ctx.agentId, input);
+  if (!show) return answer;
+  const sent = (await executeSendMessage(ctx, { blocks: show })) as { error?: string };
+  return sent.error ? { error: `The message could not be shown to the person: ${sent.error}` } : answer;
+}
+
+export const dispatcherExecutors: Record<string, ToolExecutor> = {
+  connect_social: executeConnectSocial,
   enable_tools: executeEnableTools,
   search_memory: executeSearchMemory,
   send_message: executeSendMessage,
