@@ -126,7 +126,7 @@ Tunnel exposes **only** your core port. Postgres and Docker stay local.
 
 ```bash
 cloudflared tunnel login
-cloudflared tunnel create nano-agents
+cloudflared tunnel create kuru
 ```
 
 Note the tunnel UUID and credentials JSON under `~/.cloudflared/`.
@@ -134,7 +134,7 @@ Note the tunnel UUID and credentials JSON under `~/.cloudflared/`.
 ### 6.2 DNS
 
 ```bash
-cloudflared tunnel route dns nano-agents api.example.com
+cloudflared tunnel route dns kuru api.example.com
 ```
 
 ### 6.3 Ingress config (required — without this you get **503**)
@@ -162,7 +162,7 @@ The final `http_status:404` catch-all is **mandatory**.
 ### 6.4 Run tunnel
 
 ```bash
-cloudflared tunnel run nano-agents
+cloudflared tunnel run kuru
 ```
 
 Keep this running (or install as a system service — see [Cloudflare docs](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/configure-tunnels/local-management/as-a-service/)).
@@ -616,12 +616,13 @@ npx expo run:ios --device --configuration Release
 Xcode signs it with your Apple ID. On the phone, trust the developer under
 Settings → General → VPN & Device Management.
 
-### Keeping the app's identity
+### The app's identity
 
-The app name is Kuru, but its bundle id (`com.nanoagents.app`) and link
-scheme (`nano-agents://`) keep the earlier name. Sign-in returns to the app
-through that scheme, and a phone treats a different bundle id as a different
-app, so they are left as they are.
+The app's bundle id is `com.kuru.app` and its link scheme is `kuru://`.
+Sign-in returns to the app through that scheme. Both were renamed from the
+earlier `com.nanoagents.app` and `nano-agents://`: a phone treats the new
+bundle id as a different app, so it installs beside an older build and asks
+for sign-in again. The server still accepts sign-ins from older builds.
 
 ## Social plugins: YouTube, Instagram, TikTok
 

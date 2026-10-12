@@ -17,7 +17,7 @@ import {
   AgentNameError,
 } from "./roster.js";
 
-const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
+const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
 
 // Closed once for the whole file: both groups of tests below use the connection.

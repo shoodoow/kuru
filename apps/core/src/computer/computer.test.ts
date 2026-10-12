@@ -4,7 +4,7 @@ import { createAgent, createAccount } from "../roster/roster.js";
 import { accountHome, accountShared, createProfile, removeAccountContainers } from "../linux/linux.js";
 import { bash, readFile, writeFile } from "./computer.js";
 
-const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
+const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
 
 afterAll(async () => {

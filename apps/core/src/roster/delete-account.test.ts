@@ -8,7 +8,7 @@ import { saveBrief } from "../memory/memory.js";
 import { deleteAccount } from "./delete-account.js";
 import { createAccount, createAgent, ensureSupportAgent } from "./roster.js";
 
-const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
+const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
 
 /** An account with a signed-in person, two agents, a chat with a message and a run, and a computer. */

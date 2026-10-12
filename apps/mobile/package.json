@@ -7,8 +7,9 @@
     "start": "expo start",
     "start:clear": "expo start -c",
     "ios": "EXPO_PUBLIC_CORE_URL=http://127.0.0.1:3000 expo start --ios",
-    "android": "expo start --android",
+    "android": "expo run:android",
     "android:local": "EXPO_PUBLIC_CORE_URL=http://10.0.2.2:3000 expo start --android",
+    "eas-build-post-install": "pnpm --filter @kuru/shared build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -51,6 +52,7 @@
   },
   "devDependencies": {
     "@types/react": "19.2.2",
+    "babel-preset-expo": "~57.0.13",
     "typescript": "7.0.2",
     "vitest": "5.0.2"
   }

@@ -4,7 +4,7 @@ import { conversations, delegations, members, runs } from "../../db/schema.js";
 import { createAccount, createAgent } from "../../roster/roster.js";
 import { accountUsage } from "./account-usage.js";
 
-const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
+const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
 
 /** Locks the account usage page's numbers: what counts, whose it is, and which days it covers. */

@@ -21,7 +21,7 @@ describe("agent-skills", () => {
   });
 
   it("merges host skills with container-local overrides", async () => {
-    root = await mkdtemp(join(tmpdir(), "nano-agent-skills-"));
+    root = await mkdtemp(join(tmpdir(), "kuru-agent-skills-"));
     await writeSkill(root, "shared", "shared", "Shared skill.", "Shared body.");
     vi.mocked(localSkillCatalog).mockResolvedValue([{ name: "local", description: "Local skill." }]);
     vi.mocked(readLocalSkill).mockImplementation(async (_account, _profile, name) =>

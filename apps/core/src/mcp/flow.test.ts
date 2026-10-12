@@ -10,7 +10,7 @@ import { finishMcpOAuth, startMcpOAuth } from "./mcp-oauth.js";
 import { runMcpTool } from "./store.js";
 import { appendMcpTools, LAZY_PLUGIN_TOOLS } from "./tools.js";
 
-const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
+const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
 
 const MCP = "https://mcp.example.com/mcp";

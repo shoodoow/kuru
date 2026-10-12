@@ -104,5 +104,5 @@ export function pluginCallbackRoutes(ctx: AppContext): Router {
 
 function pluginPage(message: string): string {
   const safe = message.replace(/[&<>]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[char] ?? char);
-  return `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Plugin</title><body style="font-family:sans-serif;padding:24px"><p>${safe}</p><script>location.href=${JSON.stringify("nano-agents://plugins")}</script>`;
+  return `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Plugin</title><body style="font-family:sans-serif;padding:24px"><p>${safe}</p><script>location.href=${JSON.stringify("kuru://plugins")}</script>`;
 }

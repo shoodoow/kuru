@@ -5,7 +5,7 @@ import { createAccount, createAgent } from "../roster/roster.js";
 import { inboxStatus, markRead } from "./inbox.js";
 import { acquireRun, finishRun } from "./runs.js";
 
-const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
+const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
 
 /** Locks what the inbox list shows beside a chat: unread agent messages and running work. */

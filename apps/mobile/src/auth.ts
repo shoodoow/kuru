@@ -15,7 +15,7 @@ if (Platform.OS !== "web") {
 
 /** The storage name for one server and slot. Everything that reads or writes a session goes through this. */
 function storagePrefix(baseURL: string, slot: string): string {
-  const server = baseURL === defaultCoreUrl() ? "nano-agents" : `nano-agents-${slug(baseURL)}`;
+  const server = baseURL === defaultCoreUrl() ? "kuru" : `kuru-${slug(baseURL)}`;
   return slot ? `${server}-${slot}` : server;
 }
 
@@ -30,7 +30,7 @@ function clientFor(baseURL: string, slot: string) {
     basePath: "/api/auth",
     plugins: [
       expoClient({
-        scheme: "nano-agents",
+        scheme: "kuru",
         // Each server, and each account on it, keeps its own session on the
         // phone. With one shared place, switching would send one session to
         // another server, or replace one account's sign-in with another's.

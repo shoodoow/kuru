@@ -5,7 +5,7 @@ import { conversations, members } from "../db/schema.js";
 import { createAccount, createAgent } from "../roster/roster.js";
 import { listPendingNotifications, markNotificationFailed, markNotificationSent, saveNotification, shouldPush } from "./notify.js";
 
-const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
+const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
 
 /**

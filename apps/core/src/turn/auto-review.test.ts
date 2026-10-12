@@ -5,7 +5,7 @@ import { classifyRisk, decideToolApproval, hashToolInput, reviewToolCall, setAut
 import { executeSendMessage } from "./tools/executors.js";
 import type { ToolContext } from "./tools/context.js";
 
-const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
+const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
 
 describe("classifyRisk", () => {
@@ -189,7 +189,7 @@ describe("waitForApproval", () => {
     const { waitForApproval, isApprovalAwaited } = await import("./auto-review.js");
     const { toolApprovals } = await import("../db/schema.js");
     const { eq } = await import("drizzle-orm");
-    const db = getDb(process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents");
+    const db = getDb(process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database");
     const [account] = await db.insert(accounts).values({ name: "Approval wait" }).returning();
     const [agent] = await db
       .insert(agents)

@@ -7,7 +7,7 @@ import { startGoogleOAuth } from "./google-oauth.js";
 import { applyGoogleConnection, listAccountPlugins } from "./plugins.js";
 import { deleteMcpServer, saveMcpServer } from "./store.js";
 
-const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
+const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
 
 afterAll(async () => {

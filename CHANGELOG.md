@@ -40,6 +40,15 @@ server (a new setting, a new app build) under **To update**.
   Google project, and add the YouTube scopes to its consent screen.
 - Instagram and TikTok: nothing on the server. Each person brings their own
   developer app. Steps: deploy/SETUP.md, "Social plugins".
+- The phone app is now `com.kuru.app` and its link scheme is `kuru://` (they
+  were `com.nanoagents.app` and `nano-agents://`). Update the server before
+  installing a new build, or sign-in cannot return to the app. A new build
+  installs as a separate app and asks for sign-in again; older builds keep
+  working.
+- The docs and `pnpm tunnel` now name the Cloudflare tunnel `kuru`. If yours
+  is still called `nano-agents`, keep running it by that name.
+- Tests now use a database named `kuru_database_test`, created on first run.
+  The old `nano_agents_test` can be dropped.
 
 ## 0.3.0
 

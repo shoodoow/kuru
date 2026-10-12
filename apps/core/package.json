@@ -10,7 +10,7 @@
     "migrate": "node dist/db/migrate.js",
     "db:migrate": "tsx --env-file .env src/db/migrate.ts",
     "db:reset": "tsx --env-file .env src/db/reset-db.ts --yes",
-    "tunnel": "cloudflared tunnel run nano-agents",
+    "tunnel": "cloudflared tunnel run kuru",
     "start": "node dist/main.js"
   },
   "dependencies": {

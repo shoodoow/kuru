@@ -13,5 +13,5 @@ export function authCallbackURL(): string {
   if (Constants.appOwnership === "expo") {
     return Linking.createURL("/");
   }
-  return Linking.createURL("/", { scheme: "nano-agents" });
+  return Linking.createURL("/", { scheme: "kuru" });
 }

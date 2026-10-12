@@ -8,7 +8,7 @@ import { migrateDb } from "./client.js";
  * use, keeps test rows out of real threads.
  */
 export const TEST_DATABASE_URL =
-  process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents_test";
+  process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database_test";
 
 /**
  * Creates the test database when it is missing and brings it up to date.

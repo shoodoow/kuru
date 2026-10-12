@@ -3,7 +3,7 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { getDb } from "../db/client.js";
 import { startServer } from "./server.js";
 
-const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/nano_agents";
+const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
 let baseUrl = "";
 let closeServer: (() => Promise<void>) | undefined;

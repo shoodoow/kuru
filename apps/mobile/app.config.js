@@ -1,8 +1,26 @@
+const fs = require("node:fs");
 const path = require("node:path");
-const { load } = require("@expo/env");
 
-// Load apps/mobile/.env before Metro inlines EXPO_PUBLIC_* (pnpm filter keeps cwd here).
-load(path.resolve(__dirname));
+// Load apps/mobile/.env with Node itself. @expo/env is only a transitive
+// dependency, so pnpm does not expose it when EAS evaluates this file.
+const envFile = path.join(__dirname, ".env");
+if (fs.existsSync(envFile)) {
+  for (const line of fs.readFileSync(envFile, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+}
 
 const { expo } = require("./app.json");
 
@@ -22,6 +40,9 @@ module.exports = {
     extra: {
       ...(expo.extra ?? {}),
       coreUrl: coreUrl || undefined,
+      eas: {
+        projectId: "47834947-adeb-4aa2-b980-bc72ac43be47",
+      },
     },
   },
 };

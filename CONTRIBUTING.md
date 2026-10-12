@@ -20,7 +20,7 @@ Never commit `.env` or real secrets. Test fixtures only.
 - Keep PRs small and focused; one behavior change per PR.
 - Update docs when setup, env vars, or user flows change (`README.md`, `deploy/SETUP.md`).
 - Add/extend tests for behavior changes:
-  - core: `pnpm --filter core test` (needs local Postgres + Docker; runs against its own `nano_agents_test` database, created on first run)
+  - core: `pnpm --filter core test` (needs local Postgres + Docker; runs against its own `kuru_database_test` database, created on first run)
   - mobile: `pnpm --filter mobile test` and `pnpm --filter mobile typecheck`
   - root: `pnpm build` and `pnpm lint`
 

@@ -65,6 +65,8 @@ export function createAuth(db: Database) {
     },
     plugins: [expo()],
     trustedOrigins: [
+      "kuru://",
+      // Phone builds made before the scheme changed still return through this one.
       "nano-agents://",
       ...(publicOrigin ? [publicOrigin] : []),
       ...extraOrigins,
