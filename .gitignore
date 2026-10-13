@@ -12,3 +12,5 @@ text.txt
 apps/mobile/design/*.PNG
 apps/mobile/.expo/
 skills/accounts/*/
+apps/mobile/ios/
+apps/mobile/android/
