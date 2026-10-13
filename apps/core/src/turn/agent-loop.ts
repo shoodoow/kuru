@@ -121,15 +121,19 @@ export async function runAgentLoop(
       }),
     restrictStep:
       mode === "dispatcher"
-        ? (finishedSteps: number, _hardCap: number, stepToolNames: string[][]) =>
-            replyOnlyRestriction({
+        ? (finishedSteps: number, _hardCap: number, stepToolNames: string[][]) => {
+            // A new step starts: its calls are counted from zero.
+            toolCtx.stepCalls = 0;
+            return replyOnlyRestriction({
+              stuck: Boolean(toolCtx.stuck),
               finishedSteps,
               maxSteps: MAX_MODEL_STEPS_DISPATCHER,
               stepToolNames,
               handedOff: Boolean(toolCtx.handedOff),
               sentMessage: input.emittedMessages.length > 0,
               hiddenTurn: Boolean(toolCtx.hiddenTurn),
-            })
+            });
+          }
         : undefined,
   };
   const first = await runModelHarness(harnessInput);

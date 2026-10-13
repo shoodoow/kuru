@@ -483,6 +483,88 @@ export const browserUidInputSchema = z.object({
   uid: z.string().min(1).max(40),
 });
 
+/** ask_agent: one question from a worker to the agent it works for. */
+export const askAgentInputSchema = z.object({
+  question: z.string().min(8).max(600),
+  /** The choices the worker sees, when there are a few. */
+  options: z.array(z.string().min(1).max(160)).max(5).optional(),
+  /** The one it would choose; used if no answer comes. */
+  pick: z.string().max(160).optional(),
+});
+
+export const browserClickInputSchema = z.object({
+  uid: z.string().min(1).max(40),
+  double: z.boolean().optional(),
+});
+
+export const browserClickAtInputSchema = z.object({
+  x: z.number().min(0).max(10000),
+  y: z.number().min(0).max(10000),
+});
+
+export const browserDragInputSchema = z.object({
+  uid: z.string().min(1).max(40),
+  to: z.string().min(1).max(40),
+});
+
+export const browserTypeInputSchema = z.object({
+  text: z.string().min(1).max(4000),
+  /** The field to type into; left out, the keys go to whatever has focus. */
+  uid: z.string().max(40).optional(),
+  enter: z.boolean().optional(),
+});
+
+export const browserCheckInputSchema = z.object({
+  uid: z.string().min(1).max(40),
+  checked: z.boolean().optional(),
+});
+
+export const browserDownloadInputSchema = z.object({
+  uid: z.string().min(1).max(40),
+  name: z.string().min(1).max(120),
+});
+
+export const browserEvalInputSchema = z.object({
+  script: z.string().min(1).max(4000),
+});
+
+export const browserSnapshotInputSchema = z.object({
+  /** Only links, buttons and fields: shorter, for a long page you only need to act on. */
+  interactive: z.boolean().optional(),
+});
+
+export const browserReadInputSchema = z.object({
+  /** A ref from the snapshot to read one part; left out, the whole page's text. */
+  uid: z.string().max(40).optional(),
+});
+
+export const browserSelectInputSchema = z.object({
+  uid: z.string().min(1).max(40),
+  value: z.string().min(1).max(300),
+});
+
+export const browserSetValueInputSchema = z.object({
+  /** The field's name, id or label, as listed under the snapshot. */
+  field: z.string().min(1).max(200),
+  value: z.string().max(4000),
+});
+
+export const browserUploadInputSchema = z.object({
+  uid: z.string().min(1).max(40),
+  path: z.string().min(1).max(1000),
+});
+
+export const browserScrollInputSchema = z.object({
+  direction: z.enum(["up", "down", "left", "right"]).optional(),
+  pixels: z.number().int().min(50).max(20000).optional(),
+});
+
+export const browserTabsInputSchema = z.object({
+  action: z.enum(["list", "new", "switch", "close"]),
+  tab: z.string().max(10).optional(),
+  url: z.string().max(2000).optional(),
+});
+
 export const browserFillInputSchema = z.object({
   uid: z.string().min(1).max(40),
   value: z.string().max(4000),

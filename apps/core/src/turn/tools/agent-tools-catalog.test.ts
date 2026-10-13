@@ -6,6 +6,10 @@ describe("agent-tools catalog", () => {
   it("matches dispatcher registration list", () => {
     expect(dispatcherToolNames()).toEqual([
       "add_to_group",
+      "bash",
+      "browser_navigate",
+      "browser_read",
+      "browser_snapshot",
       "check_worker",
       "connect_social",
       "correct_agent_memory",
@@ -50,17 +54,21 @@ describe("agent-tools catalog", () => {
       "update_teammate",
       "web_fetch",
       "web_search",
+      "write",
     ]);
   });
 
   it("worker names align with profile tools when Linux exists", () => {
-    expect(workerToolNames(false)).toEqual(["list_skills", "read_history", "read_skill", "refresh_skills"].sort());
+    expect(workerToolNames(false)).toEqual(["ask_agent", "list_skills", "read_history", "read_skill", "refresh_skills"].sort());
     expect(workerToolNames(true)).toContain("browser_snapshot");
     expect(workerToolNames(true)).toContain("browser_click");
     for (const name of profileToolNames()) {
       expect(workerToolNames(true)).toContain(name);
     }
-    expect(toolsForSurface("dispatcher").map((d) => d.name)).not.toContain("bash");
+    // The chat agent runs a quick command and reads a page itself; acting on a page and the desktop stay with workers.
+    expect(toolsForSurface("dispatcher").map((d) => d.name)).toEqual(expect.arrayContaining(["bash", "write", "browser_read"]));
+    expect(toolsForSurface("dispatcher").map((d) => d.name)).not.toContain("browser_click");
+    expect(toolsForSurface("dispatcher").map((d) => d.name)).not.toContain("computer_click");
     expect(toolsForSurface("dispatcher").map((d) => d.name)).toEqual(
       expect.arrayContaining(["web_search", "web_fetch", "read", "glob", "grep"]),
     );

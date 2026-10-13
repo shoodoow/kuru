@@ -37,6 +37,14 @@ describe("shouldEndTurn", () => {
 });
 
 describe("replyOnlyRestriction", () => {
+  it("lets a stuck turn only hand the job on or say it is not done", () => {
+    const stuck = replyOnlyRestriction({ finishedSteps: 2, maxSteps: 8, handedOff: false, sentMessage: true, hiddenTurn: false, stuck: true });
+    expect(stuck?.activeTools).toEqual(["send_message", "spawn_worker", "delegate"]);
+    expect(stuck?.note).toContain("NOT done");
+    // Once the job was handed to a worker there is nothing left to correct.
+    expect(replyOnlyRestriction({ finishedSteps: 2, maxSteps: 8, handedOff: true, sentMessage: true, hiddenTurn: false, stuck: true })).toBeNull();
+  });
+
   it("leaves normal steps open", () => {
     expect(replyOnlyRestriction({ ...base, finishedSteps: 1, maxSteps: 6 })).toBeNull();
   });

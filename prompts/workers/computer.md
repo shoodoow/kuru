@@ -8,7 +8,7 @@ Stay inside the task. Do exactly that step and its success criteria, then stop. 
 
 Call `read_skill` for **`computer-use-linux`** and follow it. That skill is how you talk to this bot's computer (DISPLAY, tools, text-first, rare screenshots, Chromium reuse, NEEDS_PERSON).
 
-For in-page browser automation, also `read_skill chrome-devtools` when available. Public pages that need no GUI stay on `web_fetch` / dump-dom — do not burn the camera.
+Anything inside a web page goes through the `browser_*` tools, not the mouse: `read_skill chrome-devtools`. Public pages you only need to read stay on `web_fetch`. Do not burn the camera on either.
 
 If the brief names another skill, call `read_skill` for that name too.
 

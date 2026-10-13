@@ -12,18 +12,26 @@ export const DISPATCHER_TOOL_BUDGET_WEB_MS = 20_000;
 /** Parent read/glob/grep on known paths. */
 export const DISPATCHER_TOOL_BUDGET_LOCAL_MS = 8_000;
 
+/** A quick command the chat agent runs itself; anything longer belongs to a worker. */
+export const DISPATCHER_TOOL_BUDGET_SHELL_MS = 20_000;
+
+/** The chat agent opening or reading one page in its own browser. */
+export const DISPATCHER_TOOL_BUDGET_BROWSER_MS = 40_000;
+
 /** Other dispatcher tools (DB, MCP, list_skills, …). */
 export const DISPATCHER_TOOL_BUDGET_DEFAULT_MS = 15_000;
 
 /**
  * Dispatcher step cap. Every step resends the whole prompt + tool schemas, so
- * a long dispatcher loop is the most expensive place to do work. Five covers
- * a few quick lookups plus the handoff or answer; the last step is closing-only.
+ * a long dispatcher loop is the most expensive place to do work. Eight covers
+ * a small job done by the agent itself (a command, a file, a page read) plus
+ * the answer or the handoff; the last step is closing-only. It was five while
+ * the chat agent could only look things up.
  */
-export const MAX_MODEL_STEPS_DISPATCHER = 5;
+export const MAX_MODEL_STEPS_DISPATCHER = 8;
 
 /** Hard stop for one chat-agent turn, behind the closing rule (which stretches for team setup). */
-export const MAX_MODEL_STEPS_HARD = 11;
+export const MAX_MODEL_STEPS_HARD = 14;
 
 /** Dispatcher output cap. Reasoning models spend most of this on thinking — keep headroom for send_message. */
 export const DISPATCHER_MAX_OUTPUT_TOKENS = 4_096;

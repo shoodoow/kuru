@@ -1,5 +1,7 @@
 import {
+  DISPATCHER_TOOL_BUDGET_BROWSER_MS,
   DISPATCHER_TOOL_BUDGET_DEFAULT_MS,
+  DISPATCHER_TOOL_BUDGET_SHELL_MS,
   DISPATCHER_TOOL_BUDGET_LOCAL_MS,
   DISPATCHER_TOOL_BUDGET_WEB_MS,
 } from "../constants.js";
@@ -20,6 +22,9 @@ const DISPATCHER_LOCAL_IO_TOOLS = new Set(["read", "glob", "grep"]);
 
 const DISPATCHER_WEB_IO_TOOLS = new Set(["web_fetch", "web_search"]);
 
+/** The chat agent's own browser: opening a page may first have to start the desktop. */
+const DISPATCHER_BROWSER_TOOLS = new Set(["browser_navigate", "browser_snapshot", "browser_read"]);
+
 /**
  * Wall-clock cap for one dispatcher/delegate tool call, or null = no cap.
  * Why: parent stays a coordinator; workers own long research. Web gets a
@@ -29,6 +34,8 @@ export function dispatcherToolBudgetMs(toolName: string): number | null {
   if (DISPATCHER_UNLIMITED_TOOLS.has(toolName)) return null;
   if (DISPATCHER_WEB_IO_TOOLS.has(toolName)) return DISPATCHER_TOOL_BUDGET_WEB_MS;
   if (DISPATCHER_LOCAL_IO_TOOLS.has(toolName)) return DISPATCHER_TOOL_BUDGET_LOCAL_MS;
+  if (toolName === "bash") return DISPATCHER_TOOL_BUDGET_SHELL_MS;
+  if (DISPATCHER_BROWSER_TOOLS.has(toolName)) return DISPATCHER_TOOL_BUDGET_BROWSER_MS;
   return DISPATCHER_TOOL_BUDGET_DEFAULT_MS;
 }
 

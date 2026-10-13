@@ -24,6 +24,9 @@ import { publish } from "./stream.js";
 import { accountHome, createProfile, exec, execStdin } from "../linux/linux.js";
 import { appendMcpTools } from "../mcp/tools.js";
 import { wrapToolExecute } from "../turn/tools/wrap-tool-execute.js";
+import { tracePreview } from "../turn/trace/sinks/jsonl.js";
+import { emitTurnBus } from "../turn/events/bus.js";
+import { askAgent, forgetWorkerQuestions } from "./worker-questions.js";
 import { agents, conversations, delegations, members, messages, runs, workerTranscripts } from "../db/schema.js";
 import { repairToolInput } from "../turn/tools/repair-input.js";
 import {
@@ -33,6 +36,7 @@ import {
   WORKER_WALL_MS,
   WRAP_UP_WARNING_STEPS,
   compactTranscript,
+  dropStaleViews,
   compactionThreshold,
   estimateTokens,
   isLookOnlyStep,
@@ -1121,6 +1125,23 @@ export async function runWorker(
       profile,
       skillsRoot: input.skillsRoot,
       review,
+      kind: unpackWorkerJobDescription(child.jobDescription).kind,
+      // A stub run (tests) has no agent turn behind it to answer.
+      ask: input.generate
+        ? undefined
+        : (question) =>
+            askAgent(input.delegationId, question, (asked) =>
+              emitTurnBus({
+                type: "worker.asks",
+                accountId: input.accountId,
+                conversationId: input.conversationId,
+                parentAgentId: input.parentAgentId,
+                workerId: input.childId,
+                task: input.task,
+                skillsRoot: input.skillsRoot,
+                ...asked,
+              }),
+            ),
     });
     if (profile) {
       await appendMcpTools(review, tools as Record<string, unknown>, (name, execute) =>
@@ -1341,12 +1362,16 @@ export async function runWorker(
               reasoningText: (step as { reasoningText?: string }).reasoningText,
               toolCalls: currentCalls.length > 0 ? currentCalls.map(() => ({})) : [],
             });
+            // The next step's calls are counted from zero.
+            review.stepCalls = 0;
             const results = (step as { toolResults?: unknown[] }).toolResults ?? [];
             if (results.length > 0) recentToolResults = [...recentToolResults, ...results].slice(-5);
             const toolNames = currentCalls.map((call) => call.name).filter(Boolean).join(", ");
+            // What it said it is doing, beside the tools it used: that is what the agent reads in check_worker.
+            const saying = (step.text ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
             const checkpoint = toolNames
-              ? `Step ${totalSteps}: ${toolNames}`
-              : `Step ${totalSteps}: ${(step.text ?? "reasoning").replace(/\s+/g, " ").trim().slice(0, 180)}`;
+              ? `Step ${totalSteps}: ${toolNames}${saying ? ` — ${saying}` : ""}`
+              : `Step ${totalSteps}: ${saying || "reasoning"}`;
             await db
               .update(delegations)
               .set({ progress: checkpoint, heartbeatAt: new Date() })
@@ -1370,7 +1395,16 @@ export async function runWorker(
                 name: (call as { toolName?: string }).toolName ?? "unknown",
                 input: ((call as { input?: unknown }).input ?? (call as { args?: unknown }).args ?? null) as unknown,
               })),
-              toolResults: [],
+              // The results too: without them a trace shows what a worker tried and never what came back.
+              toolResults: results.map((result) => {
+                const raw = (result as { output?: unknown }).output ?? (result as { result?: unknown }).result ?? null;
+                const output = raw && typeof raw === "object" && "value" in (raw as Record<string, unknown>) ? (raw as { value: unknown }).value : raw;
+                return {
+                  toolCallId: (result as { toolCallId?: string }).toolCallId ?? "",
+                  name: (result as { toolName?: string }).toolName ?? "unknown",
+                  outputPreview: tracePreview(output ?? ""),
+                };
+              }),
             });
           },
         });
@@ -1432,6 +1466,8 @@ export async function runWorker(
           warnedWrapUp = true;
           say(prompt("worker-rules", "wrap-up", { steps: WORKER_STEP_CEILING - totalSteps }));
         }
+        // Old views of a page are dropped after every segment, whatever the size: they are stale and large.
+        transcript = dropStaleViews(transcript);
         if (lastInputTokens > compactAt || estimateTokens(transcript) > compactAt) {
           transcript = compactTranscript(transcript);
           if (estimateTokens(transcript) > compactAt) {
@@ -1510,6 +1546,7 @@ export async function runWorker(
   } finally {
     if (activeWorkerRuns.get(input.delegationId) === controller) {
       activeWorkerRuns.delete(input.delegationId);
+      forgetWorkerQuestions(input.delegationId);
       workerInboxes.delete(input.delegationId);
     }
   }

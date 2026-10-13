@@ -59,7 +59,12 @@ export function replyOnlyRestriction(input: {
   hiddenTurn: boolean;
   /** Tool names per finished step; setup-only steps extend the budget. */
   stepToolNames?: string[][];
+  /** The model repeated itself or flooded a step: it may only hand the job on or say it is not done. */
+  stuck?: boolean;
 }): { activeTools: string[]; note: string } | null {
+  if (input.stuck && !input.handedOff) {
+    return { activeTools: [...CLOSING_TOOLS], note: prompt("dispatcher", "stuck") };
+  }
   if (input.handedOff && !input.hiddenTurn && !input.sentMessage) {
     return { activeTools: ["send_message"], note: prompt("dispatcher", "ack-handoff") };
   }

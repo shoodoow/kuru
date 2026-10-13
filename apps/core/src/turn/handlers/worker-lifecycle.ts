@@ -9,6 +9,8 @@ import { delegations } from "../../db/schema.js";
 import { subscribeTurnBus } from "../events/bus.js";
 import { resumeParentAfterWorker } from "../parent-wake.js";
 import { noted } from "../../log/logger.js";
+import { prompt } from "../../prompt/prompts.js";
+import { publish } from "../../rooms/stream.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -99,6 +101,23 @@ export function registerWorkerLifecycle(
       );
     })().catch(noted("Starting the turn that reports finished workers"));
   };
+
+  // A worker's question: the agent is woken to answer it. Nothing is batched, the worker is waiting.
+  subscribeTurnBus(async (event) => {
+    if (event.type !== "worker.asks") return;
+    const options = event.options?.length
+      ? prompt("cues", "worker-asks-options", { list: event.options.map((option) => `"${option}"`).join(", "), pick: event.pick?.trim() ? `"${event.pick.trim()}"` : "none stated" })
+      : event.pick?.trim()
+        ? `It would go with: "${event.pick.trim()}".`
+        : "";
+    const cue = prompt("cues", "worker-asks", { workerId: event.workerId, task: event.task.slice(0, 200), question: event.question, options });
+    await runTurn(getDbInstance(), event.accountId, event.conversationId, cue, undefined, event.skillsRoot, {
+      cue,
+      speakerId: event.parentAgentId,
+      acquireTimeoutMs: 120_000,
+      onEvent: (streamed) => publish(event.accountId, event.conversationId, streamed),
+    }).catch(noted("Starting the turn that answers a worker's question"));
+  });
 
   subscribeTurnBus(async (event) => {
     if (event.type !== "worker.settled") return;

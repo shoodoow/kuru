@@ -132,7 +132,13 @@ List your routines with ids, schedules, next and last run, and recent results.
 Write one file by absolute path under your home or `/shared`.
 
 # bash
+Run one quick shell command on your own Linux computer: check something, run a script you wrote, convert a file, look at a result. You have about 20 seconds per call, and the output is cut if it is long. A job that takes longer, installs programs, builds, renders or needs many commands goes to `spawn_worker`. Never use it to start a browser.
+
+# bash.worker
 Run one shell command on your Linux computer. `DISPLAY` already points at your 1280x800 desktop, so `chromium` and `xterm` open on the screen the person can watch. Start long-running programs in the background so the command returns.
+
+# ask_agent
+Ask the agent you work for one question, and wait for the answer. It knows the whole conversation with the person, their preferences and what was decided before, and it can ask the person if only they know. Use it when you are stuck on something you cannot find out yourself: which of two options they want, a detail the brief left out, a file or account you were not given, whether to go on after something unexpected. Give `question`, the `options` you see when there are a few, and your `pick`. If no answer comes within a few minutes you carry on with your pick. Two questions per job. Do not ask how to do the work: looking things up, reading a tool's help and trying are your job.
 
 # computer_memory
 Your computer has a modest everyday memory limit. Before a job that needs more (rendering video, a large build, a big data file), call this with action `request`, `gb` (what the job needs in all) and `minutes` (how long it may take). The answer says how much you got: plan the job's thread or worker count to fit that, since a job that goes over is killed. If the answer is "not granted", another account's job has the spare memory: run with fewer threads, or do other work and ask again. Call action `release` as soon as the job is done, because other accounts wait for that memory. `status` shows your limit and what is in use.
@@ -153,28 +159,85 @@ Type 1-4000 characters into the focused field. Click the field first.
 Press one key or combo: Return, Escape, Tab, arrows, F-keys, or ctrl/alt/shift+x.
 
 # browser_list_pages
-List the pages open in your Chrome.
+List the tabs open in your browser, with the id of each.
 
 # browser_navigate
-Open an http(s) URL in your Chrome. Use the deepest URL you already know.
+Open an http(s) page in your own browser and get it back as text: its title, its content, and any notes you kept about the site. This is for looking: reading a live or signed-in page that `web_fetch` cannot read. You cannot click, type or submit from here. A job that needs any of that (filling a form, ordering, posting, signing in, clicking through) goes to `spawn_worker` with kind `browser`, in full, without trying it yourself first.
+
+# browser_navigate.worker
+Open an http(s) URL in the current tab of your browser and wait for it to load. Use the deepest URL you already know, not the site's home page. The result is the page: its title, then its tree with a ref (`e12`) on everything you can act on, and any notes you kept about this site from earlier visits.
 
 # browser_snapshot
-Text snapshot of the current page, with a uid for each link, button and input. Take one before clicking or filling. An ad overlay with a close button is something to dismiss, not a captcha.
+The page now open in your browser, as a tree of its headings, text and links. For looking only: to act on the page, hand the job to a `browser` worker.
+
+# browser_snapshot.worker
+The current page as a tree: headings, text, links (with their addresses), buttons and fields, each with a ref such as `e12` that the other browser tools take. Take one after anything that changes the page; refs from an older snapshot may be gone. `interactive: true` leaves out plain text and is much shorter: use it on a long page when you only need to find a control. An ad or cookie overlay with a close button is something to dismiss, not a captcha.
+
+# browser_read
+The text of the page now open in your browser, as a person would read it. Use it to get an answer out of a page you opened.
+
+# browser_read.worker
+The page's text, as a person would read it, without the tree. Pass `uid` to read just one part (an article, a table, a card). Use this to get an answer out of a page; use `browser_snapshot` to find what to click.
 
 # browser_click
-Click an element by its uid from the latest snapshot.
+Click a link, button or other element by its ref from the latest snapshot; `double: true` double-clicks. It is a real mouse click, scrolled into view first. The result says which page you are on afterwards. If the page changed, take a new snapshot before the next action.
+
+# browser_click_at
+Click at a pixel position in the page, for what has no ref: a canvas, a map, a picture, a custom control. Take a `browser_screenshot` first and read the position from it.
+
+# browser_hover
+Move the pointer over an element by its ref, to open a menu or show a tooltip that appears on hover. Snapshot again to see what appeared.
+
+# browser_drag
+Drag one element onto another, both by ref: reordering a list, moving a card, a slider handle.
+
+# browser_type
+Type text key by key, the way a person does. Use it where `browser_fill` is ignored or where the page reacts to each key: search boxes with suggestions, chat boxes, rich text editors. `uid` names the field; without it the keys go to whatever has focus. `enter: true` presses Enter afterwards.
+
+# browser_check
+Tick a checkbox or radio button by its ref; `checked: false` clears it.
 
 # browser_fill
-Type into an input by its uid from the latest snapshot. Passwords, 2FA codes and card numbers are for the person to enter.
+Clear a text field and type into it, by its ref. Not for date, time, slider or colour fields: those are listed under the snapshot and set with `browser_set_value`. Passwords, 2FA codes and card numbers are for the person to enter.
+
+# browser_select
+Choose an option in a dropdown by its ref, giving the option's visible label.
+
+# browser_set_value
+Set a date, time, date-and-time, month, week, slider or colour field. The browser draws these as several small parts (hours, minutes, AM/PM), and `browser_fill` or typing into a part does not work and can put the text into another field. Every snapshot lists these fields under the page with their name: pass that name as `field`, and the value in the field's own form: `13:45` for a time (24-hour), `2026-10-20` for a date, `2026-10-20T13:45` for a date and time, a number for a slider, `#ff8800` for a colour. The result says what the field holds afterwards, and what it accepts if it refused.
+
+# browser_upload
+Attach a file from your home or `/shared` to a file field, by the field's ref.
 
 # browser_press_key
-Press a key in the page: Enter, Escape, Tab, PageDown, Home, ArrowDown. PageDown scrolls.
+Press a key in the page: Enter (submits a form), Escape, Tab, ArrowDown, or a combination such as Control+a.
+
+# browser_scroll
+Scroll the page `up`, `down`, `left` or `right` (default down, 700 pixels). Pages that load more as you scroll need this before a snapshot shows the rest.
+
+# browser_back
+Go back one page.
+
+# browser_reload
+Load the current page again.
+
+# browser_download
+Click a download link or button by its ref and keep the file. `name` is the file name to save it under; it lands in `~/Downloads` and the result gives the path.
+
+# browser_eval
+Run a line of JavaScript in the page and get its result, for what the other tools cannot reach: reading a value the page does not show, a count of rows, a field in a frame. It is a last resort, and it never replaces clicking for anything a site would treat as a person's action.
+
+# browser_tabs
+`list` the open tabs, open a `new` one at a `url`, `switch` to one or `close` one by its id (such as `t2`). A link that opens a new tab leaves you on the old one until you switch.
 
 # browser_wait_for
-Wait until the page text contains a short string, or time out.
+Wait until the page shows a short piece of text, or time out. Use it after an action that loads something slowly.
 
 # browser_handle_dialog
 Accept or dismiss a JavaScript alert, confirm or prompt.
+
+# browser_screenshot
+Look at the page as a picture. Use it only when the tree does not tell you what you need: a chart, an image, a layout that looks wrong, a canvas. It costs far more than a snapshot.
 
 # set_team_brief
 Write or replace your team's brief: the goal, each teammate's part, the order work moves in (and who sends it back to whom), where files are kept, what "done" means. Every teammate sees it on every turn, so this is how the whole team stays on the same page.

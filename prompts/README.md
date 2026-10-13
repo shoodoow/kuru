@@ -5,6 +5,7 @@ Every instruction a model reads lives in this folder. Edit a file and the next t
 | File | What it holds | Loaded by |
 |------|---------------|-----------|
 | `system.md` | The standing prompt for a work agent (the default kind). The agent's identity block is appended after it. | `apps/core/src/prompt/build-instructions.ts` |
+| `about.md` | What an agent knows about itself: that it is a Kuru agent, what the person has in the app, and the "what you can do" list. A line of that list is shown only while its tool exists. | `apps/core/src/prompt/capabilities.ts` |
 | `companion.md` | The standing prompt for an agent kept for conversation (kind `companion`), used in place of `system.md`. | `apps/core/src/prompt/build-instructions.ts` |
 | `support.md` | The account's default agent (kind `support`): its standing prompt, and the role, personality and job it is created with. | `apps/core/src/prompt/build-instructions.ts`, `apps/core/src/roster/roster.ts` |
 | `dispatcher.md` | Short texts the chat agent's loop injects: the turn rule, the reply-now and ack notes, the stall nudge, the work-log note, the delegated-task line. | `apps/core/src/turn/` , `memory/context.ts` |

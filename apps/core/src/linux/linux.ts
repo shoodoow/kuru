@@ -708,6 +708,10 @@ export function accountContainerHostConfig(
     StorageOpt: { size: storageSize },
     Binds: binds,
     Privileged: false,
+    // A small init process as the computer's first process. Without it nothing collects the programs
+    // that exit after their parent (every closed browser leaves several), and they pile up as dead
+    // entries for the life of the computer, counted against PidsLimit.
+    Init: true,
     // Raw sockets would let one container answer for another's address on the shared bridge.
     CapDrop: ["NET_RAW"],
     PidsLimit: 8192,
@@ -778,6 +782,20 @@ async function memoryInUse(container: Dockerode.Container): Promise<number> {
   // One reading, not the default pair a second apart that Docker takes to work out CPU use.
   const stats = (await container.stats({ stream: false, "one-shot": true })) as { memory_stats?: { usage?: number; stats?: { inactive_file?: number } } };
   return Math.max(0, (stats.memory_stats?.usage ?? 0) - (stats.memory_stats?.stats?.inactive_file ?? 0));
+}
+
+/** The accounts whose computer is running now. */
+export async function runningAccountIds(): Promise<string[]> {
+  const rows = await docker.listContainers({ filters: { label: ["nano.account"] } });
+  // Test computers are left to their tests.
+  return rows.filter((row) => !row.Labels["nano.test"] || config.isTest()).map((row) => row.Labels["nano.account"] ?? "").filter(Boolean);
+}
+
+/** What one computer's processes hold now and what it is allowed, in bytes. */
+export async function accountMemoryUse(accountId: string): Promise<{ usedBytes: number; limitBytes: number }> {
+  const container = await accountContainer(accountId);
+  const [usedBytes, info] = await Promise.all([memoryInUse(container), container.inspect()]);
+  return { usedBytes, limitBytes: info.HostConfig?.Memory ?? 0 };
 }
 
 /** Memory every other running computer holds between them, each counted as at least 256 MB. */
@@ -963,7 +981,7 @@ async function repairBaseToolchain(accountId: string): Promise<void> {
   const ready = await exec(accountId, [
     "sh",
     "-c",
-    `command -v npm >/dev/null && command -v python3 >/dev/null && python3 -m pip --version >/dev/null 2>&1 && ${NODE_IS_CURRENT}`,
+    `command -v npm >/dev/null && command -v python3 >/dev/null && python3 -m pip --version >/dev/null 2>&1 && ${AGENT_BROWSER_IS_CURRENT} && ${NODE_IS_CURRENT}`,
   ]);
   if (ready.code === 0) return;
   const base = await exec(accountId, ["sh", "-c", "command -v python3 >/dev/null && python3 -m pip --version >/dev/null 2>&1 && command -v git >/dev/null && command -v curl >/dev/null"]);
@@ -977,24 +995,45 @@ async function repairBaseToolchain(accountId: string): Promise<void> {
       throw new Error(installed.stdout || "The Linux Python toolchain was not installed.");
     }
   }
-  // An older Node still works for most things, so a failed download is tried again later, not on every command.
-  const tried = nodeUpgradeTried.get(accountId) ?? 0;
+  // An older Node, or a missing browser tool, still leaves a computer that works for most things.
+  // So a failed download is tried again later, not on every command.
   const hasNode = (await exec(accountId, ["sh", "-c", "command -v node >/dev/null && command -v npm >/dev/null"])).code === 0;
-  if (hasNode && Date.now() - tried < NODE_UPGRADE_RETRY_MS) return;
-  nodeUpgradeTried.set(accountId, Date.now());
-  const node = await exec(accountId, ["sh", "-c", INSTALL_NODE]);
-  if (node.code === 0) {
-    nodeUpgradeTried.delete(accountId);
-    return;
+  if (hasNode && Date.now() - (upgradeTried.get(accountId) ?? 0) < UPGRADE_RETRY_MS) return;
+  upgradeTried.set(accountId, Date.now());
+  let complete = true;
+  if ((await exec(accountId, ["sh", "-c", NODE_IS_CURRENT])).code !== 0) {
+    const node = await exec(accountId, ["sh", "-c", INSTALL_NODE]);
+    if (node.code !== 0) {
+      if (!hasNode) throw new Error(node.stdout || "Node was not installed.");
+      complete = false;
+      logger.warn({ accountId, output: node.stdout.slice(-400) }, `Node ${NODE_MAJOR} could not be installed on this computer. It keeps its older Node and is tried again in an hour.`);
+    }
   }
-  if (!hasNode) throw new Error(node.stdout || "Node was not installed.");
-  logger.warn({ accountId, output: node.stdout.slice(-400) }, `Node ${NODE_MAJOR} could not be installed on this computer. It keeps its older Node and is tried again in an hour.`);
+  // A computer made from an earlier image has no agent-browser, which every browser tool runs through.
+  const browser = await exec(accountId, [
+    "sh",
+    "-c",
+    `${AGENT_BROWSER_IS_CURRENT} || npm install -g agent-browser@${AGENT_BROWSER_VERSION} >/tmp/agent-browser-install.log 2>&1 || { tail -c 400 /tmp/agent-browser-install.log; exit 1; }`,
+  ]);
+  if (browser.code !== 0) {
+    complete = false;
+    logger.warn({ accountId, output: browser.stdout.slice(-400) }, "The browser tools could not be installed on this computer. It is tried again in an hour.");
+  }
+  if (complete) upgradeTried.delete(accountId);
 }
+
+/**
+ * The agent-browser release every computer runs. Keep it the same as apps/core/linux/Dockerfile.
+ * Why fixed: left open, npm chooses by the Node version and installed a release a year
+ * older on Node 22, whose clicks missed on a scrolled page and whose waits took 25 seconds.
+ */
+const AGENT_BROWSER_VERSION = "0.38.1";
+const AGENT_BROWSER_IS_CURRENT = `[ "$(agent-browser --version 2>/dev/null)" = "agent-browser ${AGENT_BROWSER_VERSION}" ]`;
 
 /** The Node release line account computers run. Keep it the same as apps/core/linux/Dockerfile. */
 const NODE_MAJOR = 22;
-const NODE_UPGRADE_RETRY_MS = 60 * 60 * 1000;
-const nodeUpgradeTried = new Map<string, number>();
+const UPGRADE_RETRY_MS = 60 * 60 * 1000;
+const upgradeTried = new Map<string, number>();
 const NODE_IS_CURRENT = `command -v node >/dev/null && [ "$(node -p 'process.versions.node.split(".")[0]')" -ge ${NODE_MAJOR} ]`;
 /**
  * Puts the newest Node of the release line into /usr/local, ahead of Debian's

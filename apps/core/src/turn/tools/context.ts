@@ -35,6 +35,10 @@ export type ToolContext = {
    * row never execute — the model gets a stop error instead.
    */
   recentCalls?: { name: string; input: string }[];
+  /** Tool calls made in the model step now running; reset when a step starts. */
+  stepCalls?: number;
+  /** The model repeated a call or flooded a step with calls: the turn may only close now. */
+  stuck?: boolean;
   /** Linux username for cheap parent tools (read/search/fetch). */
   linuxProfile?: string | null;
   /** Stop the model loop after this tool (secret-request). */

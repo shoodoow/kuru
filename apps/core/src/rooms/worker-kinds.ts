@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { aboutWorker } from "../prompt/capabilities.js";
 import { prompt } from "../prompt/prompts.js";
 
 /** Built-in worker kinds (specialists). `custom` uses parent-supplied instructions. */
@@ -33,6 +34,25 @@ export const WORKER_KIND_HINTS: Record<Exclude<WorkerKind, "custom">, string> = 
   docs: "Read public docs via search/fetch and return accurate product/API guidance.",
 };
 
+/** Kinds whose work is commands, files or reading: they never click through a site or drive the desktop. */
+const HANDS_OFF_KINDS = new Set<WorkerKind>(["explore", "shell", "debug", "watch_video", "video_review", "vm_setup", "docs"]);
+/** What such a worker still has of the browser: opening a page and reading it. */
+const READ_SIDE_BROWSER = new Set(["browser_navigate", "browser_snapshot", "browser_read"]);
+
+/**
+ * Whether a worker of this kind is offered a tool.
+ * Why: every tool's schema is resent on every step. The twenty tools for
+ * acting on a page and the desktop are several thousand tokens a step that a
+ * worker running commands or reading code never uses.
+ * Input: the worker's kind and a tool name. Output: false for a tool left out.
+ */
+export function kindHasTool(kind: WorkerKind | undefined, tool: string): boolean {
+  if (!kind || !HANDS_OFF_KINDS.has(kind)) return true;
+  if (tool.startsWith("computer_") && tool !== "computer_memory") return false;
+  if (tool.startsWith("browser_")) return READ_SIDE_BROWSER.has(tool);
+  return true;
+}
+
 const META_KIND = /^WORKER_KIND=([a-z_]+)\n/;
 const CUSTOM_BLOCK = /^WORKER_KIND=custom\n<<<CUSTOM\n([\s\S]*?)\nCUSTOM>>>\n/;
 
@@ -58,9 +78,9 @@ export function workerPreambleFor(kind: WorkerKind, customInstructions?: string)
   if (kind === "custom") {
     const body = (customInstructions ?? "").trim();
     if (!body) throw new Error("custom worker kind requires instructions.");
-    return [prompt("worker-rules", "custom-worker", { instructions: body }), "", ...rules].join("\n");
+    return [prompt("worker-rules", "custom-worker", { instructions: body }), "", aboutWorker(), "", ...rules].join("\n");
   }
-  return [readKindPrompt(kind), "", ...rules].join("\n");
+  return [readKindPrompt(kind), "", aboutWorker(), "", ...rules].join("\n");
 }
 
 /** Persist kind (+ optional custom prompt) inside job_description without a schema migration. */

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  kindHasTool,
   packWorkerJobDescription,
   unpackWorkerJobDescription,
   workerPreambleFor,
@@ -54,5 +55,20 @@ describe("worker kinds", () => {
       kind: "computer",
       jobDescription: "Do the desktop thing.",
     });
+  });
+
+  test("a worker that runs commands or reads is not handed the tools for acting on a page", () => {
+    for (const tool of ["bash", "write", "read", "web_fetch", "ask_agent", "computer_memory", "browser_navigate", "browser_read"]) {
+      expect(kindHasTool("shell", tool)).toBe(true);
+    }
+    for (const tool of ["browser_click", "browser_fill", "browser_upload", "computer_click", "computer_screenshot"]) {
+      expect(kindHasTool("shell", tool)).toBe(false);
+      expect(kindHasTool("docs", tool)).toBe(false);
+      // The kinds that use a site or the desktop, and the general one, keep everything.
+      expect(kindHasTool("browser", tool)).toBe(true);
+      expect(kindHasTool("computer", tool)).toBe(true);
+      expect(kindHasTool("executor", tool)).toBe(true);
+      expect(kindHasTool("custom", tool)).toBe(true);
+    }
   });
 });

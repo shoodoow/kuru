@@ -2,6 +2,7 @@
  * Tool execute bodies for the dispatcher registry.
  * DB: per tool — messages, delegations, agents, routines, notifications.
  */
+import { answerWorkerQuestion } from "../../rooms/worker-questions.js";
 import { connectSocial } from "../../social/connect.js";
 import { chartData } from "@kuru/shared";
 import { hitLine, mergeRanked, searchFacts, searchMessages, searchSummaries, searchTerms } from "../../memory/search.js";
@@ -1181,6 +1182,12 @@ export async function executeRedirectWorker(ctx: ToolContext, input: Record<stri
   if (!latest) return { error: "No work found for that worker id. Use check_worker to list your workers." };
   if (latest.parentAgentId !== ctx.agentId) return { error: "That worker does not belong to you." };
   if (latest.status === "running") {
+    // A worker waiting on a question gets this as its answer, at once, instead of as a note before its next step.
+    if (answerWorkerQuestion(latest.id, parsed.instruction)) {
+      // In a turn started by the question itself there is nothing more to say to the person.
+      if (ctx.hiddenTurn) ctx.handedOff = true;
+      return { workerId: parsed.workerId, delegationId: latest.id, status: "running", delivered: true, note: "The worker has your answer and is carrying on. Its result still arrives on its own." };
+    }
     if (messageRunningWorker(latest.id, parsed.instruction)) {
       return {
         workerId: parsed.workerId,

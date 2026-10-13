@@ -3,6 +3,7 @@ import type { Duplex } from "node:stream";
 import { fromNodeHeaders } from "better-auth/node";
 import { profileOnAccount, startDesktop } from "../desktop/desktop.js";
 import { signingKey } from "../keys/keys.js";
+import { screenOpened } from "../computer/housekeeping.js";
 import { pipeExec } from "../linux/linux.js";
 import { logger, type Auth, type Database } from "./context.js";
 import { verifyScreenToken } from "./screen-token.js";
@@ -60,7 +61,15 @@ export async function proxyScreen(
   }
   const preamble = Buffer.concat([Buffer.from(`${lines.join("\r\n")}\r\n\r\n`), head]);
   logger.info({ accountId, profile }, "screen proxy opened");
-  await pipeExec(accountId, ["socat", "STDIO", `TCP:127.0.0.1:${session.novncPort}`], socket, preamble);
+  // While the person is looking at this screen its browser is not closed for being idle.
+  const closed = screenOpened(accountId, profile);
+  socket.once("close", closed);
+  try {
+    await pipeExec(accountId, ["socat", "STDIO", `TCP:127.0.0.1:${session.novncPort}`], socket, preamble);
+  } catch (error) {
+    closed();
+    throw error;
+  }
 }
 
 /** The key that signs the short-lived tokens a phone uses to open a screen socket. */

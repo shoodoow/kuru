@@ -3,6 +3,7 @@ import type { ModelMessage } from "ai";
 import {
   compactTranscript,
   compactionThreshold,
+  dropStaleViews,
   isLookOnlyStep,
   isReadOnlyShell,
   resumableTranscript,
@@ -132,8 +133,44 @@ describe("resumableTranscript", () => {
 
 describe("compactionThreshold", () => {
   it("scales with the model window inside sane bounds", () => {
-    expect(compactionThreshold(1_000_000)).toBe(90_000);
+    expect(compactionThreshold(1_000_000)).toBe(48_000);
     expect(compactionThreshold(32_000)).toBe(24_000);
-    expect(compactionThreshold(null)).toBe(70_400);
+    expect(compactionThreshold(null)).toBe(48_000);
+  });
+});
+
+describe("stale views of a page", () => {
+  const view = (name: string, text: string, id: string): ModelMessage =>
+    ({ role: "tool", content: [{ type: "tool-result", toolCallId: id, toolName: name, output: { type: "text", value: text } }] }) as ModelMessage;
+  const page = (title: string): string => `✓ ${title}\n  https://shop.example/${title}\n${"- link \"Item\" [ref=e1]\n".repeat(300)}`;
+
+  it("keeps the newest views whole and leaves only the address of older ones", () => {
+    const talk: ModelMessage[] = [
+      { role: "user", content: "Buy the blue one." },
+      view("browser_navigate", page("home"), "1"),
+      view("bash", "x".repeat(5000), "2"),
+      view("browser_snapshot", page("list"), "3"),
+      view("browser_click", "✗ Unknown ref: e9", "4"),
+      view("browser_snapshot", page("item"), "5"),
+      view("browser_read", page("cart"), "6"),
+    ];
+    const out = dropStaleViews(talk);
+    const text = (index: number): string => ((out[index] as { content: { output: { value: string } }[] }).content[0]!.output.value);
+    // The two latest views are untouched.
+    expect(text(6)).toBe(page("cart"));
+    expect(text(5)).toBe(page("item"));
+    // Older ones keep where they were and lose the page.
+    expect(text(3)).toContain("https://shop.example/list");
+    expect(text(3)).toContain("An earlier view of the page was here");
+    expect(text(1).length).toBeLessThan(500);
+    // Command output and short answers are not views.
+    expect(text(2)).toHaveLength(5000);
+    expect(text(4)).toBe("✗ Unknown ref: e9");
+    expect(out).toHaveLength(talk.length);
+  });
+
+  it("starts trimming old output well before a large window is full", () => {
+    expect(compactionThreshold(1_000_000)).toBe(48_000);
+    expect(compactionThreshold(32_000)).toBe(24_000);
   });
 });

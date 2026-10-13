@@ -1,3 +1,5 @@
+import { kindHasTool, type WorkerKind } from "../../rooms/worker-kinds.js";
+import type { WorkerQuestion } from "../../rooms/worker-questions.js";
 import { jsonSchema, tool, type Schema, type ToolSet } from "ai";
 import { toolsForSurface, type ToolDefinition } from "@kuru/agent-tools";
 import type { getDb } from "../../db/client.js";
@@ -20,7 +22,9 @@ const NO_PARAMETERS_TOOLS = new Set([
   "list_skills",
   "refresh_skills",
   "browser_list_pages",
-  "browser_snapshot",
+  "browser_back",
+  "browser_reload",
+  "browser_screenshot",
 ]);
 
 const emptyParametersSchema = jsonSchema<Record<string, never>>({
@@ -42,6 +46,10 @@ export type WorkerToolBuildContext = {
   skillsRoot?: string;
   /** When set (live workers), Auto-review wraps bash and posts cards as the parent. */
   review?: ToolContext;
+  /** The worker's kind: a kind that only runs commands or reads is not offered the tools for acting on a page. */
+  kind?: WorkerKind;
+  /** Asks the agent this worker works for; left out, the worker has nobody to ask. */
+  ask?: (question: WorkerQuestion) => Promise<string>;
 };
 
 /** Wording lives in prompts/tools.md: `# name`, with an optional `# name.worker` variant. */
@@ -67,6 +75,16 @@ function workerExecute(
               search: String(input.search ?? ""),
             });
       return rows.map((row) => ({ id: row.id, body: row.body }));
+    };
+  }
+  if (def.name === "ask_agent") {
+    return async (input) => {
+      if (!workerCtx.ask) return "There is nobody to ask on this job. Carry on with the most sensible choice and say in your report what you chose.";
+      return workerCtx.ask({
+        question: String(input.question ?? ""),
+        options: Array.isArray(input.options) ? input.options.map(String) : undefined,
+        pick: typeof input.pick === "string" ? input.pick : undefined,
+      });
     };
   }
   if (def.name === "read_skill") {
@@ -146,7 +164,7 @@ export function buildDispatcherToolSet(mode: AgentMode, ctx: ToolContext): ToolS
 
 export function buildWorkerToolSet(workerCtx: WorkerToolBuildContext): ToolSet {
   const set: Record<string, unknown> = {};
-  const defs = toolsForSurface("worker", { hasLinux: !!workerCtx.profile });
+  const defs = toolsForSurface("worker", { hasLinux: !!workerCtx.profile }).filter((def) => kindHasTool(workerCtx.kind, def.name));
   for (const def of defs) {
     const raw = workerExecute(def, workerCtx);
     const execute = workerCtx.review
@@ -164,7 +182,7 @@ export function buildWorkerToolSet(workerCtx: WorkerToolBuildContext): ToolSet {
       });
       continue;
     }
-    if (def.name === "read") {
+    if (def.name === "read" || def.name === "browser_screenshot") {
       set[def.name] = tool({
         ...base,
         toModelOutput: ({ output }) => readToModelOutput(output),

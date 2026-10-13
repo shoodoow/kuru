@@ -31,6 +31,8 @@ const LOOK_ONLY_TOOLS = new Set([
   "list_skills",
   "read_history",
   "browser_snapshot",
+  "browser_read",
+  "browser_screenshot",
   "browser_list_pages",
   "computer_screenshot",
 ]);
@@ -214,6 +216,46 @@ export function compactTranscript(
   });
 }
 
+/** Tools whose result is a view of something that has since changed: the page, the screen. */
+const VIEW_TOOLS = new Set(["browser_navigate", "browser_snapshot", "browser_read", "browser_screenshot", "computer_screenshot"]);
+const VIEW_GONE = "[An earlier view of the page was here. The page has moved on since; take a new browser_snapshot to see it as it is now.]";
+
+/**
+ * Drops all but the newest views of a page or the screen.
+ * Why: every step resends everything before it, and one snapshot of a page is
+ * thousands of tokens. A job that clicks through a site carried every page it
+ * had ever seen, at every later step: a short form cost 200,000 input tokens.
+ * An old view is also wrong, since the page changed with the next action.
+ * Input: the conversation and how many of the latest views to keep whole.
+ * Output: a new array; message count and order are unchanged, so calls stay paired with results.
+ */
+export function dropStaleViews(messages: ModelMessage[], keep = 2): ModelMessage[] {
+  let seen = 0;
+  const out = [...messages];
+  for (let index = out.length - 1; index >= 0; index -= 1) {
+    const message = out[index]!;
+    const content = (message as { content?: unknown }).content;
+    if (!Array.isArray(content)) continue;
+    let changed = false;
+    const next = [...(content as Part[])];
+    for (let at = next.length - 1; at >= 0; at -= 1) {
+      const part = next[at]!;
+      if (part.type !== "tool-result" || !VIEW_TOOLS.has(String(part.toolName ?? ""))) continue;
+      seen += 1;
+      if (seen <= keep) continue;
+      const { text, hadImage } = outputText(part.output);
+      // A short answer (an error, "the browser did not start") costs nothing to keep and may matter.
+      if (!hadImage && text.length <= 400) continue;
+      // The address and title, on the first lines, say where the job has been.
+      const first = hadImage ? "" : `${text.split("\n").slice(0, 2).join(" ").slice(0, 200)}\n`;
+      next[at] = { ...part, output: { type: "text", value: `${first}${VIEW_GONE}` } };
+      changed = true;
+    }
+    if (changed) out[index] = { ...message, content: next } as ModelMessage;
+  }
+  return out;
+}
+
 /** Rough size of a conversation in model tokens (four characters each). */
 export function estimateTokens(messages: ModelMessage[]): number {
   try {
@@ -231,7 +273,9 @@ export function estimateTokens(messages: ModelMessage[]): number {
  */
 export function compactionThreshold(contextWindow?: number | null): number {
   const window = contextWindow && contextWindow > 0 ? contextWindow : 128_000;
-  return Math.max(24_000, Math.min(Math.floor(window * 0.55), 90_000));
+  // The ceiling was 90,000. A long job then resent up to that much at every one of its steps, which
+  // is most of what such a job costs; the old output it kept is rarely read again and can be rerun.
+  return Math.max(24_000, Math.min(Math.floor(window * 0.55), 48_000));
 }
 
 /**

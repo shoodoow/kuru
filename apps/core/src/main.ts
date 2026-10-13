@@ -2,6 +2,7 @@ import { config } from "./config.js";
 import { sharedDb } from "./db/client.js";
 import { ensureGatewayModelsLoaded, registerGatewayModelInfoProvider } from "./model/gateway-models.js";
 import { startServer } from "./http/server.js";
+import { startHousekeeping } from "./computer/housekeeping.js";
 import { settleAccountComputers } from "./linux/linux.js";
 import { resolveSkillsDir } from "./skills/paths.js";
 import { startScheduler } from "./routines/scheduler.js";
@@ -29,6 +30,8 @@ const stopScheduler = startScheduler(db, { skillsRoot: config.skillsDir() });
 ensureWorkerLifecycle(db);
 // A job that had borrowed memory when the process stopped: its computer goes back to the everyday limit.
 void settleAccountComputers().catch(() => undefined);
+// Browsers nobody has used for an hour are closed, so a computer's memory is not held by idle windows.
+const stopHousekeeping = startHousekeeping(db);
 void recoverInterruptedWorkers(db, config.skillsDir()).catch((error: unknown) => {
   console.error("Interrupted workers were not recovered:", error);
 });
@@ -47,6 +50,7 @@ async function shutdown(signal: string): Promise<void> {
   stopping = true;
   console.log(`${signal} received, shutting down.`);
   stopScheduler();
+  stopHousekeeping();
   const force = setTimeout(() => server.closeAllConnections(), SHUTDOWN_GRACE_MS);
   force.unref();
   await new Promise<void>((resolve) => server.close(() => resolve()));

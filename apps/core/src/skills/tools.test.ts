@@ -8,6 +8,10 @@ describe("dispatcher SDK tools", () => {
     const names = dispatcherToolNames();
     expect(names).toEqual([
       "add_to_group",
+      "bash",
+      "browser_navigate",
+      "browser_read",
+      "browser_snapshot",
       "check_worker",
       "connect_social",
       "correct_agent_memory",
@@ -52,9 +56,11 @@ describe("dispatcher SDK tools", () => {
       "update_teammate",
       "web_fetch",
       "web_search",
+      "write",
     ]);
     expect(dispatcherToolNames()).toEqual(names);
-    const parentCheap = new Set(["glob", "grep", "read", "web_fetch", "web_search"]);
+    // What the chat agent does itself: look things up, run a quick command, write a file. The mouse and keyboard stay with workers.
+    const parentCheap = new Set(["bash", "glob", "grep", "read", "web_fetch", "web_search", "write"]);
     for (const name of profileToolNames()) {
       if (parentCheap.has(name)) expect(names).toContain(name);
       else expect(names).not.toContain(name);
@@ -63,6 +69,6 @@ describe("dispatcher SDK tools", () => {
       expect.arrayContaining([...profileToolNames(), "read_history", "read_skill", "browser_snapshot", "list_skills"]),
     );
     expect(workerToolNames(true)).toContain("web_search");
-    expect(workerToolNames(false)).toEqual(["list_skills", "read_history", "read_skill", "refresh_skills"].sort());
+    expect(workerToolNames(false)).toEqual(["ask_agent", "list_skills", "read_history", "read_skill", "refresh_skills"].sort());
   });
 });

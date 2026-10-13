@@ -29,6 +29,36 @@ server (a new setting, a new app build) under **To update**.
   when Docker has the NVIDIA runtime, for rendering, video encoding and
   local models. `ACCOUNT_GPU=off` keeps it from them. See
   [Good to know](deploy/SETUP.md#good-to-know).
+- **Agents that know what they are.** Every agent is now told it is one of
+  the person's agents in Kuru, what the person has in the app, and what it
+  can do. The list of what it can do is built from the tools it really has,
+  so it cannot say it does something it does not, or forget something new.
+- **A browser agents can really use.** The browser tools were rebuilt on
+  agent-browser. An agent now reads a page's text, clicks and types with real
+  mouse and keyboard input, fills forms, picks from menus, uploads and
+  downloads, drags, hovers, works across tabs, scrolls, and can look at the
+  page as a picture and click at a position. Opening a page no longer opens a
+  new tab each time.
+- **Agents remember websites.** Each site gets a short note the agents write
+  themselves (where things are, whether it is signed in, what got in the
+  way), shown to them the next time the site is opened.
+- **The agent in the chat does small jobs itself.** It can run a quick
+  command, write a file and read a page in its browser without starting
+  background work, and it tells the person what it is doing first. Long or
+  heavy work still runs in the background.
+- **Background work can ask a question.** When it is stuck on something only
+  the agent or the person knows, it asks the agent and waits, instead of
+  guessing or stopping. Two questions a job; with no answer in three minutes
+  it carries on with its own choice and says so.
+- **Computers stay lean.** An agent's browser and its desktop (about 150 MB
+  each while idle) are closed after an hour without
+  use, and sooner when the computer is short of memory and another agent
+  needs one. A browser the person is watching, or whose agent has work
+  running, is left alone. Sign-ins are kept; open tabs are not.
+- **Long jobs cost less.** Old views of a web page are dropped from a
+  background job's working memory once a newer one exists, older output is
+  trimmed sooner, and a job that only runs commands is no longer sent the
+  tools for clicking through websites.
 - **A voice.** The new `kokoro-tts` skill lets an agent speak a script on its
   own computer, with no key and no online service: narration for a video, an
   article read aloud. It gives the time of every line so a video can follow
@@ -113,6 +143,8 @@ server (a new setting, a new app build) under **To update**.
 **To update**
 
 - Run `./update.sh`. The database gains one small change by itself.
+- Existing computers install the browser tools (agent-browser) by
+  themselves on first use, like Node 22. The rebuilt image has them.
 - Rebuild the computer image, for Node 22 on new computers:
   `docker build -t kuru-linux:1 apps/core/linux`. Existing computers get
   Node 22 by themselves on first use.

@@ -12,7 +12,7 @@ import {
   typeText,
   writeFile,
 } from "./computer.js";
-import { globFiles, grepFiles } from "./find.js";
+import { expandHome, globFiles, grepFiles } from "./find.js";
 import { webSearch } from "./search.js";
 import { webFetch } from "./web.js";
 import { openOnScreen, runBrowserTool } from "./browser-bridge.js";
@@ -85,7 +85,7 @@ export function linuxToolExecutes(
       if (screenshots > SCREENSHOT_BUDGET) {
         return (
           `Screenshot budget spent (${SCREENSHOT_BUDGET} this run). Do not shoot again — ` +
-          `continue with web_fetch, headless --dump-dom, and the coordinates/descriptions you already have. ` +
+          `continue with browser_snapshot or browser_read for a web page, and the coordinates and descriptions you already have. ` +
           `Only pixels you have not yet seen justify another look, and the camera stays off.`
         );
       }
@@ -166,7 +166,30 @@ export function linuxToolExecutes(
     open_on_screen: (input) => openOnScreen(accountId, profile, String(input.url)),
     browser_list_pages: () => runBrowserTool(accountId, profile, "browser_list_pages", {}),
     browser_navigate: (input) => runBrowserTool(accountId, profile, "browser_navigate", input),
-    browser_snapshot: () => runBrowserTool(accountId, profile, "browser_snapshot", {}),
+    browser_snapshot: (input) => runBrowserTool(accountId, profile, "browser_snapshot", input),
+    browser_read: (input) => runBrowserTool(accountId, profile, "browser_read", input),
+    browser_select: (input) => runBrowserTool(accountId, profile, "browser_select", input),
+    browser_set_value: (input) => runBrowserTool(accountId, profile, "browser_set_value", input),
+    browser_upload: (input) => runBrowserTool(accountId, profile, "browser_upload", { ...input, path: expandHome(accountId, profile, String(input.path ?? "")) }),
+    browser_scroll: (input) => runBrowserTool(accountId, profile, "browser_scroll", input),
+    browser_back: () => runBrowserTool(accountId, profile, "browser_back", {}),
+    browser_reload: () => runBrowserTool(accountId, profile, "browser_reload", {}),
+    browser_click_at: (input) => runBrowserTool(accountId, profile, "browser_click_at", input),
+    browser_hover: (input) => runBrowserTool(accountId, profile, "browser_hover", input),
+    browser_drag: (input) => runBrowserTool(accountId, profile, "browser_drag", input),
+    browser_type: (input) => runBrowserTool(accountId, profile, "browser_type", input),
+    browser_check: (input) => runBrowserTool(accountId, profile, "browser_check", input),
+    browser_download: (input) => runBrowserTool(accountId, profile, "browser_download", { ...input, folder: expandHome(accountId, profile, "~/Downloads") }),
+    browser_eval: (input) => runBrowserTool(accountId, profile, "browser_eval", input),
+    browser_tabs: (input) => runBrowserTool(accountId, profile, "browser_tabs", input),
+    // The picture of the page, shown to the model the way `read` shows an image file.
+    browser_screenshot: async () => {
+      // In the agent's own home: the shared screenshots folder belongs to whichever agent made it first, and the others cannot write there.
+      const path = expandHome(accountId, profile, `~/.cache/kuru/page-${Date.now()}.png`);
+      const shot = await runBrowserTool(accountId, profile, "browser_screenshot", { path });
+      if (!/saved/i.test(shot)) return shot;
+      return readImage(accountId, profile, path);
+    },
     browser_click: (input) => runBrowserTool(accountId, profile, "browser_click", input),
     browser_fill: (input) => runBrowserTool(accountId, profile, "browser_fill", input),
     browser_press_key: (input) => runBrowserTool(accountId, profile, "browser_press_key", input),

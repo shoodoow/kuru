@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { aboutShort, aboutWorkAgent } from "./capabilities.js";
 import { prompt } from "./prompts.js";
 
 /**
@@ -49,8 +50,10 @@ export function buildAgentIdentity(input: AgentIdentity): string {
  * Why: the system prompt plus the composed identity is the cache-stable
  * prefix — room/summary/messages always live after the breakpoint in the tail.
  * Input: an AgentIdentity.
- * Output: the standing system prompt followed by that identity block.
+ * Output: the standing system prompt, what the agent is and can do, then that identity block.
  */
 export function buildInstructions(identity: AgentIdentity): string {
-  return [standingPrompt(identity.kind), buildAgentIdentity(identity)].join("\n\n");
+  // Who the agent is in the product, and what it can do, sit between its method and its identity.
+  const about = identity.kind && kindPromptFiles.has(identity.kind) ? aboutShort() : aboutWorkAgent();
+  return [standingPrompt(identity.kind), about, buildAgentIdentity(identity)].join("\n\n");
 }

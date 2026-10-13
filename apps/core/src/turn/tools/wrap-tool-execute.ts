@@ -9,6 +9,12 @@ import { workEntry } from "../work-log.js";
 
 /** Same tool + byte-identical input this many times in a row = a loop, not work. */
 export const DOOM_LOOP_THRESHOLD = 3;
+/**
+ * The most tool calls one model step may make. A real step makes one to four, and filling a
+ * long form in one go about a dozen; a model that has lost the thread makes hundreds.
+ */
+export const MAX_CALLS_PER_STEP = 20;
+const TOO_MANY_CALLS = `More than ${MAX_CALLS_PER_STEP} calls in one step. The rest were not run. Make one call, read its result, then decide the next.`;
 
 /** Text: prompts/dispatcher.md. */
 export const doomLoopError = (): string => prompt("dispatcher", "doom-loop");
@@ -44,6 +50,16 @@ export function wrapToolExecute(
     const toolCallId = randomUUID();
     const started = performance.now();
     const inputJson = JSON.stringify(input ?? {});
+    // A model that has lost the thread can emit hundreds of calls in one step. Past a sensible
+    // number they are not run, and they answer in two words, so the junk is not resent on the next step.
+    ctx.stepCalls = (ctx.stepCalls ?? 0) + 1;
+    if (ctx.stepCalls > MAX_CALLS_PER_STEP) {
+      if (!ctx.stuck) {
+        await ctx.traceSession?.emit({ type: "tool.call.finish", toolCallId, name, input, outputPreview: tracePreview(TOO_MANY_CALLS), durationMs: 0, error: "too_many_calls" });
+      }
+      ctx.stuck = true;
+      return { error: ctx.stepCalls === MAX_CALLS_PER_STEP + 1 ? TOO_MANY_CALLS : "Ignored." };
+    }
     const recent = (ctx.recentCalls ??= []);
     recent.push({ name, input: inputJson });
     if (recent.length > DOOM_LOOP_THRESHOLD) recent.shift();
@@ -52,6 +68,10 @@ export function wrapToolExecute(
       recent.every((call) => call.name === name && call.input === inputJson)
     ) {
       const durationMs = Math.round(performance.now() - started);
+      // Said once in full. Every repeat after that answers in two words and leaves no trace line.
+      const first = !ctx.stuck;
+      ctx.stuck = true;
+      if (!first) return { error: "Ignored: repeated call." };
       await ctx.traceSession?.emit({
         type: "tool.call.finish",
         toolCallId,

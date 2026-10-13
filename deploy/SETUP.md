@@ -479,6 +479,11 @@ with any server.
   computer sees the whole card and nothing shares it out, so one job can
   fill its memory. `ACCOUNT_GPU=off` in `apps/core/.env` keeps the card from
   them. Computers under Kata get no card.
+- **Idle browsers are closed.** Each agent has its own browser window on the
+  account's computer. One that has not been used for an hour is closed, and
+  one is closed sooner when the computer is above three quarters of its
+  memory and another agent needs a browser. It opens again, still signed in,
+  the next time it is needed.
 - **CPU is not capped.** A computer may use every core, at a lower priority
   than the server and the database, so chats stay quick while agents work.
 - **If the machine still runs out of memory,** Linux stops a process in an

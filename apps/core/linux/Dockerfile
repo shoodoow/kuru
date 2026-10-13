@@ -41,7 +41,10 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
   && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
   && ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack
 
-RUN mkdir -p /opt/nano
-COPY browser-bridge.mjs /opt/nano/
+# The browser tools: agent-browser drives the Chromium above over its debugging port.
+# Chromium comes from Debian, so agent-browser's own browser download is not run.
+# The version is fixed, the same one as AGENT_BROWSER_VERSION in src/linux/linux.ts: left open, npm picks a
+# much older release on this Node, and that one misses clicks on a scrolled page.
+RUN npm install -g agent-browser@0.38.1 && agent-browser --version
 
 CMD ["sleep", "infinity"]

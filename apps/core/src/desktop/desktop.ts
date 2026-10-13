@@ -1,3 +1,4 @@
+import { computerUsed } from "../computer/activity.js";
 import { and, eq } from "drizzle-orm";
 import type { Store } from "../db/client.js";
 import { agents } from "../db/schema.js";
@@ -79,6 +80,8 @@ async function sessionFor(accountId: string, profile: string): Promise<Session> 
  * Output: the display number and the noVNC port bound on 127.0.0.1 inside the container.
  */
 export async function startDesktop(accountId: string, profile: string): Promise<Session> {
+  // Every use of the desktop passes here: the screen button, the mouse and keyboard tools, the browser.
+  computerUsed(accountId, profile);
   const sessionKey = key(accountId, profile);
   const fresh = sessions.get(sessionKey);
   if (fresh && (readyUntil.get(sessionKey) ?? 0) > Date.now()) {
@@ -367,6 +370,16 @@ export async function pressKey(accountId: string, profile: string, combo: string
     }
     return { key: combo };
   });
+}
+
+/** Forgets that a desktop was up, after it was stopped, so the next use starts it again at once. */
+export function forgetDesktop(accountId: string, profile: string): void {
+  readyUntil.delete(key(accountId, profile));
+}
+
+/** True while the person has taken this agent's mouse. */
+export function isHeld(accountId: string, profile: string): boolean {
+  return held.has(key(accountId, profile));
 }
 
 /**

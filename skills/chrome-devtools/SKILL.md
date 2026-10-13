@@ -1,130 +1,112 @@
 ---
 name: chrome-devtools
-description: 'Expert-level browser automation, debugging, and performance analysis using Chrome DevTools MCP. Use for interacting with web pages, capturing screenshots, analyzing network traffic, and profiling performance.'
+description: How to use a website in your own browser the way a person does - open pages, read them, click, type, fill forms, choose from menus, upload and download files, work across tabs, get past cookie and ad overlays, stay signed in, and keep notes about each site. Use for any job on a live web page - a dashboard, a social network, a web app, a shop, a form, anything a plain page fetch cannot read or that needs clicking or a login.
 license: MIT
 ---
 
-# Chrome DevTools Agent
+# Using a website in your browser
 
-## Overview
+You have a real Chromium window on your desktop. The person can watch it and take over. It keeps its cookies, so a
+site you (or they) signed in to once stays signed in. The `browser_*` tools drive that window with real mouse and
+keyboard input. They start it themselves: never launch a browser from `bash`, never run one headless, never
+`pkill chromium`.
 
-A specialized skill for controlling and inspecting a live Chrome browser. This skill leverages the `chrome-devtools` MCP server to perform a wide range of browser-related tasks, from simple navigation to complex performance profiling.
+## The loop
 
-## When to Use
+1. **Go.** `browser_navigate` to the deepest address you know. The result is already the page: its text and a ref
+   (`e12`) on everything you can act on. Read it before doing anything else, and read your notes on the site if the
+   result shows any.
+2. **Act** on one thing by its ref: `browser_click`, `browser_fill`, `browser_type`, `browser_select`,
+   `browser_check`.
+3. **Look again.** After anything that changes the page, take a `browser_snapshot`. Refs from before the change may
+   be gone; an "Unknown ref" answer means exactly that.
+4. Repeat until the job's goal is met, then stop and report.
 
-Use this skill when:
+## Which tool
 
-- **Browser Automation**: Navigating pages, clicking elements, filling forms, and handling dialogs.
-- **Visual Inspection**: Taking screenshots or text snapshots of web pages.
-- **Debugging**: Inspecting console messages, evaluating JavaScript in the page context, and analyzing network requests.
-- **Performance Analysis**: Recording and analyzing performance traces to identify bottlenecks and Core Web Vital issues.
-- **Emulation**: Resizing the viewport or emulating network/CPU conditions.
+| You want to | Use |
+|---|---|
+| Get the answer out of a page (an article, prices, a table, a status) | `browser_read`; with `uid` for just one part |
+| Find what to click on a long page | `browser_snapshot` with `interactive: true` |
+| See more of a page that loads as you go | `browser_scroll`, then snapshot |
+| Put text in a normal form field | `browser_fill` (it clears the field first) |
+| Type where the page reacts to every key: search with suggestions, chat boxes, editors | `browser_type`; `enter: true` to send |
+| Submit a form | click its button, or `browser_press_key` `Enter` in the field |
+| Set a date, a time, a slider or a colour | `browser_set_value` with the field's name from the list under the snapshot: `13:45`, `2026-10-20`. Never `browser_fill` or typing into its parts |
+| Pick from a dropdown | `browser_select` with the option's visible label. A custom menu that is not a real dropdown: click it, snapshot, click the option |
+| Open a menu that appears on hover | `browser_hover`, then snapshot |
+| Tick a box or radio button | `browser_check` |
+| Attach a file | `browser_upload` on the file field (the file is under your home or `/shared`) |
+| Save a file the site offers | `browser_download`; it lands in `~/Downloads` |
+| Move or reorder something | `browser_drag` |
+| Use something with no ref: a canvas, a map, a chart, a custom widget | `browser_screenshot` to see it, then `browser_click_at` its position |
+| A link opened another tab | `browser_tabs` `list`, then `switch` |
+| Keep one page while checking another | `browser_tabs` `new`, and `close` it when done |
+| The page is stuck or stale | `browser_reload`; `browser_back` to return |
+| Wait for something slow | `browser_wait_for` the text you expect |
+| A JavaScript alert or confirm is blocking | `browser_handle_dialog` |
+| Read a value the page does not show | `browser_eval`, as a last resort |
 
-## Tools in this product
+## Work like a person
 
-Use these names. They run inside the account computer over localhost Chrome debugging. There is no host MCP URL.
+- **Look before you act.** One snapshot tells you where you are: signed in or not, which page, what is in the way.
+- **Clear what is in the way first.** A cookie banner, a newsletter pop-up, an "open in app" sheet or an ad has a
+  Close, X, Skip, "Not now", "No thanks" or "Accept" control: click it, or press `Escape`, then snapshot. That is
+  an overlay, not a captcha and not a blocker.
+- **Use the site the way it is built.** Its own search box, its filters, its menus and its "next page" link are
+  faster and more reliable than guessing addresses.
+- **After filling a form, read it back** with a snapshot before you submit: every field should hold what you meant. A field holding another field's text means your typing went to the wrong place; correct both.
+- **One step, then check.** After a click that should change something, confirm it did (the new page title, the
+  new text) before the next step. If nothing changed, look at the snapshot for why (a required field, an error
+  message, a disabled button) instead of clicking again.
+- **Go at a person's pace.** No rapid repeated clicks, no reloading in a loop, no opening dozens of tabs. A site
+  that sees a burst of actions slows you down or locks the account.
+- **Long pages:** scroll and read in parts. "Load more" and endless feeds need `browser_scroll` before the rest
+  exists.
+- **Prefer text to pictures.** A snapshot costs a fraction of a screenshot. Take a screenshot only for what text
+  cannot show.
 
-- `browser_list_pages`, `browser_navigate`, `browser_snapshot`
-- `browser_click` and `browser_fill` take `uid` from the latest snapshot
-- `browser_press_key` with `PageDown` or `Home` scrolls
-- `browser_handle_dialog` accepts or dismisses `alert` / `confirm` / `prompt`
-- `browser_wait_for` waits for visible text
+## Signing in, codes and payment
 
-## Opening the browser
+A sign-in form, a 2FA code, a captcha with a real challenge, or a payment form is the person's to do. Stop there
+and end your report with `NEEDS_PERSON: <exactly what to do on the screen>`. Never type a password, a code or a
+card number, even if you were given one. Once they have signed in, the site stays signed in for later jobs.
 
-The browser tools drive the visible Chromium on this agent's desktop, and they start it themselves when it is not running. There is nothing to launch from `bash`.
+A page that says "enable JavaScript", "verify you are human" or "unusual traffic" with none of the site's own
+content is a bot wall. Say so under Blockers. Do not call it a captcha on the site, and do not invent what the page
+would have shown.
 
-- `open_on_screen` with a URL puts that page on screen and confirms the window is showing.
-- Never start Chromium by hand and never use `--headless`: the person watches this screen, and a headless browser shows them nothing.
-- If a browser tool says the browser did not start, report that message as the blocker.
+## When you cannot do a step yourself
 
-## Ads versus captchas
+Try it properly first: the right tool from the table, a fresh snapshot, a second way (`browser_set_value`, `browser_type`, `browser_click_at` after a screenshot). If it still will not work, decide how much it matters:
 
-1. `browser_snapshot` first.
-2. If you see Close, Skip, X, or "No thanks", `browser_click` that uid or `browser_handle_dialog` with `accept: false`.
-3. `browser_press_key` `Escape`, then snapshot again.
-4. A search-engine page that says "enable JavaScript" or shows only a challenge widget, with no site content, is a bot wall. Say that in Blockers. Do not call it a site captcha and do not invent rankings.
-5. `NEEDS_PERSON` only for a real sign-in, 2FA, or payment form after the overlay is gone.
+- **The job cannot finish without it** (a required field, the button that submits): do everything else, leave the page on that exact spot, and end your report with `NEEDS_PERSON: <one precise instruction>`, for example "pick 13:45 in the Delivery time field and press Submit order". The person does that one step on your screen and the job carries on.
+- **It is optional or small** (a comment box, a preference): skip it, finish the job, and say under Blockers what you left out.
 
-## Tool Categories
+Never report the job as done with that step missing, and never guess what the page would have shown.
 
-### 1. Navigation & Page Management
+## Notes about a site
 
-- `new_page`: Open a new tab/page.
-- `navigate_page`: Go to a specific URL, reload, or navigate history.
-- `select_page`: Switch context between open pages.
-- `list_pages`: See all open pages and their IDs.
-- `close_page`: Close a specific page.
-- `wait_for`: Wait for specific text to appear on the page.
+Each website has one note: `/shared/notes/sites/<host>.md` (the path is in every `browser_navigate` result). It is
+shown to you, and to every other agent on this account, each time the site is opened. Before you finish a job on a
+site, write or correct a few lines there with `write`:
 
-### 2. Input & Interaction
+- whether it is signed in, and as which account;
+- the direct addresses of the pages that matter (the dashboard, the upload page, the inbox);
+- where the thing you needed was, and the steps that worked;
+- what got in the way and how you got past it.
 
-- `click`: Click on an element (use `uid` from snapshot).
-- `fill` / `fill_form`: Type text into inputs or fill multiple fields at once.
-- `hover`: Move the mouse over an element.
-- `press_key`: Send keyboard shortcuts or special keys (e.g., "Enter", "Control+C").
-- `drag`: Drag and drop elements.
-- `handle_dialog`: Accept or dismiss browser alerts/prompts.
-- `upload_file`: Upload a file through a file input.
+Keep it short and true. Fix a line that turned out wrong; do not keep a second version beside it. Never write a
+password, a code or a token there.
 
-### 3. Debugging & Inspection
+## When it does not work
 
-- `take_snapshot`: Get a text-based accessibility tree (best for identifying elements).
-- `take_screenshot`: Capture a visual representation of the page or a specific element.
-- `list_console_messages` / `get_console_message`: Inspect the page's console output.
-- `evaluate_script`: Run custom JavaScript in the page context.
-- `list_network_requests` / `get_network_request`: Analyze network traffic and request details.
+- "Unknown ref": the page changed. Snapshot again.
+- A click that does nothing twice: the element may be covered (close the overlay), disabled (something is
+  required first) or not the real control (snapshot with `interactive: true` and pick the button or link inside it).
+- A field that ignores `browser_fill`: click it, then `browser_type`.
+- The browser tools say the browser did not start, or are still being installed: report that exact message under
+  Blockers. Do not try to fix the browser from the shell.
 
-### 4. Emulation & Performance
-
-- `resize_page`: Change the viewport dimensions.
-- `emulate`: Throttling CPU/Network or emulating geolocation.
-- `performance_start_trace`: Start recording a performance profile.
-- `performance_stop_trace`: Stop recording and save the trace.
-- `performance_analyze_insight`: Get detailed analysis from recorded performance data.
-
-## Workflow Patterns
-
-### Live SPA / signed-in session (Instagram, dashboards)
-
-1. `browser_navigate` to the exact profile/post URL.
-2. `browser_snapshot` — read counts and captions from the snapshot text.
-3. `browser_click` / `browser_press_key` with fresh `uid`s only.
-4. Write Findings when Success is met. Do **not** fall back to `bash`, `grep` of HTML, `curl`, or `chromium --headless --dump-dom`.
-
-### Pattern A: Identifying Elements (Snapshot-First)
-
-Always prefer `take_snapshot` over `take_screenshot` for finding elements. The snapshot provides `uid` values which are required by interaction tools.
-
-```markdown
-1. `take_snapshot` to get the current page structure.
-2. Find the `uid` of the target element.
-3. Use `click(uid=...)` or `fill(uid=..., value=...)`.
-```
-
-### Pattern B: Troubleshooting Errors
-
-When a page is failing, check both console logs and network requests.
-
-```markdown
-1. `list_console_messages` to check for JavaScript errors.
-2. `list_network_requests` to identify failed (4xx/5xx) resources.
-3. `evaluate_script` to check the value of specific DOM elements or global variables.
-```
-
-### Pattern C: Performance Profiling
-
-Identify why a page is slow.
-
-```markdown
-1. `performance_start_trace(reload=true, autoStop=true)`
-2. Wait for the page to load/trace to finish.
-3. `performance_analyze_insight` to find LCP issues or layout shifts.
-```
-
-## Best Practices
-
-- **Context Awareness**: Always run `list_pages` and `select_page` if you are unsure which tab is currently active.
-- **Snapshots**: Take a new snapshot after any major navigation or DOM change, as `uid` values may change.
-- **Timeouts**: Use reasonable timeouts for `wait_for` to avoid hanging on slow-loading elements.
-- **Screenshots**: Use `take_screenshot` sparingly for visual verification, but rely on `take_snapshot` for logic.
+Not the browser: a public page you only need to read goes through `web_fetch`, which is quicker. A program on the
+desktop that is not a web page goes through the `computer-use-linux` skill.

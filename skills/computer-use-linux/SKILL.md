@@ -17,7 +17,7 @@ Adapted from [agent-sh/computer-use-linux](https://github.com/agent-sh/computer-
 - Need desktop state before a click or type.
 - Login wall, captcha, or payment screen that may need `NEEDS_PERSON`.
 
-Do **not** use this for public pages you can read with `web_search` / `web_fetch` / headless dump-dom, or for in-page automation when `chrome-devtools` is available. Browser content → text/DOM first; this skill is for the **desktop surface**.
+Do **not** use this for public pages you can read with `web_search` / `web_fetch`, or for in-page automation when `chrome-devtools` is available. Browser content → text/DOM first; this skill is for the **desktop surface**.
 
 ## Environment (fixed)
 
@@ -38,8 +38,8 @@ Do **not** use this for public pages you can read with `web_search` / `web_fetch
 | Type into focused field | `computer_type` |
 | Keys (Return, Tab, Escape, ctrl+…) | `computer_key` |
 | Camera (expensive) | `computer_screenshot` |
-| Page as text | `web_fetch` or headless dump-dom |
-| In-page structure / uids | `read_skill chrome-devtools` → `take_snapshot` |
+| Page as text | `web_fetch`, or `browser_read` for a live page |
+| In-page structure / uids | `read_skill chrome-devtools` → `browser_snapshot` |
 
 Do **not** drive the GUI from bash: no `xdotool`, Playwright, Puppeteer, cookie files, or page JS for clicks. A terminal on the screen: `xterm >/dev/null 2>&1 &`. Missing program: `sudo apt-get install`.
 
@@ -49,19 +49,12 @@ Images burn tokens on every later step. Prefer text observation; screenshot only
 
 1. **Scope the surface** — Chromium vs other app. Reuse the open Chromium window.
 2. **Prefer text state**
-   - Public / readable page: `web_fetch` or  
-     `chromium --headless --no-sandbox --disable-gpu --virtual-time-budget=10000 --dump-dom 'URL' 2>/dev/null | head -c 20000`
-   - Live page interaction: `read_skill chrome-devtools` → `take_snapshot` → click/fill by `uid`.
+   - Public / readable page: `web_fetch`. A live page: `browser_read`. Never a headless browser.
+   - Live page interaction: `read_skill chrome-devtools` → `browser_snapshot` → click/fill by ref.
    - Known UI from the brief: `computer_key` (Tab / Return / shortcuts) without a shot.
-3. **Open URLs the fast way** — address bar or background launch (bash must return):
+3. **Open URLs with the browser tools** — `open_on_screen` or `browser_navigate` with the exact address. They start the visible Chromium themselves and reuse its window; never launch it from `bash`.
 
-```bash
-chromium --no-sandbox --disable-dev-shm-usage --disable-gpu --no-first-run --remote-debugging-address=127.0.0.1 --remote-debugging-port=$((9200 + ${DISPLAY#:})) 'URL' >/dev/null 2>&1 &
-```
-
-Never wait for Chromium to exit. Mid-task navigation goes in the address bar, not menu click-paths.
-
-4. **Act** with `computer_click` / `computer_type` / `computer_key`. After a DOM/page change, coordinates and uids go stale — refresh text state (snapshot / dump-dom / one screenshot if unavoidable) before the next pixel click.
+4. **Act** with `computer_click` / `computer_type` / `computer_key`. After a DOM/page change, coordinates and uids go stale — refresh text state (`browser_snapshot`, or one screenshot if unavoidable) before the next pixel click.
 5. **Bulk data** — `write` a file, then upload/import. Do not type cell by cell.
 6. **Verify** with text again. Cite screenshot **paths** in Findings if you shot; never paste base64/bytes to the parent.
 
@@ -69,14 +62,14 @@ Never wait for Chromium to exit. Mid-task navigation goes in the address bar, no
 
 Use `computer_screenshot` only when:
 
-- Layout is unknown and no dump-dom / DevTools snapshot / prior description exists, or
+- Layout is unknown and no `browser_snapshot` or prior description exists, or
 - The task explicitly needs visual proof, or
 - Canvas/captcha/pixels with no useful text tree.
 
 Rules:
 
 - Never re-shoot an unchanged screen.
-- After 1–2 shots, switch back to text methods. After ~8 shots the camera stops — continue with dump-dom / snapshot / remembered coords.
+- After 1–2 shots, switch back to text methods. After ~8 shots the camera stops — continue with `browser_snapshot` / remembered coords.
 - Describe what you saw; cite `/shared/screenshots/…`.
 
 ## Safety
@@ -101,7 +94,7 @@ Rules:
 
 ```markdown
 1. Reuse open Chromium; open the exact URL (background launch if needed).
-2. chrome-devtools take_snapshot (or dump-dom / web_fetch) — not a screenshot.
+2. `browser_snapshot` (or `browser_read` / `web_fetch`) — not a screenshot.
 3. Interact by uid when DevTools is available; else one screenshot then computer_*.
 4. If auth wall needs the person → NEEDS_PERSON.
 ```

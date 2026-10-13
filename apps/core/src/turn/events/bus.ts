@@ -22,13 +22,27 @@ export type ParentWakeRequested = {
   skillsRoot?: string;
 };
 
+/** A running worker is waiting for an answer from the agent it works for. */
+export type WorkerAsks = {
+  type: "worker.asks";
+  accountId: string;
+  conversationId: string;
+  parentAgentId: string;
+  workerId: string;
+  task: string;
+  question: string;
+  options?: string[];
+  pick?: string;
+  skillsRoot?: string;
+};
+
 export type InternalTurnEvent = { type: "worker.settled" } & WorkerSettled & {
     accountId: string;
     conversationId: string;
     parentAgentId: string;
     delegationId: string;
     skillsRoot?: string;
-  } | MentionHandoff | ParentWakeRequested;
+  } | MentionHandoff | ParentWakeRequested | WorkerAsks;
 
 type Handler = (event: InternalTurnEvent) => void | Promise<void>;
 
