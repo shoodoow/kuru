@@ -184,18 +184,31 @@ export async function createLinux(accountId: string, emailHint?: string): Promis
   }
   try {
     if (config.containerFirewall() === "host") await ensureAccountNetwork(docker);
-    const { plan, cpus } = await machinePlan();
-    const hostConfig = accountContainerHostConfig(accountId, { memoryBytes: plan.baselineBytes, cpus });
-    const container = await docker.createContainer({ name, Image: image, Labels: labels, HostConfig: hostConfig }).catch((error: unknown) => {
-      // Docker can cap a container's disk only on some storage setups (xfs with
-      // project quotas). On an ordinary Linux disk it refuses the option, and
-      // no account could be created. The computer is made without the cap then.
-      if (!/storage[- ]?opt|storage driver|pquota|quota/i.test(error instanceof Error ? error.message : "")) throw error;
-      logger.warn({ accountId }, `This machine's Docker cannot limit a container's disk, so the ${storageSize} disk limit is not applied.`);
-      const { StorageOpt: _dropped, ...withoutDiskLimit } = hostConfig;
-      return docker.createContainer({ name, Image: image, Labels: labels, HostConfig: withoutDiskLimit });
-    });
-    await container.start();
+    const { plan, cpus, gpu } = await machinePlan();
+    const hostConfig = accountContainerHostConfig(accountId, { memoryBytes: plan.baselineBytes, cpus, gpu });
+    const make = (host: Dockerode.HostConfig) =>
+      docker.createContainer({ name, Image: image, Labels: labels, HostConfig: host }).catch((error: unknown) => {
+        // Docker can cap a container's disk only on some storage setups (xfs with
+        // project quotas). On an ordinary Linux disk it refuses the option, and
+        // no account could be created. The computer is made without the cap then.
+        if (!/storage[- ]?opt|storage driver|pquota|quota/i.test(error instanceof Error ? error.message : "")) throw error;
+        logger.warn({ accountId }, `This machine's Docker cannot limit a container's disk, so the ${storageSize} disk limit is not applied.`);
+        const { StorageOpt: _dropped, ...withoutDiskLimit } = host;
+        return docker.createContainer({ name, Image: image, Labels: labels, HostConfig: withoutDiskLimit });
+      });
+    let made: Dockerode.Container | undefined;
+    try {
+      made = await make(hostConfig);
+      await made.start();
+    } catch (error) {
+      if (!gpu || (error as { statusCode?: number }).statusCode === 409) throw error;
+      // Docker lists the graphics card but cannot hand it over (a driver that
+      // is missing or broken). A computer without it is better than no computer.
+      logger.warn({ accountId, error: error instanceof Error ? error.message : String(error) }, "The graphics card could not be given to this computer, so it is made without it.");
+      await made?.remove({ force: true }).catch(() => undefined);
+      const { DeviceRequests: _dropped, ...withoutGpu } = hostConfig;
+      await (await make(withoutGpu)).start();
+    }
     await ensureFirewall(name, { now: true });
   } catch (error) {
     const status = (error as { statusCode?: number }).statusCode;
@@ -212,9 +225,9 @@ export async function createLinux(accountId: string, emailHint?: string): Promis
     return winner.Id;
   }
   await ensureBaseToolchain(accountId);
-  const made = await exec(accountId, ["sh", "-c", "mkdir -p /shared && chmod 1777 /shared"]);
-  if (made.code !== 0) {
-    throw new Error(made.stdout || "The shared directory was not created.");
+  const shared = await exec(accountId, ["sh", "-c", "mkdir -p /shared && chmod 1777 /shared"]);
+  if (shared.code !== 0) {
+    throw new Error(shared.stdout || "The shared directory was not created.");
   }
   return docker.getContainer(name).inspect().then((info) => info.Id);
 }
@@ -675,7 +688,7 @@ function assertOwnContainer(
  */
 export function accountContainerHostConfig(
   accountId: string,
-  limits: { memoryBytes: number; cpus: number } = { memoryBytes: 2 * GB, cpus: 2 },
+  limits: { memoryBytes: number; cpus: number; gpu?: boolean } = { memoryBytes: 2 * GB, cpus: 2 },
 ): Dockerode.HostConfig {
   const binds = [`nano-account-${accountId}:/var/nano`];
   if (binds.some((bind) => bind.includes("docker.sock") || bind.startsWith("/") && !bind.startsWith("nano-account-"))) {
@@ -702,6 +715,9 @@ export function accountContainerHostConfig(
     // rebooted laptop left every agent without its computer until a new chat was opened.
     RestartPolicy: { Name: RESTART_POLICY },
     ...(config.containerRuntime() ? { Runtime: config.containerRuntime() } : {}),
+    // Every NVIDIA card on the machine, for computing and for video encoding.
+    // The cards are shared: nothing limits how much of one a single computer takes.
+    ...(limits.gpu ? { DeviceRequests: [{ Driver: "nvidia", Count: -1, Capabilities: [["gpu", "compute", "utility", "video"]] }] } : {}),
     ...(config.containerFirewall() === "host" ? { NetworkMode: ACCOUNT_NETWORK, Dns: config.containerDns() } : {}),
   };
 }
@@ -721,21 +737,35 @@ const MAX_GRANT_MINUTES = 180;
 const GRANT_WAIT_MS = 45_000;
 const GRANT_RETRY_MS = 60_000;
 
-let machine: Promise<{ plan: MemoryPlan; cpus: number }> | null = null;
+let machine: Promise<{ plan: MemoryPlan; cpus: number; gpu: boolean }> | null = null;
 
-/** This machine's memory plan and core count, read from Docker once. */
-export function machinePlan(): Promise<{ plan: MemoryPlan; cpus: number }> {
+/** This machine's memory plan, core count and whether it has a graphics card to share, read from Docker once. */
+export function machinePlan(): Promise<{ plan: MemoryPlan; cpus: number; gpu: boolean }> {
   machine ??= docker
     .info()
-    .then((info: { MemTotal?: number; NCPU?: number }) => ({
+    .then((info: { MemTotal?: number; NCPU?: number; Runtimes?: Record<string, unknown> }) => ({
       plan: planMemory(Number(info.MemTotal) || 8 * GB, config.accountMemoryGb()),
       cpus: Number(info.NCPU) || 2,
+      gpu: sharesGpu(config.accountGpu(), Object.keys(info.Runtimes ?? {}), config.containerRuntime()),
     }))
     .catch((error: unknown) => {
       machine = null;
       throw error;
     });
   return machine;
+}
+
+/**
+ * Whether new computers are given the machine's NVIDIA graphics card.
+ * Why: nobody should have to set this on a machine that has one. Docker
+ * lists an "nvidia" runtime once the NVIDIA Container Toolkit is installed,
+ * and that is the sign. A virtual-machine runtime such as Kata cannot take a
+ * card this way, so it gets none unless the setting insists.
+ * Input: the ACCOUNT_GPU setting, the runtimes Docker lists, and CONTAINER_RUNTIME.
+ */
+export function sharesGpu(setting: "on" | "off" | "auto", runtimes: string[], runtime?: string): boolean {
+  if (setting !== "auto") return setting === "on";
+  return runtimes.includes("nvidia") && (!runtime || runtime === "runc" || runtime === "nvidia");
 }
 
 /** The one job on this machine that has borrowed memory, if any. */
@@ -933,18 +963,59 @@ async function repairBaseToolchain(accountId: string): Promise<void> {
   const ready = await exec(accountId, [
     "sh",
     "-c",
-    "command -v node >/dev/null && command -v npm >/dev/null && command -v python3 >/dev/null && python3 -m pip --version >/dev/null 2>&1",
+    `command -v npm >/dev/null && command -v python3 >/dev/null && python3 -m pip --version >/dev/null 2>&1 && ${NODE_IS_CURRENT}`,
   ]);
   if (ready.code === 0) return;
-  const installed = await exec(accountId, [
-    "sh",
-    "-c",
-    "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git build-essential nodejs npm python3 python3-pip python3-venv && rm -rf /var/lib/apt/lists/*",
-  ]);
-  if (installed.code !== 0) {
-    throw new Error(installed.stdout || "The Linux Node/Python toolchain was not installed.");
+  const base = await exec(accountId, ["sh", "-c", "command -v python3 >/dev/null && python3 -m pip --version >/dev/null 2>&1 && command -v git >/dev/null && command -v curl >/dev/null"]);
+  if (base.code !== 0) {
+    const installed = await exec(accountId, [
+      "sh",
+      "-c",
+      "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git build-essential curl ca-certificates python3 python3-pip python3-venv && rm -rf /var/lib/apt/lists/*",
+    ]);
+    if (installed.code !== 0) {
+      throw new Error(installed.stdout || "The Linux Python toolchain was not installed.");
+    }
   }
+  // An older Node still works for most things, so a failed download is tried again later, not on every command.
+  const tried = nodeUpgradeTried.get(accountId) ?? 0;
+  const hasNode = (await exec(accountId, ["sh", "-c", "command -v node >/dev/null && command -v npm >/dev/null"])).code === 0;
+  if (hasNode && Date.now() - tried < NODE_UPGRADE_RETRY_MS) return;
+  nodeUpgradeTried.set(accountId, Date.now());
+  const node = await exec(accountId, ["sh", "-c", INSTALL_NODE]);
+  if (node.code === 0) {
+    nodeUpgradeTried.delete(accountId);
+    return;
+  }
+  if (!hasNode) throw new Error(node.stdout || "Node was not installed.");
+  logger.warn({ accountId, output: node.stdout.slice(-400) }, `Node ${NODE_MAJOR} could not be installed on this computer. It keeps its older Node and is tried again in an hour.`);
 }
+
+/** The Node release line account computers run. Keep it the same as apps/core/linux/Dockerfile. */
+const NODE_MAJOR = 22;
+const NODE_UPGRADE_RETRY_MS = 60 * 60 * 1000;
+const nodeUpgradeTried = new Map<string, number>();
+const NODE_IS_CURRENT = `command -v node >/dev/null && [ "$(node -p 'process.versions.node.split(".")[0]')" -ge ${NODE_MAJOR} ]`;
+/**
+ * Puts the newest Node of the release line into /usr/local, ahead of Debian's
+ * own older package on the PATH. Why this way: a computer made from an earlier
+ * image keeps its files for good, so it cannot get Node from a new image.
+ * The download is checked against the checksum nodejs.org publishes beside it.
+ */
+const INSTALL_NODE = [
+  "set -e",
+  'case "$(uname -m)" in x86_64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; *) echo "No Node build for $(uname -m)."; exit 1 ;; esac',
+  `base=https://nodejs.org/dist/latest-v${NODE_MAJOR}.x`,
+  'line="$(curl -fsSL --retry 2 --max-time 30 "$base/SHASUMS256.txt" | grep " node-v[0-9.]*-linux-$arch\\.tar\\.gz$")"',
+  'sum="${line%% *}"; file="${line##* }"; name="${file%.tar.gz}"',
+  '[ -n "$sum" ] && [ -n "$file" ]',
+  'curl -fsSL --retry 2 --max-time 300 -o "/tmp/$file" "$base/$file"',
+  'echo "$sum  /tmp/$file" | sha256sum -c - >/dev/null',
+  // Only the programs and their libraries: the archive's README and licence do not belong in /usr/local.
+  'tar -xzf "/tmp/$file" -C /usr/local --strip-components=1 --no-same-owner "$name/bin" "$name/lib" "$name/include"',
+  'rm -f "/tmp/$file"',
+  NODE_IS_CURRENT,
+].join("\n");
 
 async function ensureImage(): Promise<void> {
   try {

@@ -38,6 +38,9 @@ Tell the person in one short sentence what happened and what you are doing next,
 
 These already failed more than once, so do not start another worker. Tell the person what went wrong and what they can do next, in plain words.
 
+# worker-rounds-spent
+This overrides the instructions above. This work has now been started or restarted {{starts}} times since the person last wrote, without them saying anything in between. Do not start, continue or redirect a worker again. Send one message that says plainly where it stands: what is finished (attach the file only if you have not already sent that same file), what is not, and what went wrong in a few plain words. Then wait for them. If your last message already says this, end the turn without a message.
+
 # routine-wake
 [routine] Standing order for you ({{title}}):
 {{instructions}}

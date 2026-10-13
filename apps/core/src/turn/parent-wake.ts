@@ -6,7 +6,7 @@ import type { getDb } from "../db/client.js";
 import { agents } from "../db/schema.js";
 import { takeOver } from "../desktop/desktop.js";
 import { publish, type StreamEvent } from "../rooms/stream.js";
-import { claimDelivery, failuresSinceLastUser, workerFollowupCue } from "../rooms/subagents.js";
+import { claimDelivery, failuresSinceLastUser, MAX_STARTS_PER_ASK, startsSinceLastAsk, workerFollowupCue } from "../rooms/subagents.js";
 import type { GenerateResult, TurnInput } from "./types.js";
 import { and, eq } from "drizzle-orm";
 import { prompt } from "../prompt/prompts.js";
@@ -46,15 +46,20 @@ export async function resumeParentAfterWorker(
   const failures = allFailed
     ? await failuresSinceLastUser(db, input.accountId, input.conversationId, input.parentAgentId)
     : 0;
-  const cue = allFailed
-    ? workerFollowupCue({
-        workerId: settledList[0]?.workerId ?? "",
-        task: settledList[0]?.task ?? "",
-        result: settledList[0]?.result ?? "",
-        settled: settledList,
-        retry: failures <= 1,
-      })
-    : workerCompletionCue(settledList);
+  // After this many starts for one request, the agent reports where things stand instead of starting again.
+  const spent =
+    (await startsSinceLastAsk(db, input.accountId, input.conversationId, input.parentAgentId).catch(() => 0)) >= MAX_STARTS_PER_ASK;
+  const cue = spent
+    ? `${allFailed ? workerFailedList(settledList) : workerCompletionCue(settledList)}\n\n${prompt("cues", "worker-rounds-spent", { starts: MAX_STARTS_PER_ASK })}`
+    : allFailed
+      ? workerFollowupCue({
+          workerId: settledList[0]?.workerId ?? "",
+          task: settledList[0]?.task ?? "",
+          result: settledList[0]?.result ?? "",
+          settled: settledList,
+          retry: failures <= 1,
+        })
+      : workerCompletionCue(settledList);
   await runTurn(db, input.accountId, input.conversationId, cue, undefined, input.skillsRoot, {
     cue,
     speakerId: input.parentAgentId,
@@ -62,6 +67,13 @@ export async function resumeParentAfterWorker(
     onEvent: (event) => publish(input.accountId, input.conversationId, event),
   });
   await Promise.all(settledList.map((item) => claimDelivery(db, item.delegationId).catch(() => false)));
+}
+
+/** The failed results alone, without the "continue that worker" instruction that normally follows them. */
+function workerFailedList(settled: Array<{ workerId: string; task: string; result: string }>): string {
+  return settled
+    .map((item) => prompt("cues", "worker-failed-item", { workerId: item.workerId, task: item.task.slice(0, 200), result: cleanReport(item.result).slice(0, 1_500) }))
+    .join("\n\n");
 }
 
 /** Hidden completion cue: evidence goes to the parent, never straight to chat. */

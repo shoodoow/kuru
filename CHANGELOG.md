@@ -25,11 +25,44 @@ server (a new setting, a new app build) under **To update**.
   or one can be shared with all agents.
 - One agent can hold several accounts on a platform and says which one by its
   username.
+- A Linux server's NVIDIA graphics card is given to new account computers
+  when Docker has the NVIDIA runtime, for rendering, video encoding and
+  local models. `ACCOUNT_GPU=off` keeps it from them. See
+  [Good to know](deploy/SETUP.md#good-to-know).
+- **A voice.** The new `kokoro-tts` skill lets an agent speak a script on its
+  own computer, with no key and no online service: narration for a video, an
+  article read aloud. It gives the time of every line so a video can follow
+  the voice. Nine languages; Persian, Arabic and German are not among them.
+- An agent makes a video, a deck or a document itself when it has the skill,
+  instead of pointing the person to a website.
+- **Any kind of video, with HyperFrames.** The new `hyperframes` skill covers
+  what the two video styles do not: a product video from a website, an
+  explainer, captions on footage, a video cut to music. Its twenty skills are
+  fetched into the project that needs them, so agents' prompts do not grow.
+- An agent's computer now runs Node 22 (it was 18), which HyperFrames and
+  other current tools need.
+- A job no installed skill covers starts by looking for a proven one with
+  `find-skills`. Only skills from known owners, or with 1,000 installs or
+  more, are taken.
 - With Auto-review on, a post, a delete or a public reply waits for the
   person's approval.
 
 **Fixed**
 
+- A skill that ships with the server now reaches the agent's computer whole:
+  its scripts, templates and guides, not only its text. Before, a video made
+  with `kinetic-reel` or `painted-animation` was built from nothing, because
+  the template the skill told the agent to start from was not there. The two
+  video skills also start without `rsync`, and say how to render on a Linux
+  computer with or without a graphics card.
+- An agent asks for memory before a heavy job by itself. The rule is now in
+  every worker's instructions and in both video skills, not only in the
+  tool's description.
+- An agent no longer sends the same message or the same file over and over.
+  When its work ended without finishing, it was woken, said "building it
+  now", started the work again, and nothing limited how often. One request
+  now gets at most six starts; after that the agent says where things stand
+  and waits for the person.
 - A secret field an agent typed out as text, `(widget: secret envName=...)`,
   is now shown as the hidden field it was meant to be.
 - Phone app: typing in a chat no longer redraws every message and the chat
@@ -54,6 +87,16 @@ server (a new setting, a new app build) under **To update**.
 - Phone app: a video takes its own shape once it plays, and uses the system
   player's own controls, full screen included; only Save stays beside its
   name. On Android those controls did not respond inside a chat bubble.
+- Phone app: a sound file an agent sends (wav, mp3, m4a and others) plays in
+  the chat, with play, pause and a bar to seek. It used to offer only the
+  share sheet.
+- Phone app: the desktop screen has a clipboard button. One row types what
+  is copied on the phone into the agent's computer; the other puts what was
+  last selected or copied on the computer onto the phone. Typing non-Latin
+  text from the phone keyboard now sends the right keys as well.
+- Phone app: a picture an agent sends as a file is shown in the chat like any
+  other picture. It used to be a "Tap to open" row that handed it to other
+  apps.
 - Phone app: New chat has no title bar, and Send is an icon (an up arrow on
   iOS, a paper plane on Android).
 - Phone app: a chat opens the moment it is tapped, on what was last seen of
@@ -70,6 +113,11 @@ server (a new setting, a new app build) under **To update**.
 **To update**
 
 - Run `./update.sh`. The database gains one small change by itself.
+- Rebuild the computer image, for Node 22 on new computers:
+  `docker build -t kuru-linux:1 apps/core/linux`. Existing computers get
+  Node 22 by themselves on first use.
+- For the graphics card: the NVIDIA Container Toolkit on the server; see
+  deploy/SETUP.md, "Good to know". Computers made earlier do not get the card.
 - YouTube: enable the YouTube Data API v3 and YouTube Analytics API on your
   Google project, and add the YouTube scopes to its consent screen.
 - Instagram and TikTok: nothing on the server. Each person brings their own

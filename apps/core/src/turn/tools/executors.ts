@@ -50,6 +50,8 @@ import { saveSendMessage, saveReaction } from "../../rooms/send-message.js";
 import {
   addGroupMember,
   failuresSinceLastUser,
+  MAX_STARTS_PER_ASK,
+  startsSinceLastAsk,
   hireSubagent,
   listTeam,
   recordDelegation,
@@ -842,11 +844,17 @@ export async function executeAddToGroup(ctx: ToolContext, input: Record<string, 
  */
 export const MAX_SPAWNS_PER_TURN = 3;
 
+const ROUNDS_SPENT = `This work has been started ${MAX_STARTS_PER_ASK} times since the person last wrote, and it is not started again without them. Tell them plainly where it stands and what went wrong, in one message, then stop.`;
+
 export async function executeSpawnWorker(ctx: ToolContext, input: Record<string, unknown>) {
   if ((ctx.spawnCount ?? 0) >= MAX_SPAWNS_PER_TURN) {
     return {
       error: "Already spawned several workers this turn. send_message what you started, then stop — results arrive on their own.",
     };
+  }
+  // A turn nobody typed for (a worker's result came back) cannot keep restarting the same request for ever.
+  if (ctx.hiddenTurn && (await startsSinceLastAsk(ctx.store, ctx.accountId, ctx.conversationId, ctx.agentId).catch(() => 0)) >= MAX_STARTS_PER_ASK) {
+    return { error: ROUNDS_SPENT };
   }
   // The brief sometimes arrives split: a title in `task`, the detail in `instructions`.
   input = mergeWorkerBrief(input);
@@ -1182,6 +1190,10 @@ export async function executeRedirectWorker(ctx: ToolContext, input: Record<stri
     }
     // Marked running with nothing behind it (the system restarted): close it, then continue below.
     await stopWorker(ctx.store, ctx.accountId, parsed.workerId);
+  }
+  // A turn nobody typed for (a worker's result came back) cannot keep restarting the same request for ever.
+  if (ctx.hiddenTurn && (await startsSinceLastAsk(ctx.store, ctx.accountId, ctx.conversationId, ctx.agentId).catch(() => 0)) >= MAX_STARTS_PER_ASK) {
+    return { error: ROUNDS_SPENT };
   }
   ctx.spawnCount = (ctx.spawnCount ?? 0) + 1;
   if (ctx.spawnCount > MAX_SPAWNS_PER_TURN) {

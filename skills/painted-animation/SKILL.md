@@ -14,8 +14,10 @@ A method for making short cartoons entirely in code, distilled from [JohnHeibel/
 ### 0. Scaffold
 
 ```bash
-bash ~/.claude/skills/painted-animation/scripts/new_project.sh <project-dir>        # add --keep-demo to keep the example scene hooked up
+bash <skill directory>/scripts/new_project.sh <project-dir>        # add --keep-demo to keep the example scene hooked up
 ```
+
+The skill directory is the line at the very top of this skill ("Skill directory: ..."); every relative path here (`references/`, `examples/`, `template/`) starts from it. Run the script: painting a video from an empty folder, without the template's engine and character, is how these videos come out badly.
 
 This copies the template, unhooks the demo scene, runs `npm install` and checks node / ffmpeg / Chrome. Then **read `<project-dir>/ANIMATION_GUIDE.md` in full** before designing anything: it holds the rules, the animation principles and the complete engine / Clawd API. Look at `docs/emotions.jpg` and `docs/views.jpg` (the model sheets) with the Read tool.
 
@@ -47,10 +49,16 @@ Open each image with Read and actually check it against the guide's review list:
 
 ### 4. Render the video
 
+Rendering every frame is the memory-heavy step. On an agent computer, ask for memory first with `computer_memory` (action `request`, about 2 GB per render worker plus 2 GB), set `--workers` to fit what you were given, and `release` it when the MP4 is encoded. Never start `--frames` or `--clip` without asking: over the everyday limit the render is killed partway.
+
+On a Linux agent computer, run `nvidia-smi` and `node gpu_probe.mjs` first. With an NVIDIA card add `--gpu-angle=vulkan` (or `gl-egl`) to every `render.mjs` call, the review sheets included. With no card add `--soft-gl` (without it the renderer exits with an error), use fewer and bigger shapes, and say in the report that it rendered in software.
+
 ```bash
 node render.mjs --clip --out=out/video.mp4                                   # short videos, one worker
 node render.mjs --frames --workers=4 && node render.mjs --encode --out=out/video.mp4 [--audio=assets/song.mp3]   # long ones, parallel + resumable
 ```
+
+For a narrated video, load the `kokoro-tts` skill, speak the script first, take the shot times from its timings file and pass the audio with `--audio`.
 
 Report the output path, length and ms/frame. Offer `open out/video.mp4`.
 

@@ -5,7 +5,8 @@ import { getDb } from "../db/client.js";
 import { agents, conversations, delegations, members, messages } from "../db/schema.js";
 import { exec } from "../linux/linux.js";
 import { createAccount, createAgent } from "../roster/roster.js";
-import { createGroupRoom } from "./rooms.js";
+import { executeRedirectWorker, executeSpawnWorker } from "../turn/tools/executors.js";
+import { createGroupRoom, saveUserMessage } from "./rooms.js";
 import { runDelegatedTurn } from "./turn.js";
 import {
   addGroupMember,
@@ -14,11 +15,13 @@ import {
   claimDelivery,
   hireSubagent,
   listTeam,
+  MAX_STARTS_PER_ASK,
   reclaimStaleDelegations,
   recordDelegation,
   runWorker,
   MAX_WORKERS_PER_PARENT,
   spawnWorker,
+  startsSinceLastAsk,
   stopWorker,
   WorkerCapacityError,
 } from "./subagents.js";
@@ -34,6 +37,39 @@ const db = getDb(databaseUrl);
 describe("subagents and teams", () => {
   afterAll(async () => {
     await db.$client.end();
+  });
+
+  it("stops restarting work for one request after a set number of starts, until the person writes again", async () => {
+    const account = await createAccount(db, { name: "Rounds" });
+    const chief = await createAgent(db, account.id, agent("Chief"));
+    const worker = await createAgent(db, account.id, agent("Hand"));
+    await db.update(agents).set({ hidden: true, parentId: chief.id }).where(eq(agents.id, worker.id));
+    const [room] = await db
+      .insert(conversations)
+      .values({ accountId: account.id, kind: "direct", ownerAgentId: chief.id, title: "dm" })
+      .returning();
+    await db.insert(members).values({ conversationId: room!.id, accountId: account.id, agentId: chief.id });
+    const start = () =>
+      db.insert(delegations).values({ accountId: account.id, conversationId: room!.id, parentAgentId: chief.id, childAgentId: worker.id, task: "Render the video.", status: "done" });
+    const starts = () => startsSinceLastAsk(db, account.id, room!.id, chief.id);
+    const ctx = (hiddenTurn: boolean) => ({ store: db, accountId: account.id, conversationId: room!.id, agentId: chief.id, hiddenTurn }) as never;
+
+    // Work started before the person's message belongs to an earlier request.
+    await start();
+    await saveUserMessage(db, account.id, room!.id, { text: "Make me a 15 second video." });
+    expect(await starts()).toBe(0);
+    for (let round = 0; round < MAX_STARTS_PER_ASK; round += 1) await start();
+    expect(await starts()).toBe(MAX_STARTS_PER_ASK);
+
+    // A turn woken by a worker's result may not start it again.
+    const spawn = (await executeSpawnWorker(ctx(true), { task: "Render the video again, properly this time." })) as { error?: string };
+    expect(spawn.error).toMatch(/not started again without them/);
+    const redirect = (await executeRedirectWorker(ctx(true), { workerId: worker.id, instruction: "Finish the render." })) as { error?: string };
+    expect(redirect.error).toMatch(/not started again without them/);
+
+    // The person writing again is a new request.
+    await saveUserMessage(db, account.id, room!.id, { text: "Try once more." });
+    expect(await starts()).toBe(0);
   });
 
   it("hires, lists, and delegates inside one room", async () => {

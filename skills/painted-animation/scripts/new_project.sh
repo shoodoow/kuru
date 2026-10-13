@@ -8,7 +8,8 @@ KEEP_DEMO="${2:-}"
 
 if [ -e "$TARGET/studio.html" ]; then echo "error: $TARGET already has a studio.html; not overwriting" >&2; exit 1; fi
 mkdir -p "$TARGET"
-rsync -a "$SKILL_DIR/template/" "$TARGET/"
+# tar, not rsync: an agent computer has no rsync. node_modules is left out so the install below is clean.
+(cd "$SKILL_DIR/template" && tar -cf - --exclude node_modules .) | tar -xf - -C "$TARGET"
 mkdir -p "$TARGET/assets" "$TARGET/out/check"
 
 # The demo is an example, not a template: unless asked, unhook it so the new video starts clean.
@@ -22,7 +23,7 @@ npm install --silent
 
 echo "== toolchain"
 command -v node   >/dev/null && echo "node   $(node -v)"   || echo "MISSING: node"
-command -v ffmpeg >/dev/null && echo "ffmpeg ok"           || echo "MISSING: ffmpeg (brew install ffmpeg)"
+command -v ffmpeg >/dev/null && echo "ffmpeg ok"           || echo "MISSING: ffmpeg"
 for c in "${CHROME_PATH:-}" "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" /usr/bin/google-chrome /usr/bin/chromium; do
   [ -n "$c" ] && [ -x "$c" ] && { echo "chrome $c"; FOUND=1; break; }
 done

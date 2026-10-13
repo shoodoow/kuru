@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 vi.mock("./local.js", () => ({
   adoptHostSkills: vi.fn(),
   localSkillCatalog: vi.fn(),
+  publishHostSkills: vi.fn(),
   readLocalSkill: vi.fn(),
 }));
 

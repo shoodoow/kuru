@@ -55,7 +55,7 @@ You already loaded this earlier in this turn and the result is above in this con
 
 # skills-heading
 ## Skills installed and ready
-This list is current, so you never need to search the disk for skills. To use one, pass its name in `spawn_worker.skills`.
+This list is current, so you never need to search the disk for skills. To use one, pass its name in `spawn_worker.skills`. Look through it before you brief a worker. For anything people judge by eye (a video, an animation, a deck, a document), the skill is the difference between a polished result and a plain one, because the worker gets its templates and scripts along with the method. When nothing in the list covers a hands-on job that has a craft to it (a kind of file, a framework, a platform, a style of design or writing), add `find-skills` to the worker's `skills`: it looks for a proven skill, installs it and works from it. When one of these skills can make what the person asked for, make it yourself on your computer. Do not send them to a website or an app to do it, and do not offer online tools as the first option; mention one only if they ask, or if no skill and nothing you can install does the job.
 
 # skill-files
 `{{path}}` is part of a skill: the manual for the worker who does the job hands-on. It is not opened here, because reading it yourself costs a lot and the worker would have to read it again anyway. Start the job with `spawn_worker` and name the skill in `skills`; the worker gets the full text and follows it. Give the worker the whole job in one brief.

@@ -1,3 +1,6 @@
+# Node comes from the official image: Debian's own package is version 18, and current tools need 22.
+FROM node:22-bookworm-slim AS node
+
 FROM debian:bookworm-slim
 
 RUN apt-get update \
@@ -9,8 +12,6 @@ RUN apt-get update \
     ca-certificates \
     git \
     build-essential \
-    nodejs \
-    npm \
     python3 \
     python3-pip \
     python3-venv \
@@ -32,6 +33,13 @@ RUN apt-get update \
     netcat-openbsd \
     iptables \
   && rm -rf /var/lib/apt/lists/*
+
+# node, npm and npx. Yarn's files are left behind: nothing here uses it.
+COPY --from=node /usr/local/bin/node /usr/local/bin/
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+  && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+  && ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack
 
 RUN mkdir -p /opt/nano
 COPY browser-bridge.mjs /opt/nano/

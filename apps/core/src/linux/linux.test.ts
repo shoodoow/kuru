@@ -58,11 +58,15 @@ describe("linux", () => {
       profile,
     );
     expect(tools.code).toBe(0);
+    // A computer made from an image with an older Node is brought up to the current one.
+    const node = await exec(account.id, ["node", "-p", "process.versions.node.split('.')[0]"], profile);
+    expect(Number(node.stdout.trim())).toBeGreaterThanOrEqual(22);
+    expect((await exec(account.id, ["npx", "--version"], profile)).code).toBe(0);
 
     const admin = await exec(account.id, ["sudo", "-n", "id", "-u"], profile);
     expect(admin.code).toBe(0);
     expect(admin.stdout.trim()).toBe("0");
-  });
+  }, 400_000);
 
   it("creates one profile per member when a group is opened", async () => {    const account = await createAccount(db, { name: "Group" });
     const ada = await createAgent(db, account.id, hired("Ada"));

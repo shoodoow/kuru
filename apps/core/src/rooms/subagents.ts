@@ -9,7 +9,7 @@ import {
 
 import { workerToolNames as agentWorkerToolNames } from "@kuru/agent-tools";
 import { generateText, isStepCount, type ModelMessage } from "ai";
-import { and, count, desc, eq, inArray, lt } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 import type { Store } from "../db/client.js";
 import type { getDb } from "../db/client.js";
 import { keyFor } from "../keys/keys.js";
@@ -24,7 +24,7 @@ import { publish } from "./stream.js";
 import { accountHome, createProfile, exec, execStdin } from "../linux/linux.js";
 import { appendMcpTools } from "../mcp/tools.js";
 import { wrapToolExecute } from "../turn/tools/wrap-tool-execute.js";
-import { agents, conversations, delegations, members, messages, workerTranscripts } from "../db/schema.js";
+import { agents, conversations, delegations, members, messages, runs, workerTranscripts } from "../db/schema.js";
 import { repairToolInput } from "../turn/tools/repair-input.js";
 import {
   LOOK_ONLY_NUDGE_AFTER,
@@ -789,6 +789,48 @@ export async function reclaimStaleDelegations(store: Store, staleMs = WORKER_STA
 export type WorkerGenerate = () => Promise<string>;
 
 export type WorkerSettled = { workerId: string; task: string; result: string; status: "done" | "failed" };
+
+/** How many workers one request may set going, restarts included, before the agent has to stop and tell the person. */
+export const MAX_STARTS_PER_ASK = 6;
+
+/**
+ * Counts the workers this agent has started in this chat since it was last asked for something.
+ * Why: a worker that ends without finishing wakes the agent, which tells the
+ * person "building it now" and starts the worker again. Nothing limited that
+ * round trip, so one request could produce the same message, or the same
+ * file, twenty times while nobody was typing. "Asked" is the person's last
+ * message or the last routine that fired, whichever is later.
+ * Input: store and the account, room and agent ids. Output: the count.
+ */
+export async function startsSinceLastAsk(store: Store, accountId: string, conversationId: string, parentAgentId: string): Promise<number> {
+  const [human] = await store
+    .select({ at: messages.createdAt })
+    .from(messages)
+    .where(and(eq(messages.conversationId, conversationId), eq(messages.accountId, accountId), isNull(messages.agentId)))
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+  const [routine] = await store
+    .select({ at: runs.createdAt })
+    .from(runs)
+    .where(and(eq(runs.conversationId, conversationId), eq(runs.accountId, accountId), eq(runs.kind, "routine")))
+    .orderBy(desc(runs.createdAt))
+    .limit(1);
+  const since = Math.max(human?.at?.getTime() ?? 0, routine?.at?.getTime() ?? 0);
+  const started = await store
+    .select({ createdAt: delegations.createdAt })
+    .from(delegations)
+    .innerJoin(agents, eq(agents.id, delegations.childAgentId))
+    .where(
+      and(
+        eq(delegations.accountId, accountId),
+        eq(delegations.conversationId, conversationId),
+        eq(delegations.parentAgentId, parentAgentId),
+        // Workers only: a request to a lasting teammate is a conversation, not a restart.
+        eq(agents.hidden, true),
+      ),
+    );
+  return started.filter((row) => (row.createdAt?.getTime() ?? 0) > since).length;
+}
 
 function taskFingerprint(task: string): string {
   return task.trim().slice(0, 80).toLowerCase();

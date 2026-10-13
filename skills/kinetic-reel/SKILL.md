@@ -18,8 +18,11 @@ Chrome to render contact sheets, strips and stills for review, or every frame in
 
 ### 0. Scaffold
 ```bash
-bash ~/.claude/skills/kinetic-reel/scripts/new_project.sh <project-dir>
+bash <skill directory>/scripts/new_project.sh <project-dir>
 ```
+The skill directory is the line at the very top of this skill ("Skill directory: ..."); every relative path here
+(`references/`, `examples/`, `template/`) starts from it. Run the script: writing a reel from an empty folder,
+without the template's engine, is how these videos come out badly.
 Then read [references/style-guide.md](references/style-guide.md) (the look, the motion vocabulary, the transition
 catalogue, layout rules) and [references/sound.md](references/sound.md) in full before designing. Skim
 `examples/work-reel-26/reel.js` for how a long reel is organised.
@@ -57,13 +60,22 @@ Budget: a sheet per chapter, a full-res still per dense shot, a strip per transi
 
 Rendering every frame in parallel is the one memory-heavy step. On an agent computer, ask for memory first with
 `computer_memory` (action `request`, about 2 GB per render worker plus 2 GB), set `--workers` to fit what you were
-given, and `release` it when the MP4 is encoded.
+given, and `release` it when the MP4 is encoded. Never start `--frames` without asking: over the everyday limit the
+render is killed partway.
+
+On a Linux agent computer the three.js layers need WebGL, which headless Chrome only gives when asked. Run
+`nvidia-smi`: with a card, add `--gpu-angle=vulkan` (or `--gpu-angle=gl-egl` if that gives blank GL layers) to every
+`render.mjs` call; with none, add `--soft-gl` (without it the renderer exits with an error) and expect slower frames, so use fewer workers and say in the
+report that it rendered in software. Check the first contact sheet: a frame with type but no terrain / marble / knot
+means WebGL did not start.
 ```bash
 node music/score.mjs && ffmpeg -y -i music/score.wav -af "highpass=f=30,equalizer=f=250:t=q:w=1:g=-2,loudnorm=I=-14:TP=-1.2:LRA=8" -c:a aac -b:a 192k assets/score.m4a
 node render.mjs --frames --workers=4                                    # ~8–40 ms/frame on a Mac GPU: seconds, not minutes
 node render.mjs --encode --audio=assets/score.m4a --out=out/reel.mp4 --fps=30
 # web copy: ffmpeg -i out/reel.mp4 -vf scale=1600:900:flags=lanczos -c:v libx264 -preset slow -crf 23 -c:a aac -b:a 128k -movflags +faststart out/reel-web.mp4
 ```
+For a spoken voice-over, load the `kokoro-tts` skill, speak the script first and take the shot times from its timings file.
+
 You can't hear the score: check it with `showspectrumpic` and per-section RMS, and say so when you report. Audio-only
 changes don't need a re-render: remux (`-map 0:v -map 1:a -c:v copy`).
 

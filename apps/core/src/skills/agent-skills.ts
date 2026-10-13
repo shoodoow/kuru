@@ -1,4 +1,4 @@
-import { adoptHostSkills, localSkillCatalog, readLocalSkill } from "./local.js";
+import { adoptHostSkills, localSkillCatalog, publishHostSkills, readLocalSkill } from "./local.js";
 import {
   mergeSkillCatalogs,
   readSkillForAccount,
@@ -31,6 +31,8 @@ export async function skillCatalogForAgent(ctx: AgentSkillContext): Promise<Skil
  */
 export async function readSkillForAgent(ctx: AgentSkillContext, name: string): Promise<string> {
   if (ctx.skillsRoot) await adoptHostSkills(ctx.skillsRoot, ctx.accountId);
+  // The copy on the computer is read first: it comes with the folder its scripts and templates are in.
+  if (ctx.skillsRoot && ctx.linuxProfile) await publishHostSkills(ctx.skillsRoot, ctx.accountId);
   if (ctx.linuxProfile) {
     const local = await readLocalSkill(ctx.accountId, ctx.linuxProfile, name);
     if (local !== null) return local;

@@ -85,6 +85,17 @@ export const config = {
     return Number.isFinite(value) && value > 0 ? value : undefined;
   },
   /**
+   * Whether account computers get this machine's NVIDIA graphics card.
+   * "auto" (unset): yes when Docker has the NVIDIA runtime and containers are
+   * not virtual machines. "on" and "off" decide it by hand.
+   */
+  accountGpu: (): "on" | "off" | "auto" => {
+    const value = read("ACCOUNT_GPU")?.toLowerCase();
+    if (value === "on" || value === "1" || value === "true") return "on";
+    if (value === "off" || value === "0" || value === "false") return "off";
+    return "auto";
+  },
+  /**
    * The Docker runtime account containers are created with, for example
    * "kata" on a Linux server. Unset uses Docker's default (runc), which is
    * what a Mac can run.

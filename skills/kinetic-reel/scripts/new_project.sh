@@ -6,14 +6,15 @@ SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TARGET="${1:?usage: new_project.sh <target-dir>}"
 if [ -e "$TARGET/reel/reel.js" ]; then echo "error: $TARGET already has reel/reel.js; not overwriting" >&2; exit 1; fi
 mkdir -p "$TARGET"
-rsync -a "$SKILL_DIR/template/" "$TARGET/"
+# tar, not rsync: an agent computer has no rsync. node_modules is left out so the install below is clean.
+(cd "$SKILL_DIR/template" && tar -cf - --exclude node_modules .) | tar -xf - -C "$TARGET"
 mkdir -p "$TARGET/out/check" "$TARGET/assets"
 cd "$TARGET"
 echo "== installing puppeteer-core, three"
 npm install --silent
 echo "== toolchain"
 command -v node   >/dev/null && echo "node   $(node -v)"   || echo "MISSING: node"
-command -v ffmpeg >/dev/null && echo "ffmpeg ok"           || echo "MISSING: ffmpeg (brew install ffmpeg)"
+command -v ffmpeg >/dev/null && echo "ffmpeg ok"           || echo "MISSING: ffmpeg"
 for c in "${CHROME_PATH:-}" "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" /usr/bin/google-chrome /usr/bin/chromium; do
   [ -n "$c" ] && [ -x "$c" ] && { echo "chrome $c"; FOUND=1; break; }
 done

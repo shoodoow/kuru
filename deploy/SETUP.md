@@ -456,6 +456,11 @@ with any server.
 
 - **The image name** must be exactly `kuru-linux:1`, or a new account's
   computer cannot be created.
+- **Node 22 on every computer.** The image carries it. A computer made from
+  an earlier image keeps its files, so the server installs Node 22 into it
+  the first time it is used after an update (a download of about 30 MB from
+  nodejs.org, checked against its published checksum). If that fails, the
+  computer keeps its older Node and the server tries again an hour later.
 - **Memory is shared out by the server, from what the machine has.** It keeps
   about 4 GB back for itself, the database and the system. Each account's
   computer gets a small everyday limit (3 GB on a 16 GB machine), and one
@@ -463,6 +468,17 @@ with any server.
   (about 10 GB on that machine) and gives it back when done. A second heavy
   job waits its turn. To fix the everyday limit yourself, set
   `ACCOUNT_MEMORY_GB` in `apps/core/.env`.
+- **An NVIDIA graphics card is shared with the computers** when the machine
+  has one. Install the card's driver and the
+  [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html),
+  then run `sudo nvidia-ctk runtime configure --runtime=docker` and restart
+  Docker and the core. `docker info --format '{{json .Runtimes}}'` should
+  then list `nvidia`. Only computers made after that get the card: a
+  container's devices cannot be changed, so an earlier computer has to be
+  removed and made again, which loses what was installed in it. Every
+  computer sees the whole card and nothing shares it out, so one job can
+  fill its memory. `ACCOUNT_GPU=off` in `apps/core/.env` keeps the card from
+  them. Computers under Kata get no card.
 - **CPU is not capped.** A computer may use every core, at a lower priority
   than the server and the database, so chats stay quick while agents work.
 - **If the machine still runs out of memory,** Linux stops a process in an
