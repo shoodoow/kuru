@@ -1,6 +1,6 @@
 import { expoClient, normalizeCookieName } from "@better-auth/expo/client";
 import { createAuthClient } from "better-auth/react";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "./store";
 import * as WebBrowser from "expo-web-browser";
 import { Platform } from "react-native";
 import { activeSlot } from "./account-slots";

@@ -26,6 +26,7 @@ import { notificationsRoutes } from "./routes/notifications.js";
 import { pluginCallbackRoutes } from "./routes/plugin-callback.js";
 import { proposalsRoutes } from "./routes/proposals.js";
 import { novncAssets } from "./screen-client.js";
+import { webApp } from "./web-app.js";
 import { proxyScreen } from "./screen-proxy.js";
 
 export type ServerOptions = {
@@ -114,6 +115,9 @@ function createApp(ctx: AppContext): Express {
   app.all("/api/auth/*splat", (req, res, next) => {
     Promise.resolve(authHandler(req, res)).catch(next);
   });
+
+  // The web and desktop app, at /app on this same address.
+  app.use(webApp());
 
   app.use(jsonBody(requireSession(ctx)));
   // Also says which release this is, so an app can tell when one side needs updating.

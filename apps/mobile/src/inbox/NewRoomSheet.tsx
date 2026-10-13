@@ -49,8 +49,8 @@ export function NewRoomSheet({
   const navBarPad = useNavBarPad();
   const insets = useSafeAreaInsets();
   // iOS shows this as a sheet with a grabber, which is also how it closes.
-  // Android shows a full page, so it gets a close button under the status bar.
-  const android = process.env.EXPO_OS === "android";
+  // Android and the browser show a full page, so it gets a close button at the top.
+  const android = process.env.EXPO_OS !== "ios";
 
   /**
    * Toggles one agent in the group.

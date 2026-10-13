@@ -3,6 +3,8 @@ import { Pressable, Text, View } from "react-native";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { createCore } from "../../src/api";
 import { ChatScreen } from "../../src/chat/ChatScreen";
+import { AgentPanel } from "../../src/desk/AgentPanel";
+import { useWideLayout } from "../../src/desk/layout";
 import { useSession } from "../../src/session/SessionProvider";
 import { Avatar } from "../../src/ui/Avatar";
 import { IconMonitor } from "../../src/ui/icons";
@@ -25,6 +27,7 @@ export default function ChatRoute() {
   const leaveRef = useRef(session.leaveChat);
   leaveRef.current = session.leaveChat;
   const core = useRef(createCore());
+  const wide = useWideLayout();
   // One array for as long as the roster and the room stay the same, so the
   // thread's rows are not rebuilt on every render of this route.
   const members = useMemo(
@@ -41,6 +44,8 @@ export default function ChatRoute() {
   useLayoutEffect(() => {
     if (!chat) return;
     navigation.setOptions({
+      // A desktop window shows the name as a pill over the thread instead.
+      headerShown: !wide,
       headerTitle: () => (
         <Pressable
           accessibilityRole="button"
@@ -90,7 +95,7 @@ export default function ChatRoute() {
           </Pressable>
         ) : null,
     });
-  }, [chat, navigation, activity]);
+  }, [chat, navigation, activity, wide]);
 
   if (!chat) {
     return (
@@ -100,8 +105,50 @@ export default function ChatRoute() {
     );
   }
 
+  const openDetails = (): void => {
+    if (chat.kind === "group") void session.openGroupInfo().catch(session.show);
+    else if (session.sidePanel) session.setSidePanel(null);
+    else session.openProfile(chat.agent);
+  };
+
   return (
-    <>
+    <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.bg }}>
+    <View style={{ flex: 1 }}>
+    {wide ? (
+      <View style={{ height: 56, alignItems: "center", justifyContent: "center" }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Details for ${chat.title}`}
+          onPress={openDetails}
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            height: 38,
+            paddingHorizontal: 14,
+            borderRadius: 19,
+            backgroundColor: colors.control,
+            opacity: pressed ? 0.7 : 1,
+          })}
+        >
+          <Avatar
+            id={chat.agent.id}
+            size={24}
+            round
+            shape={chat.agent.markShape}
+            color={chat.agent.markColor}
+            material={chat.agent.markMaterial}
+            style={chat.agent.markStyle}
+            gender={chat.agent.markGender}
+            photo={chat.agent.avatarUrl}
+            mood={activity ? "working" : "idle"}
+          />
+          <Text style={{ color: colors.text, fontSize: 15, fontWeight: "600" }} numberOfLines={1}>
+            {chat.title}
+          </Text>
+        </Pressable>
+      </View>
+    ) : null}
     <ChatScreen
       agent={chat.agent}
       conversationId={chat.conversationId}
@@ -155,6 +202,8 @@ export default function ChatRoute() {
     />
     {/* Errors already print above the composer. */}
     <Toast tones={["success"]} />
-    </>
+    </View>
+    {wide ? <AgentPanel chat={chat} /> : null}
+    </View>
   );
 }

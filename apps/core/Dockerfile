@@ -23,6 +23,24 @@ RUN pnpm --filter @kuru/shared build \
 # Drop compilers and test tools from what the final image copies.
 RUN CI=true pnpm install --frozen-lockfile --prod --filter "core..."
 
+# The web and desktop app, which the server serves from its own address at
+# /app. It is the phone app's code built for a browser. A stage of its own, so
+# its tools (Expo, React Native) never reach the final image; only the built
+# files do.
+FROM node:24-bookworm-slim AS web
+WORKDIR /app
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/core/package.json apps/core/
+COPY apps/mobile/package.json apps/mobile/
+COPY packages/shared/package.json packages/shared/
+COPY packages/agent-tools/package.json packages/agent-tools/
+RUN pnpm install --frozen-lockfile --filter "mobile..."
+COPY tsconfig.json tsconfig.base.json ./
+COPY packages/shared packages/shared
+COPY apps/mobile apps/mobile
+RUN pnpm --filter @kuru/shared build && pnpm --filter mobile build:web
+
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
 WORKDIR /app
@@ -33,6 +51,7 @@ COPY --from=build /app/apps/core/package.json apps/core/package.json
 COPY --from=build /app/apps/core/node_modules apps/core/node_modules
 COPY --from=build /app/apps/core/dist apps/core/dist
 COPY --from=build /app/apps/core/drizzle apps/core/drizzle
+COPY --from=web /app/apps/mobile/dist-web apps/mobile/dist-web
 COPY prompts prompts
 COPY skills skills
 WORKDIR /app/apps/core

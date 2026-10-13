@@ -7,8 +7,12 @@
 .git
 .github
 .planning
-apps/mobile
-!apps/mobile/package.json
+# The phone app's source is needed to build the web app the server serves;
+# its native projects and build output are not.
+apps/mobile/ios
+apps/mobile/android
+apps/mobile/.expo
+apps/mobile/dist-web
 docs
 skills/accounts
 **/*.log

@@ -1,4 +1,4 @@
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "../store";
 
 const TRACKPAD_KEY = "nano.desktop.trackpad";
 

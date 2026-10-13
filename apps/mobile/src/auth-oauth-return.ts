@@ -1,7 +1,7 @@
 import { getSetCookie } from "@better-auth/expo/client";
 import * as Linking from "expo-linking";
 import { activeCookieKey } from "./auth";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "./store";
 import * as WebBrowser from "expo-web-browser";
 import { Platform } from "react-native";
 

@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { useNavigation } from "expo-router";
+import { useWideLayout } from "../src/desk/layout";
 import { InboxScreen } from "../src/inbox/InboxScreen";
 import { SetupGuide } from "../src/inbox/SetupGuide";
 import { WelcomeScreen } from "../src/inbox/WelcomeScreen";
@@ -16,11 +17,13 @@ export default function InboxRoute() {
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const [searching, setSearching] = useState(false);
+  const wide = useWideLayout();
 
   useLayoutEffect(() => {
     navigation.setOptions({
       // The welcome page has the screen to itself.
-      headerShown: Boolean(session.account),
+      // In a desktop window the agents are in the rail, so this page has no bar of its own.
+      headerShown: Boolean(session.account) && !(wide && !session.setupNeeded),
       headerLeft: () => (
         <Pressable
           accessibilityLabel="Account"
@@ -88,7 +91,7 @@ export default function InboxRoute() {
         </View>
       ),
     });
-  }, [navigation, searching, session.pendingCount, session.account]);
+  }, [navigation, searching, session.pendingCount, session.account, session.setupNeeded, wide]);
 
   // Nobody signed in: say hello and put sign-in on the page.
   if (!session.account) {
@@ -116,6 +119,19 @@ export default function InboxRoute() {
           onError={session.show}
         />
         <Toast />
+      </>
+    );
+  }
+
+  if (wide) {
+    // The rail is the list. This is what shows before a chat is chosen.
+    return (
+      <>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: colors.bg }}>
+          <Text style={{ color: colors.text, fontSize: 18, fontWeight: "600" }}>Choose an agent</Text>
+          <Text style={{ color: colors.muted, fontSize: 14 }}>{session.versionNote ?? session.note ?? "Your agents are on the left."}</Text>
+        </View>
+        <Toast tones={["success"]} />
       </>
     );
   }

@@ -1,6 +1,7 @@
 import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import { Platform } from "react-native";
+import { servedByCore } from "./core-url";
 
 /**
  * Deep link Better Auth should redirect to after Google OAuth.
@@ -8,7 +9,8 @@ import { Platform } from "react-native";
  */
 export function authCallbackURL(): string {
   if (Platform.OS === "web") {
-    return globalThis.location.origin;
+    // Back to the app, which sits at /app when the server serves it.
+    return `${globalThis.location.origin}${servedByCore() ? "/app" : ""}`;
   }
   if (Constants.appOwnership === "expo") {
     return Linking.createURL("/");

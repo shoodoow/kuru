@@ -57,6 +57,12 @@ server (a new setting, a new app build) under **To update**.
 
 **New**
 
+- **A web and desktop version, at `/app` on your server.** It is the phone
+  app laid out for a wide window: agents down the left edge, the chat in the
+  middle, and the agent's details and computer screen in a panel on the
+  right. Open `https://your-server/app` in a browser and sign in. It is a
+  first version: sending and reading messages, profiles and the agent's
+  screen work; opening videos, sound and files in the browser does not yet.
 - **YouTube, Instagram and TikTok plugins.** Agents publish to the person's
   own accounts and manage them, with no service in between. The person signs
   in once under Plugins; the server keeps and renews the sign-in.

@@ -32,10 +32,15 @@ const coreUrl = process.env.EXPO_PUBLIC_CORE_URL ?? "";
 // the address on the sign-in screen.
 const usesCleartextTraffic = coreUrl.startsWith("http://") || process.env.EXPO_PUBLIC_ALLOW_HTTP === "1";
 
+// The web app built for the server to serve from its own address, at /app
+// (apps/core/src/http/web-app.ts). Every link and file in that build starts there.
+const hosted = process.env.EXPO_PUBLIC_WEB_HOSTED === "1";
+
 /** @type {import("expo/config").ExpoConfig} */
 module.exports = {
   expo: {
     ...expo,
+    ...(hosted ? { experiments: { ...(expo.experiments ?? {}), baseUrl: "/app" } } : {}),
     android: { ...expo.android, usesCleartextTraffic },
     extra: {
       ...(expo.extra ?? {}),

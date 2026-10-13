@@ -4,7 +4,7 @@ import * as Clipboard from "expo-clipboard";
 import { useFocusEffect, useNavigation } from "expo-router";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { WebView, type WebViewMessageEvent } from "react-native-webview";
+import { WebFrame, type WebFrameHandle, type WebFrameMessageEvent } from "../ui/WebFrame";
 import { createCore } from "../api";
 import type { RosterAgent } from "../api";
 import { authClient } from "../auth";
@@ -62,7 +62,16 @@ export function DesktopScreen({
   agent,
   onApprovals,
   onError,
+  embedded = false,
+  onExpand,
 }: {
+  /**
+   * True in the panel beside a chat in the desktop window: the screen is only
+   * watched, so the agent keeps its mouse and keyboard, and there is no header
+   * or row of buttons. `onExpand` opens the full screen, where the person takes over.
+   */
+  embedded?: boolean;
+  onExpand?: () => void;
   accountId: string;
   agent: RosterAgent;
   onBack: () => void;
@@ -85,7 +94,7 @@ export function DesktopScreen({
   const [prefsReady, setPrefsReady] = useState(false);
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const webRef = useRef<WebView>(null);
+  const webRef = useRef<WebFrameHandle>(null);
   const inputRef = useRef<TextInput>(null);
   const trackpadRef = useRef(false);
   // Reconnecting: a dropped screen comes back on its own, with a fresh token.
@@ -184,8 +193,10 @@ export function DesktopScreen({
         }
         const viewer = `${core.screenPageUrl(accountId, profile)}?${new URLSearchParams({
           url: core.screenUrl(accountId, profile, token),
-          viewOnly: "0",
+          viewOnly: embedded ? "1" : "0",
           trackpad: trackpadRef.current ? "1" : "0",
+          // A browser sends its own session; the page has nothing to wait for.
+          ...(process.env.EXPO_OS === "web" ? { ready: "1" } : {}),
         }).toString()}`;
         setPage(viewer);
       } catch (error) {
@@ -198,7 +209,7 @@ export function DesktopScreen({
     return () => {
       cancelled = true;
     };
-  }, [accountId, profile, onError, prefsReady, attempt, reconnect]);
+  }, [accountId, profile, onError, prefsReady, attempt, reconnect, embedded]);
 
   // The WebView keeps its own cookie jar and the expo client keeps the session
   // in SecureStore, so the cookie has to be copied across before the viewer can
@@ -228,16 +239,16 @@ export function DesktopScreen({
   // Watching is controlling, so the agent's own mouse and keyboard pause while
   // the screen is open and resume on the way out.
   useEffect(() => {
-    if (!profile) {
+    if (!profile || embedded) {
       return;
     }
     void core.takeOver(accountId, profile).catch(() => {});
     return () => {
       void core.handBack(accountId, profile).catch(() => {});
     };
-  }, [accountId, profile]);
+  }, [accountId, profile, embedded]);
 
-  function onMessage(event: WebViewMessageEvent): void {
+  function onMessage(event: WebFrameMessageEvent): void {
     let payload: { kind?: string; message?: string; text?: string };
     try {
       payload = JSON.parse(event.nativeEvent.data) as { kind?: string; message?: string; text?: string };
@@ -344,6 +355,7 @@ export function DesktopScreen({
   }
 
   useLayoutEffect(() => {
+    if (embedded) return;
     navigation.setOptions({
       headerTitle: () => (
         <View style={styles.headerTitle}>
@@ -394,7 +406,7 @@ export function DesktopScreen({
         </View>
       ),
     });
-  }, [agent, navigation, trackpad]);
+  }, [agent, navigation, trackpad, embedded]);
 
   return (
     // The remote screen and the buttons under it stay above the keyboard.
@@ -421,7 +433,7 @@ export function DesktopScreen({
       ) : null}
       <View style={styles.stage}>
         {page ? (
-          <WebView
+          <WebFrame
             ref={webRef}
             source={webSource}
             // Kept apart from the app's own cookie store: sharing it left this
@@ -463,7 +475,13 @@ export function DesktopScreen({
         <Text style={[styles.status, live ? styles.live : null]} pointerEvents="none" accessibilityLiveRegion="polite">
           {notice ?? (profile ? (live ? "Live" : reconnecting ? "Reconnecting…" : "Connecting") : "No desktop")}
         </Text>
+        {embedded && onExpand && page ? (
+          // Watching only. A click anywhere opens the full screen, where the person takes over.
+          <Pressable style={StyleSheet.absoluteFill} onPress={onExpand} accessibilityRole="button" accessibilityLabel="Open the screen and take control" />
+        ) : null}
       </View>
+      {embedded ? null : (
+        <>
       {/* Off-screen so no field shows on screen; the keyboard button focuses it
           to raise the soft keyboard, and each change is forwarded as keysyms. */}
       <TextInput
@@ -519,6 +537,8 @@ export function DesktopScreen({
           <IconPaste />
         </CircleButton>
       </View>
+        </>
+      )}
     </KeyboardLift>
   );
 }

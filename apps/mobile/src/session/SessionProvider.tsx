@@ -40,6 +40,7 @@ import type { Bubble } from "../chat/ChatScreen";
 import type { RoomActivityPhase } from "../chat/room-activity";
 import { hydrateMarkThumbCache, warmMarkThumbs } from "../ui/DotStage";
 import { resolveMarkLook } from "../ui/Mark";
+import { isWideLayout } from "../desk/layout";
 import { documentPickerOptions } from "../media/documentPickerOptions";
 import { cameraPickerOptions, imageLibraryPickerOptions } from "../media/imagePickerOptions";
 import type { GroupFace } from "../ui/GroupCluster";
@@ -144,6 +145,9 @@ export type Attachment = {
   mime?: string | null;
 };
 
+/** What the panel beside the chat shows in a desktop window. */
+export type SidePanel = "details" | "computer";
+
 export type ChatTarget = {
   agent: RosterAgent;
   conversationId: string;
@@ -224,6 +228,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const lastChatRef = useRef(lastChat);
   lastChatRef.current = lastChat;
   const [desktopAgent, setDesktopAgent] = useState<RosterAgent | null>(null);
+  // Desktop window only: what the panel beside the chat shows, or null when it is closed.
+  const [sidePanel, setSidePanel] = useState<SidePanel | null>(null);
   const [notifications, setNotifications] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
   const [serverUrl, setServerUrl] = useState(() => coreBaseUrl());
@@ -1549,7 +1555,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } else {
       setProfileFeed([]);
     }
-    router.push(`/profile/${agent.id}`);
+    // In a desktop window the profile opens beside the chat, not over it.
+    if (isWideLayout() && chat && chat.kind === "direct" && chat.agent.id === agent.id) setSidePanel("details");
+    else router.push(`/profile/${agent.id}`);
     void loadDirectFeed(agent.id).then(setProfileFeed).catch(show);
   }
 
@@ -1847,6 +1855,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     openAccount,
     openNewRoom,
     openDesktop,
+    sidePanel,
+    setSidePanel,
     leaveChat,
     createChat,
     askForAgent,
@@ -1962,6 +1972,9 @@ type SessionValue = {
   openAccount: (page: MenuPage) => void;
   openNewRoom: () => void;
   openDesktop: (agent: RosterAgent) => void;
+  /** Desktop window only: the panel beside the chat. */
+  sidePanel: SidePanel | null;
+  setSidePanel: (panel: SidePanel | null) => void;
   leaveChat: (roomId: string) => void;
   createChat: (name: string, look?: AgentMark) => Promise<void>;
   askForAgent: (support: RosterAgent, name: string) => Promise<void>;

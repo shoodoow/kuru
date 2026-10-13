@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { Image } from "expo-image";
 import { Asset } from "expo-asset";
-import { WebView, type WebViewMessageEvent } from "react-native-webview";
+import { WebFrame, type WebFrameHandle, type WebFrameMessageEvent } from "./WebFrame";
 import { markStyleGender, type MarkGender, type MarkMaterial, type MarkShape, type MarkStyle } from "@kuru/shared";
 import { hydrateMarkThumbsFromDisk, persistMarkThumb } from "./mark-thumb-disk";
 
@@ -91,7 +91,7 @@ const cacheListeners = new Set<() => void>();
 const waiters = new Map<string, Array<(url: string | null) => void>>();
 const jobs = new Map<string, Job>();
 const order: string[] = [];
-let web: WebView | null = null;
+let web: WebFrameHandle | null = null;
 let studioReady = false;
 let inflight: string | null = null;
 let bakeryMounts = 0;
@@ -213,7 +213,7 @@ function enqueue(job: Job, done: (url: string | null) => void): () => void {
   };
 }
 
-function onBakeryMessage(event: WebViewMessageEvent): void {
+function onBakeryMessage(event: WebFrameMessageEvent): void {
   let msg: { type?: string; key?: string; url?: string | null } = {};
   try {
     msg = JSON.parse(event.nativeEvent.data) as typeof msg;
@@ -276,7 +276,7 @@ export function DotBakery() {
       pointerEvents="none"
       style={{ position: "absolute", width: 200, height: 200, left: 0, top: 0, opacity: 0.01, zIndex: -1 }}
     >
-      <WebView
+      <WebFrame
         ref={(node) => {
           web = node;
         }}
@@ -379,7 +379,7 @@ export function DotLive({
   gender?: MarkGender;
   size: number;
 }) {
-  const ref = useRef<WebView>(null);
+  const ref = useRef<WebFrameHandle>(null);
   const ready = useRef(false);
   const jobRef = useRef({ shape, color, material, style, gender });
   jobRef.current = { shape, color, material, style, gender };
@@ -405,7 +405,7 @@ export function DotLive({
     ref.current?.injectJavaScript(applyLive(jobRef.current));
   }, [shape, color, material, style, gender]);
 
-  function onLiveMessage(event: WebViewMessageEvent): void {
+  function onLiveMessage(event: WebFrameMessageEvent): void {
     try {
       const msg = JSON.parse(event.nativeEvent.data) as { type?: string };
       if (msg.type === "paint") {
@@ -428,7 +428,7 @@ export function DotLive({
         </View>
       ) : null}
       {html ? (
-        <WebView
+        <WebFrame
           ref={ref}
           source={{ html, baseUrl: "https://cdn.jsdelivr.net/" }}
           injectedJavaScriptBeforeContentLoaded={boot(jobRef.current, true)}

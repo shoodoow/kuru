@@ -1,7 +1,12 @@
 import Constants from "expo-constants";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "./store";
 
-declare const process: { env: { EXPO_PUBLIC_CORE_URL?: string } };
+declare const process: { env: { EXPO_PUBLIC_CORE_URL?: string; EXPO_PUBLIC_WEB_HOSTED?: string; EXPO_OS?: string } };
+
+/** True for the web app the server serves from its own address, at /app. */
+export function servedByCore(): boolean {
+  return process.env.EXPO_OS === "web" && process.env.EXPO_PUBLIC_WEB_HOSTED === "1";
+}
 
 const SAVED_KEY = "nano.core-url";
 let saved: string | null | undefined;
@@ -11,6 +16,8 @@ let saved: string | null | undefined;
  * Tunnel / physical phone: https://api.example.com. Android emulator + local core: http://10.0.2.2:3000.
  */
 export function defaultCoreUrl(): string {
+  // Served by the server itself: the server is wherever this page came from.
+  if (servedByCore() && globalThis.location?.origin) return globalThis.location.origin;
   const fromExtra = Constants.expoConfig?.extra?.coreUrl;
   const raw = (typeof fromExtra === "string" ? fromExtra : process.env.EXPO_PUBLIC_CORE_URL)?.trim();
   return raw ? raw.replace(/\/$/, "") : "http://127.0.0.1:3000";

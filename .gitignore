@@ -14,3 +14,4 @@ apps/mobile/.expo/
 skills/accounts/*/
 apps/mobile/ios/
 apps/mobile/android/
+apps/mobile/dist-web/

@@ -71,6 +71,11 @@ export function novncShellScript(assetBase: string): string {
 const post = (payload) => {
   if (window.ReactNativeWebView) {
     window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+  } else if (window.parent && window.parent !== window) {
+    // Shown in a frame by the web app: the page around it is the listener.
+    // Only connection state goes out, never anything read from the screen
+    // apart from the clipboard text the person asked to copy.
+    window.parent.postMessage(JSON.stringify(payload), "*");
   }
 };
 
@@ -95,7 +100,8 @@ const withSession = (start) => {
     post({ kind: "auth" });
     return;
   }
-  if (window.__nanoSessionReady) {
+  // A browser sends its own session cookie; there is nothing to wait for.
+  if (window.__nanoSessionReady || params.get("ready") === "1") {
     start();
     return;
   }

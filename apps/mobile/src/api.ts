@@ -466,6 +466,16 @@ export type CoreClient = {
   handBack: (accountId: string, profile: string) => Promise<void>;
 };
 
+/**
+ * How a request carries the sign-in.
+ * On a phone the app holds the session itself and sends it as a header, and
+ * the phone's own cookie store is kept out of it ("omit"), because with two
+ * accounts signed in that store would send the wrong one. A web page cannot
+ * set a Cookie header at all: there the browser holds the session and sends
+ * it ("include").
+ */
+const SESSION_CREDENTIALS: RequestCredentials = process.env.EXPO_OS === "web" ? "include" : "omit";
+
 let readAuthCookie = (): string => "";
 
 /**
@@ -647,7 +657,7 @@ async function deleteMcpPlugin(baseUrl: string, accountId: string, slug: string,
   const cookie = readAuthCookie();
   const response = await fetchImpl(`${baseUrl}/accounts/${accountId}/mcp/${slug}`, {
     method: "DELETE",
-    credentials: "omit",
+    credentials: SESSION_CREDENTIALS,
     headers: { ...(cookie ? { cookie } : {}) },
   });
   if (!response.ok && response.status !== 204) {
@@ -995,7 +1005,7 @@ function subscribeMessages(
         const cookie = readAuthCookie();
         const response = await fetchImpl(
           `${baseUrl}/conversations/${conversationId}/stream?accountId=${accountId}${cursor > 0 ? `&cursor=${cursor}` : ""}`,
-          { credentials: "omit", headers: { ...(cookie ? { cookie } : {}) }, signal: controller?.signal as never },
+          { credentials: SESSION_CREDENTIALS, headers: { ...(cookie ? { cookie } : {}) }, signal: controller?.signal as never },
         );
         if (!response.ok || !response.body) return;
         attempts = 0;
@@ -1265,7 +1275,7 @@ async function deleteRoutine(
   const cookie = readAuthCookie();
   const response = await fetchImpl(`${baseUrl}/agents/${agentId}/routines/${routineId}?accountId=${accountId}`, {
     method: "DELETE",
-    credentials: "omit",
+    credentials: SESSION_CREDENTIALS,
     headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
   });
   if (!response.ok) {
@@ -1573,7 +1583,7 @@ async function readJson<T>(fetchImpl: typeof fetch, url: string, init?: RequestI
     // the phone also sends whatever sign-in its own cookie store last saw,
     // which wins over the header: with two accounts signed in, requests for
     // one went out as the other and the server rightly refused them.
-    credentials: "omit",
+    credentials: SESSION_CREDENTIALS,
     headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}), ...init?.headers },
   });
   if (!response.ok) {

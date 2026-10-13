@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { Appearance, useColorScheme } from "react-native";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "../store";
 import { darkColors, lightColors, setActivePalette } from "./tokens";
 
 export type AppearanceChoice = "dark" | "light" | "system";

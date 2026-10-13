@@ -94,6 +94,18 @@ export function Composer({
         maxLength={20000}
         scrollEnabled={capped}
         textAlignVertical="top"
+        // A browser: the field starts one line tall, Enter sends, and Shift+Enter starts a new line.
+        {...(process.env.EXPO_OS === "web"
+          ? {
+              rows: 1,
+              onKeyPress: (event: { nativeEvent: { key: string; shiftKey?: boolean; isComposing?: boolean }; preventDefault: () => void }) => {
+                const key = event.nativeEvent;
+                if (key.key !== "Enter" || key.shiftKey || key.isComposing) return;
+                event.preventDefault();
+                if (canSend) onSend();
+              },
+            }
+          : null)}
         onContentSizeChange={(event) => {
           setCapped(event.nativeEvent.contentSize.height > LINE_HEIGHT * MAX_LINES + 2);
         }}

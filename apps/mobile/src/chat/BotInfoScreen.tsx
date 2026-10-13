@@ -87,7 +87,10 @@ export function BotInfoScreen({
   onFetchBlob,
   health,
   work,
+  embedded = false,
 }: {
+  /** True beside a chat in the desktop window: no navigation header to fill, sub-pages carry their own Back. */
+  embedded?: boolean;
   /** Loaders for the Health card; left out, the card is not shown. */
   health?: { load: () => Promise<{ health: AgentHealth; reflections: AgentReflection[] }>; fix: () => Promise<unknown>; undo: (id: string) => Promise<unknown> };
   /** Loaders for the Running now and Memory cards; left out, the cards are not shown. */
@@ -122,6 +125,8 @@ export function BotInfoScreen({
   onBackRef.current = onBack;
 
   useLayoutEffect(() => {
+    // Beside a chat in the desktop window there is no header of its own to fill.
+    if (embedded) return;
     const title =
       page === "instructions" ? "Instructions" : page === "provider" ? "Provider" : page === "routine" && selected ? routineTitle(selected) : profile.name || "Profile";
     const back = page === "info" ? () => onBackRef.current() : () => setPage("info");
@@ -161,7 +166,15 @@ export function BotInfoScreen({
             )
           : () => null,
     });
-  }, [navigation, onApprovals, page, profile.name, profile.role, selected?.id]);
+  }, [embedded, navigation, onApprovals, page, profile.name, profile.role, selected?.id]);
+
+  // With no header, a sub-page carries its own way back.
+  const backBar =
+    embedded && page !== "info" ? (
+      <Pressable accessibilityRole="button" onPress={() => setPage("info")} style={styles.embeddedBack}>
+        <Text style={styles.embeddedBackText}>‹ Back</Text>
+      </Pressable>
+    ) : null;
 
   /** Stages one mark pick in the preview and the profile draft (clears photo). */
   function pickMark(next: MarkLook): void {
@@ -193,33 +206,39 @@ export function BotInfoScreen({
 
   if (page === "instructions") {
     return (
-      <InstructionsPage
-        profile={profile}
-        onChange={onChange}
-        onSave={onSave}
-      />
+      <>
+        {backBar}
+        <InstructionsPage profile={profile} onChange={onChange} onSave={onSave} />
+      </>
     );
   }
   if (page === "provider") {
     return (
-      <ProviderPage
-        profile={profile}
-        providers={providers}
-        onSelect={(provider) => {
-          onChange({ ...profile, provider });
-          setPage("info");
-        }}
-      />
+      <>
+        {backBar}
+        <ProviderPage
+          profile={profile}
+          providers={providers}
+          onSelect={(provider) => {
+            onChange({ ...profile, provider });
+            setPage("info");
+          }}
+        />
+      </>
     );
   }
   if (page === "routine" && selected) {
     return (
-      <RoutineDetailPage
-        routine={selected}
-        onPause={(paused) => onPauseRoutine(selected, paused)}
-        onLoadRuns={() => onLoadRoutineRuns(selected.id)}
-        onBack={() => setPage("info")}
-      />
+      <>
+        {backBar}
+        <RoutineDetailPage
+          routine={selected}
+          embedded={embedded}
+          onPause={(paused) => onPauseRoutine(selected, paused)}
+          onLoadRuns={() => onLoadRoutineRuns(selected.id)}
+          onBack={() => setPage("info")}
+        />
+      </>
     );
   }
   return (
@@ -920,7 +939,9 @@ function RoutineDetailPage({
   onPause,
   onLoadRuns,
   onBack,
+  embedded = false,
 }: {
+  embedded?: boolean;
   routine: Routine;
   onPause: (paused: boolean) => void;
   onLoadRuns: () => Promise<RoutineRun[]>;
@@ -949,6 +970,7 @@ function RoutineDetailPage({
 
   const navigation = useNavigation();
   useLayoutEffect(() => {
+    if (embedded) return;
     if (!showInstructions) return;
     navigation.setOptions({
       title: "Instruction",
@@ -960,7 +982,7 @@ function RoutineDetailPage({
         headerLeft: () => <HeaderBackButton tintColor={colors.text} onPress={onBack} />,
       });
     };
-  }, [navigation, onBack, routine, showInstructions]);
+  }, [embedded, navigation, onBack, routine, showInstructions]);
 
   if (showInstructions) {
     return (
@@ -1043,6 +1065,8 @@ function RoutineDetailPage({
 function createStyles(colors: ColorPalette) {
   return StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
+  embeddedBack: { paddingHorizontal: 16, paddingVertical: 10, backgroundColor: colors.bg },
+  embeddedBackText: { color: colors.link, fontSize: 16 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 10, paddingTop: 2 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 4 },
   pageHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, paddingTop: 4 },

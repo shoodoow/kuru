@@ -945,7 +945,8 @@ function createStyles(colors: ColorPalette) {
   row: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
   rowMine: { justifyContent: "flex-end" },
   rowTheirs: { justifyContent: "flex-start" },
-  column: { flexShrink: 1, maxWidth: "85%", gap: 2 },
+  // Capped so a line of text stays readable in a wide desktop window.
+  column: { flexShrink: 1, maxWidth: process.env.EXPO_OS === "web" ? 720 : "85%", gap: 2 },
   author: { fontSize: 14, fontWeight: "700", paddingLeft: 12 },
   viaInline: { color: colors.muted, fontWeight: "400", fontSize: 12 },
   swipeWrap: { flexDirection: "row", alignItems: "center", gap: 6 },

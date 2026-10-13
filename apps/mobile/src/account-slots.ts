@@ -1,4 +1,4 @@
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "./store";
 
 /**
  * One signed-in account kept on this phone.

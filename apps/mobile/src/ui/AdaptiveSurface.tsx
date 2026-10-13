@@ -21,6 +21,8 @@ export function AdaptiveSurface({
   const [reduceTransparency, setReduceTransparency] = useState(false);
 
   useEffect(() => {
+    // Only iOS has the setting, and only iOS draws a see-through surface.
+    if (process.env.EXPO_OS !== "ios") return;
     let active = true;
     void AccessibilityInfo.isReduceTransparencyEnabled().then((enabled) => {
       if (active) setReduceTransparency(enabled);

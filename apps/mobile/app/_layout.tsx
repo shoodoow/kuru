@@ -1,8 +1,11 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { AgentRail } from "../src/desk/AgentRail";
+import { useWideLayout } from "../src/desk/layout";
 import { SessionProvider } from "../src/session/SessionProvider";
 import { DotBakery } from "../src/ui/DotStage";
 import { AppearanceProvider, useResolvedScheme } from "../src/theme/appearance";
@@ -32,10 +35,15 @@ export default function RootLayout() {
 
 function ThemedStack() {
   const dark = useResolvedScheme() === "dark";
+  // A desktop window: agents down the left edge, and the screens beside them.
+  const wide = useWideLayout();
   return (
     <>
       <StatusBar style={dark ? "light" : "dark"} />
       <DotBakery />
+      <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.bg }}>
+      {wide ? <AgentRail /> : null}
+      <View style={{ flex: 1 }}>
       <Stack
         screenOptions={{
           headerShadowVisible: false,
@@ -46,6 +54,8 @@ function ThemedStack() {
           // A screen that is covered stops rendering until it is shown again,
           // so typing in a chat no longer redraws the list underneath it.
           freezeOnBlur: true,
+          // Panes change in place in a desktop window; nothing slides.
+          ...(wide ? { animation: "none" as const } : null),
         }}
       >
         <Stack.Screen name="index" options={{ title: "Chats" }} />
@@ -63,6 +73,8 @@ function ThemedStack() {
         {/* The form says what it is (Chat | Group), so it carries no title bar. */}
         <Stack.Screen name="new-room" options={{ ...sheetScreenOptions("New chat"), headerShown: false }} />
       </Stack>
+      </View>
+      </View>
       <OverlayHost />
     </>
   );
