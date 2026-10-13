@@ -32,6 +32,40 @@ server (a new setting, a new app build) under **To update**.
 
 - A secret field an agent typed out as text, `(widget: secret envName=...)`,
   is now shown as the hidden field it was meant to be.
+- Phone app: typing in a chat no longer redraws every message and the chat
+  list behind it, and a poll that brings nothing new redraws nothing.
+- Phone app: avatars draw from the phone itself instead of downloading
+  three.js first, and are baked without the pause between each one. A spinner
+  shows until one is ready. They now work with no connection.
+- Phone app: the message field follows the keyboard instead of jumping above
+  it on Android, and the chat list no longer flickers where the keyboard was
+  when going back from a chat.
+- Phone app: Back from an agent's desktop or from Approvals returns to the
+  chat it was opened from, not to the chat list.
+- Phone app: reply by pulling a bubble to the right. On iOS 26 that pull used
+  to close the chat; in a chat, Back is now the swipe from the left edge only.
+- Phone app: the "Message from…" sheet, Select Text, the file viewer and a
+  plugin's details all open the same way: the system page sheet on iOS,
+  closed by dragging it down, and a page that slides up on Android.
+- Phone app: a text or Markdown file opened from a chat scrolls properly.
+- Phone app: the picture viewer zooms with a pinch or a double tap on Android
+  as well as iOS, hides its buttons on a tap, and closes when the picture is
+  dragged down. A single picture in a chat keeps its own shape.
+- Phone app: a video takes its own shape once it plays, and uses the system
+  player's own controls, full screen included; only Save stays beside its
+  name. On Android those controls did not respond inside a chat bubble.
+- Phone app: New chat has no title bar, and Send is an icon (an up arrow on
+  iOS, a paper plane on Android).
+- Phone app: a chat opens the moment it is tapped, on what was last seen of
+  it, instead of after the server has answered.
+- Phone app: the time above a message says the day it was sent (it always
+  said "Today"), and appears for a new day or a pause, not for every minute.
+- Phone app: in the light theme the keyboard is light, and pressing a row or
+  a button shows.
+- Android: the last rows of the account menu (Appearance) and of other pages
+  are no longer hidden under the navigation bar.
+- Android: the install file leaves out emulator-only code and unused
+  resources, so it is smaller.
 
 **To update**
 
@@ -49,6 +83,8 @@ server (a new setting, a new app build) under **To update**.
   is still called `nano-agents`, keep running it by that name.
 - Tests now use a database named `kuru_database_test`, created on first run.
   The old `nano_agents_test` can be dropped.
+- The phone fixes above need a new app build; an over-the-air update cannot
+  deliver them, because the keyboard handling is native code.
 
 ## 0.3.0
 

@@ -16,6 +16,8 @@ export type ColorPalette = {
   online: string;
   green: string;
   danger: string;
+  /** Laid over a row or card while a finger is on it. */
+  pressed: string;
 };
 
 export const darkColors: ColorPalette = {
@@ -36,6 +38,7 @@ export const darkColors: ColorPalette = {
   online: "#0A84FF",
   green: "#30D158",
   danger: "#FF453A",
+  pressed: "rgba(255, 255, 255, 0.08)",
 };
 
 export const lightColors: ColorPalette = {
@@ -56,6 +59,7 @@ export const lightColors: ColorPalette = {
   online: "#007AFF",
   green: "#34C759",
   danger: "#FF3B30",
+  pressed: "rgba(0, 0, 0, 0.06)",
 };
 
 let active: ColorPalette = darkColors;

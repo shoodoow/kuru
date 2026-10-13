@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { activeSlot, forgetSlot, newSlot, rememberAccount, savedAccounts, useSlot } from "./account-slots";
+import { activeSlot, forgetSlot, newSlot, rememberAccount, savedAccounts, selectSlot } from "./account-slots";
 
 const SERVER = "https://agents.example.com";
 const person = (slot: string, id: string) => ({ slot, server: SERVER, id, name: id, email: `${id}@example.com` });
@@ -11,7 +11,7 @@ test("several accounts stay signed in, each in its own slot", () => {
   rememberAccount(person("", "ann"));
   const second = newSlot();
   expect(second).not.toBe("");
-  useSlot(second);
+  selectSlot(second);
   rememberAccount(person(second, "ben"));
   expect(activeSlot()).toBe(second);
   expect(savedAccounts().map((row) => row.id)).toEqual(["ben", "ann"]);

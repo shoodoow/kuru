@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import { Feather } from "@expo/vector-icons";
+import Feather from "@expo/vector-icons/Feather";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { IconCheck } from "../ui/icons";

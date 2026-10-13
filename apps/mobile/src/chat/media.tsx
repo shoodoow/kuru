@@ -1,24 +1,27 @@
-import { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  Linking,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  useWindowDimensions,
-} from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, FlatList, Linking, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { useEventListener } from "expo";
 import { Image } from "expo-image";
 import { Directory, File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { VideoView, useVideoPlayer } from "expo-video";
+import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import Animated, {
+  type SharedValue,
+  interpolate,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { scheduleOnRN } from "react-native-worklets";
 import type { MessageBlock } from "../api";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
-import { IconCloseLight, IconDownload, IconDownloadLight, IconFullscreen, IconPlay } from "../ui/icons";
+import { IconCloseLight, IconDownload, IconDownloadLight, IconPlay } from "../ui/icons";
+import { presentOverlay } from "../ui/overlay";
+import { innerTouching } from "./MarkdownText";
 
 export type FetchBlob = (
   messageId: string,
@@ -132,27 +135,44 @@ export function albumLayout(count: number): { height: number; tiles: Tile[] } {
   };
 }
 
+/** A lone picture keeps its own shape, within these bounds, instead of being cropped to a fixed box. */
+const SINGLE_MIN_HEIGHT = 120;
+const SINGLE_MAX_HEIGHT = 320;
+
 function ImageTile({
   block,
   fetchBlob,
   more,
   onPress,
+  onSize,
 }: {
   block: ImageBlock;
   fetchBlob?: FetchBlob;
   /** Pictures hidden behind this tile, drawn as "+N". */
   more?: number;
   onPress: () => void;
+  /** Told the picture's real size once it has loaded. */
+  onSize?: (width: number, height: number) => void;
 }) {
   const uri = useImageUri(block, fetchBlob);
   return (
     <Pressable
-      style={styles.fill}
+      style={({ pressed }) => [styles.fill, pressed ? styles.tilePressed : null]}
       onPress={onPress}
       accessibilityRole="imagebutton"
       accessibilityLabel={block.alt ?? "Shared image"}
     >
-      {uri ? <Image source={{ uri }} style={styles.fill} contentFit="cover" transition={120} /> : <View style={styles.loading} />}
+      {uri ? (
+        <Image
+          source={{ uri }}
+          style={styles.fill}
+          contentFit="cover"
+          transition={120}
+          onLoad={onSize ? (event) => onSize(event.source.width, event.source.height) : undefined}
+        />
+      ) : (
+        <View style={styles.loading} />
+      )}
       {more ? (
         <View style={styles.moreVeil}>
           <Text style={styles.moreText}>+{more}</Text>
@@ -169,21 +189,28 @@ function ImageTile({
  * Input: the image blocks that sit together + blob fetcher. Output: the view.
  */
 export function ImageGroup({ images, fetchBlob }: { images: ImageBlock[]; fetchBlob?: FetchBlob }) {
-  const [viewing, setViewing] = useState<number | null>(null);
-  const viewer =
-    viewing !== null ? (
-      <ImageViewer images={images} start={viewing} fetchBlob={fetchBlob} onClose={() => setViewing(null)} />
-    ) : null;
+  // The viewer is drawn from the top of the app, not from inside this bubble: see presentOverlay.
+  const view = (start: number): void =>
+    presentOverlay((close) => <ImageViewer images={images} start={start} fetchBlob={fetchBlob} onClose={close} />);
+  const [singleHeight, setSingleHeight] = useState(180);
   const first = images[0];
   if (!first) return null;
   if (images.length === 1) {
     return (
       <View style={styles.mediaWrap}>
-        <View style={styles.single}>
-          <ImageTile block={first} fetchBlob={fetchBlob} onPress={() => setViewing(0)} />
+        <View style={[styles.single, { height: singleHeight }]}>
+          <ImageTile
+            block={first}
+            fetchBlob={fetchBlob}
+            onPress={() => view(0)}
+            onSize={(width, height) => {
+              if (width > 0 && height > 0) {
+                setSingleHeight(Math.round(Math.min(SINGLE_MAX_HEIGHT, Math.max(SINGLE_MIN_HEIGHT, (ALBUM_WIDTH * height) / width))));
+              }
+            }}
+          />
         </View>
         {first.alt ? <Text style={styles.caption}>{first.alt}</Text> : null}
-        {viewer}
       </View>
     );
   }
@@ -200,52 +227,231 @@ export function ImageGroup({ images, fetchBlob }: { images: ImageBlock[]; fetchB
               block={block}
               fetchBlob={fetchBlob}
               more={slot === ALBUM_MAX_TILES - 1 && hidden > 0 ? hidden : undefined}
-              onPress={() => setViewing(slot)}
+              onPress={() => view(slot)}
             />
           </View>
         );
       })}
-      {viewer}
     </View>
   );
 }
 
+const ZOOM_MAX = 4;
+const ZOOM_DOUBLE_TAP = 2.5;
+/** How far, or how fast, a picture must be dragged down or up to close the viewer. */
+const DISMISS_DISTANCE = 110;
+const DISMISS_VELOCITY = 900;
+const SETTLE = { duration: 350, dampingRatio: 1 } as const;
+
+/**
+ * One picture in the viewer, with the gestures a photo app has.
+ * Pinch zooms around the fingers, a drag moves a zoomed picture, a double tap
+ * zooms in on the spot tapped and back out, one tap shows or hides the
+ * buttons, and at normal size a drag down or up puts the picture away.
+ * Why hand-built: the scroll view's own zoom only exists on iOS, so Android
+ * had no zoom at all. All of it runs on the UI thread.
+ * Input: the picture, the page size, `pull` (how far the picture is being
+ * dragged away, shared with the backdrop), and what a tap, a zoom and a
+ * dismissal do. Output: the page.
+ */
 function ViewerPage({
   block,
   fetchBlob,
   width,
   height,
+  pull,
+  onTap,
+  onZoom,
+  onDismiss,
 }: {
   block: ImageBlock;
   fetchBlob?: FetchBlob;
   width: number;
   height: number;
+  pull: SharedValue<number>;
+  onTap: () => void;
+  onZoom: (zoomed: boolean) => void;
+  onDismiss: () => void;
 }) {
   const uri = useImageUri(block, fetchBlob, true);
+  const scale = useSharedValue(1);
+  const x = useSharedValue(0);
+  const y = useSharedValue(0);
+  // Where things stood when the gesture in progress began.
+  const fromScale = useSharedValue(1);
+  const fromX = useSharedValue(0);
+  const fromY = useSharedValue(0);
+  const focalX = useSharedValue(0);
+  const focalY = useSharedValue(0);
+  const downX = useSharedValue(0);
+  const downY = useSharedValue(0);
+  const slipX = useSharedValue(0);
+  const slipY = useSharedValue(0);
+  const dragging = useSharedValue(false);
+
+  const gesture = useMemo(() => {
+    // Furthest the picture may sit from the middle at a given zoom, so an edge never leaves the screen.
+    const limit = (size: number, zoom: number): number => {
+      "worklet";
+      return Math.max(0, (size * zoom - size) / 2);
+    };
+    const clamp = (value: number, bound: number): number => {
+      "worklet";
+      return Math.min(bound, Math.max(-bound, value));
+    };
+    const settle = (): void => {
+      "worklet";
+      const zoom = Math.min(ZOOM_MAX, Math.max(1, scale.get()));
+      scale.set(withSpring(zoom, SETTLE));
+      x.set(withSpring(zoom === 1 ? 0 : clamp(x.get(), limit(width, zoom)), SETTLE));
+      y.set(withSpring(zoom === 1 ? 0 : clamp(y.get(), limit(height, zoom)), SETTLE));
+    };
+
+    const pinch = Gesture.Pinch()
+      .onStart((event) => {
+        fromScale.set(scale.get());
+        fromX.set(x.get());
+        fromY.set(y.get());
+        focalX.set(event.focalX - width / 2);
+        focalY.set(event.focalY - height / 2);
+      })
+      .onUpdate((event) => {
+        const zoom = Math.min(ZOOM_MAX * 1.25, Math.max(0.7, fromScale.get() * event.scale));
+        const ratio = zoom / fromScale.get();
+        scale.set(zoom);
+        // Keeps the point between the fingers under the fingers.
+        x.set(focalX.get() - (focalX.get() - fromX.get()) * ratio);
+        y.set(focalY.get() - (focalY.get() - fromY.get()) * ratio);
+      })
+      .onEnd(settle);
+
+    const pan = Gesture.Pan()
+      .manualActivation(true)
+      .maxPointers(1)
+      .onTouchesDown((event) => {
+        const touch = event.allTouches[0];
+        if (!touch) return;
+        downX.set(touch.absoluteX);
+        downY.set(touch.absoluteY);
+      })
+      .onTouchesMove((event, state) => {
+        if (dragging.get() || event.numberOfTouches !== 1) return;
+        const touch = event.allTouches[0];
+        if (!touch) return;
+        const dx = Math.abs(touch.absoluteX - downX.get());
+        const dy = Math.abs(touch.absoluteY - downY.get());
+        if (scale.get() > 1.01) {
+          // Zoomed in: any drag moves the picture.
+          if (dx > 4 || dy > 4) state.activate();
+        } else if (dy > 12 && dy > dx * 1.5) {
+          // Normal size, clearly vertical: putting the picture away.
+          state.activate();
+        } else if (dx > 12) {
+          // Sideways at normal size belongs to the pager.
+          state.fail();
+        }
+      })
+      .onStart((event) => {
+        dragging.set(true);
+        fromX.set(x.get());
+        fromY.set(y.get());
+        // What the finger had already travelled when the drag was recognized.
+        slipX.set(event.translationX);
+        slipY.set(event.translationY);
+      })
+      .onUpdate((event) => {
+        const zoom = scale.get();
+        const dx = event.translationX - slipX.get();
+        const dy = event.translationY - slipY.get();
+        if (zoom > 1.01) {
+          x.set(clamp(fromX.get() + dx, limit(width, zoom)));
+          y.set(clamp(fromY.get() + dy, limit(height, zoom)));
+        } else {
+          y.set(dy);
+          pull.set(Math.abs(dy));
+        }
+      })
+      .onEnd((event) => {
+        if (scale.get() > 1.01) {
+          settle();
+          return;
+        }
+        const away = Math.abs(y.get()) > DISMISS_DISTANCE || Math.abs(event.velocityY) > DISMISS_VELOCITY;
+        if (away) {
+          y.set(withTiming(y.get() < 0 ? -height : height, { duration: 180 }));
+          pull.set(withTiming(height, { duration: 180 }));
+          scheduleOnRN(onDismiss);
+        } else {
+          y.set(withSpring(0, { duration: 350, dampingRatio: 0.85, velocity: event.velocityY }));
+          pull.set(withTiming(0, { duration: 200 }));
+        }
+      })
+      .onFinalize(() => {
+        dragging.set(false);
+      });
+
+    const doubleTap = Gesture.Tap()
+      .numberOfTaps(2)
+      .maxDuration(260)
+      .onEnd((event, success) => {
+        if (!success) return;
+        if (scale.get() > 1.01) {
+          scale.set(withSpring(1, SETTLE));
+          x.set(withSpring(0, SETTLE));
+          y.set(withSpring(0, SETTLE));
+          return;
+        }
+        // Zooms in on the spot that was tapped.
+        const tapX = event.x - width / 2;
+        const tapY = event.y - height / 2;
+        scale.set(withSpring(ZOOM_DOUBLE_TAP, SETTLE));
+        x.set(withSpring(clamp(-tapX * (ZOOM_DOUBLE_TAP - 1), limit(width, ZOOM_DOUBLE_TAP)), SETTLE));
+        y.set(withSpring(clamp(-tapY * (ZOOM_DOUBLE_TAP - 1), limit(height, ZOOM_DOUBLE_TAP)), SETTLE));
+      });
+
+    const tap = Gesture.Tap()
+      .maxDuration(260)
+      .onEnd((_event, success) => {
+        if (success) scheduleOnRN(onTap);
+      });
+
+    return Gesture.Race(Gesture.Simultaneous(pinch, pan), Gesture.Exclusive(doubleTap, tap));
+    // The handlers are stable (see ImageViewer); the gesture is rebuilt only for a new page size.
+  }, [width, height, onTap, onDismiss, pull, scale, x, y, fromScale, fromX, fromY, focalX, focalY, downX, downY, slipX, slipY, dragging]);
+
+  // The pager stands still while a picture is zoomed, so a drag moves the picture, not the page.
+  useAnimatedReaction(
+    () => scale.get() > 1.01,
+    (zoomed, before) => {
+      if (zoomed !== before) scheduleOnRN(onZoom, zoomed);
+    },
+  );
+
+  const imageStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: x.get() }, { translateY: y.get() }, { scale: scale.get() }],
+  }));
+
   return (
-    // A zooming ScrollView per page gives native pinch and double-tap-drag.
-    <ScrollView
-      style={{ width, height }}
-      contentContainerStyle={{ width, height }}
-      maximumZoomScale={4}
-      minimumZoomScale={1}
-      centerContent
-      bouncesZoom
-      showsHorizontalScrollIndicator={false}
-      showsVerticalScrollIndicator={false}
-    >
-      {uri ? (
-        <Image source={{ uri }} style={{ width, height }} contentFit="contain" accessibilityLabel={block.alt ?? "Shared image"} />
-      ) : (
-        <View style={[styles.viewerLoading, { width, height }]}>
-          <ActivityIndicator color="#FFFFFF" />
-        </View>
-      )}
-    </ScrollView>
+    <GestureDetector gesture={gesture}>
+      <Animated.View style={[{ width, height }, imageStyle]}>
+        {uri ? (
+          <Image source={{ uri }} style={{ width, height }} contentFit="contain" accessibilityLabel={block.alt ?? "Shared image"} />
+        ) : (
+          <View style={[styles.viewerLoading, { width, height }]}>
+            <ActivityIndicator color="#FFFFFF" />
+          </View>
+        )}
+      </Animated.View>
+    </GestureDetector>
   );
 }
 
-/** Full-screen pager over one message's pictures: swipe between, pinch to zoom. */
+/**
+ * Full-screen gallery over one message's pictures.
+ * Swipe between pictures, pinch or double tap to zoom, tap to hide the
+ * buttons, drag a picture down to close. The backdrop fades as it is dragged.
+ * Input: the pictures, which one to start on, the blob fetcher, and close.
+ */
 function ImageViewer({
   images,
   start,
@@ -261,7 +467,19 @@ function ImageViewer({
   const insets = useSafeAreaInsets();
   const [index, setIndex] = useState(start);
   const [saving, setSaving] = useState(false);
+  const [chrome, setChrome] = useState(true);
+  const [zoomed, setZoomed] = useState(false);
+  const pull = useSharedValue(0);
   const caption = images[index]?.alt;
+  // One identity each, so a page's gesture is not rebuilt when the buttons hide.
+  const actions = useMemo(
+    () => ({
+      tap: () => setChrome((shown) => !shown),
+      zoom: (now: boolean) => setZoomed(now),
+      dismiss: () => setTimeout(onClose, 160),
+    }),
+    [onClose],
+  );
   const save = (): void => {
     const block = images[index];
     if (!block || saving) return;
@@ -271,39 +489,61 @@ function ImageViewer({
       .catch(() => {})
       .finally(() => setSaving(false));
   };
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: interpolate(pull.get(), [0, 320], [1, 0.25], "clamp") }));
+  const chromeStyle = useAnimatedStyle(() => ({ opacity: interpolate(pull.get(), [0, 60], [1, 0], "clamp") }));
   return (
-    <Modal visible animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-      <View style={styles.viewer}>
+    <Modal visible transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+      {/* A Modal is its own window on Android, so gestures need their own root here. */}
+      <GestureHandlerRootView style={styles.fill}>
+        <Animated.View style={[StyleSheet.absoluteFill, styles.viewer, backdropStyle]} />
         <FlatList
           data={images}
           horizontal
           pagingEnabled
+          scrollEnabled={!zoomed}
           initialScrollIndex={start}
+          initialNumToRender={1}
+          windowSize={3}
           getItemLayout={(_data, item) => ({ length: width, offset: width * item, index: item })}
           keyExtractor={(_block, item) => String(item)}
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={(event) => setIndex(Math.round(event.nativeEvent.contentOffset.x / width))}
-          renderItem={({ item }) => <ViewerPage block={item} fetchBlob={fetchBlob} width={width} height={height} />}
+          renderItem={({ item }) => (
+            <ViewerPage
+              block={item}
+              fetchBlob={fetchBlob}
+              width={width}
+              height={height}
+              pull={pull}
+              onTap={actions.tap}
+              onZoom={actions.zoom}
+              onDismiss={actions.dismiss}
+            />
+          )}
         />
-        <View style={[styles.viewerBar, { top: insets.top + 8 }]} pointerEvents="box-none">
-          <Pressable style={styles.viewerButton} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close">
-            <IconCloseLight />
-          </Pressable>
-          {images.length > 1 ? (
-            <Text style={styles.viewerCount}>
-              {index + 1} / {images.length}
-            </Text>
-          ) : null}
-          <Pressable style={styles.viewerButton} onPress={save} accessibilityRole="button" accessibilityLabel="Save image">
-            {saving ? <ActivityIndicator color="#FFFFFF" size="small" /> : <IconDownloadLight />}
-          </Pressable>
-        </View>
-        {caption ? (
-          <Text style={[styles.viewerCaption, { bottom: insets.bottom + 16 }]} numberOfLines={3}>
-            {caption}
-          </Text>
+        {chrome ? (
+          <Animated.View style={[StyleSheet.absoluteFill, chromeStyle]} pointerEvents="box-none">
+            <View style={[styles.viewerBar, { top: insets.top + 8 }]} pointerEvents="box-none">
+              <Pressable style={styles.viewerButton} hitSlop={6} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close">
+                <IconCloseLight />
+              </Pressable>
+              {images.length > 1 ? (
+                <Text style={styles.viewerCount}>
+                  {index + 1} / {images.length}
+                </Text>
+              ) : null}
+              <Pressable style={styles.viewerButton} hitSlop={6} onPress={save} accessibilityRole="button" accessibilityLabel="Save image">
+                {saving ? <ActivityIndicator color="#FFFFFF" size="small" /> : <IconDownloadLight />}
+              </Pressable>
+            </View>
+            {caption ? (
+              <Text style={[styles.viewerCaption, { bottom: insets.bottom + 16 }]} numberOfLines={3}>
+                {caption}
+              </Text>
+            ) : null}
+          </Animated.View>
         ) : null}
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
@@ -431,28 +671,53 @@ export async function readFileText(block: FileBlock, fetchBlob?: FetchBlob): Pro
   return response.text();
 }
 
-function InlineVideo({ uri, headers, fullScreen }: { uri: string; headers?: Record<string, string>; fullScreen: number }) {
-  const view = useRef<VideoView>(null);
-  // Each press of the full-screen button bumps the count; the short wait lets a
-  // just-mounted player attach before it is asked to go full screen.
-  useEffect(() => {
-    if (fullScreen === 0) return;
-    const timer = setTimeout(() => void view.current?.enterFullscreen().catch(() => {}), 250);
-    return () => clearTimeout(timer);
-  }, [fullScreen]);
+const VIDEO_HEIGHT = 150;
+const VIDEO_MAX_HEIGHT = 320;
+
+function InlineVideo({
+  uri,
+  headers,
+  onShape,
+}: {
+  uri: string;
+  headers?: Record<string, string>;
+  /** Told the video's real size once it is known. */
+  onShape: (width: number, height: number) => void;
+}) {
   // With headers the player streams from the core and asks for the parts it needs.
   const player = useVideoPlayer(headers ? { uri, headers } : uri, (created) => {
     created.play();
   });
+  useEventListener(player, "sourceLoad", (loaded) => {
+    const size = loaded.availableVideoTracks[0]?.size;
+    if (size && size.width > 0 && size.height > 0) onShape(size.width, size.height);
+  });
+  const release = (): void => {
+    innerTouching.value = false;
+  };
   return (
+    // The system player brings its own controls on both platforms: play,
+    // scrub, mute and full screen. The app adds none of its own.
     <VideoView
-      ref={view}
       player={player}
-      style={styles.video}
+      style={styles.fill}
       nativeControls
       contentFit="contain"
       fullscreenOptions={{ enable: true }}
       allowsPictureInPicture={false}
+      // The player takes its own touches instead of leaving them to the bubble
+      // around it. On Android the view that holds a touch takes every move of
+      // the finger away from the views inside it. The bubble is a pressable,
+      // so it held the touch, and the player never saw a tap finish: its
+      // controls did not come up and the time bar could not be dragged.
+      onStartShouldSetResponder={() => true}
+      onResponderTerminationRequest={() => true}
+      // While a finger is on the player, a sideways drag is a scrub, not a reply.
+      onResponderGrant={() => {
+        innerTouching.value = true;
+      }}
+      onResponderRelease={release}
+      onResponderTerminate={release}
     />
   );
 }
@@ -461,7 +726,10 @@ function InlineVideo({ uri, headers, fullScreen }: { uri: string; headers?: Reco
  * Plays a video the agent sent, in the bubble, with the system player.
  * Why: a video used to be a "Tap to open" file row that left the chat. The
  * poster costs nothing; the bytes load and the player starts on the first tap,
- * so a thread full of videos does not hold a decoder each.
+ * so a thread full of videos does not hold a decoder each. Once it plays, the
+ * box takes the video's own shape, so a tall clip is not shown as a strip.
+ * Full screen is the player's own button. Saving is not something the system
+ * player offers, so that one stays here, beside the name.
  * Input: a video file block + blob fetcher. Output: poster, then the player.
  */
 export function VideoBlock({ block, fetchBlob }: { block: FileBlock; fetchBlob?: FetchBlob }) {
@@ -470,7 +738,7 @@ export function VideoBlock({ block, fetchBlob }: { block: FileBlock; fetchBlob?:
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [fullScreen, setFullScreen] = useState(0);
+  const [height, setHeight] = useState(VIDEO_HEIGHT);
 
   function start(): void {
     if (busy || uri) return;
@@ -495,30 +763,26 @@ export function VideoBlock({ block, fetchBlob }: { block: FileBlock; fetchBlob?:
 
   return (
     <View style={styles.mediaWrap}>
-      {uri ? (
-        <InlineVideo uri={uri} headers={source?.headers} fullScreen={fullScreen} />
-      ) : (
-        <Pressable style={styles.poster} onPress={start} accessibilityRole="button" accessibilityLabel={`Play ${block.name}`}>
-          <View style={styles.playDisk}>{busy ? <ActivityIndicator color="#FFFFFF" /> : <IconPlay />}</View>
-        </Pressable>
-      )}
+      <View style={[styles.video, { height }]}>
+        {uri ? (
+          <InlineVideo
+            uri={uri}
+            headers={source?.headers}
+            onShape={(width, tall) =>
+              setHeight(Math.round(Math.min(VIDEO_MAX_HEIGHT, Math.max(VIDEO_HEIGHT, (ALBUM_WIDTH * tall) / width))))
+            }
+          />
+        ) : (
+          <Pressable style={styles.poster} onPress={start} accessibilityRole="button" accessibilityLabel={`Play ${block.name}`}>
+            <View style={styles.playDisk}>{busy ? <ActivityIndicator color="#FFFFFF" /> : <IconPlay />}</View>
+          </Pressable>
+        )}
+      </View>
       <View style={styles.videoBar}>
         <Text style={[styles.caption, styles.videoName]} numberOfLines={1}>
           {failed ? "Could not load this video. Tap to retry." : block.name}
         </Text>
-        <Pressable
-          style={styles.videoAction}
-          hitSlop={6}
-          accessibilityRole="button"
-          accessibilityLabel="Full screen"
-          onPress={() => {
-            start();
-            setFullScreen((count) => count + 1);
-          }}
-        >
-          <IconFullscreen />
-        </Pressable>
-        <Pressable style={styles.videoAction} hitSlop={6} accessibilityRole="button" accessibilityLabel="Save video" onPress={save}>
+        <Pressable style={styles.videoAction} hitSlop={8} accessibilityRole="button" accessibilityLabel="Save video" onPress={save}>
           {saving ? <ActivityIndicator color={colors.text} size="small" /> : <IconDownload />}
         </Pressable>
       </View>
@@ -530,7 +794,8 @@ function createStyles(colors: ColorPalette) {
   return StyleSheet.create({
     mediaWrap: { gap: 6 },
     fill: { flex: 1 },
-    single: { width: ALBUM_WIDTH, height: 180, borderRadius: 12, overflow: "hidden", backgroundColor: colors.control },
+    single: { width: ALBUM_WIDTH, borderRadius: 12, borderCurve: "continuous", overflow: "hidden", backgroundColor: colors.control },
+    tilePressed: { opacity: 0.85 },
     loading: { flex: 1, backgroundColor: colors.control, opacity: 0.6 },
     caption: { color: colors.muted, fontSize: 13, maxWidth: ALBUM_WIDTH },
     album: { width: ALBUM_WIDTH, borderRadius: 12, borderCurve: "continuous", overflow: "hidden" },
@@ -546,7 +811,7 @@ function createStyles(colors: ColorPalette) {
       justifyContent: "center",
     },
     moreText: { color: "#FFFFFF", fontSize: 22, fontWeight: "600" },
-    viewer: { flex: 1, backgroundColor: "#000000" },
+    viewer: { backgroundColor: "#000000" },
     viewerLoading: { alignItems: "center", justifyContent: "center" },
     viewerBar: {
       position: "absolute",
@@ -583,15 +848,8 @@ function createStyles(colors: ColorPalette) {
       alignItems: "center",
       justifyContent: "center",
     },
-    video: { width: ALBUM_WIDTH, height: 150, borderRadius: 12, overflow: "hidden", backgroundColor: "#000000" },
-    poster: {
-      width: ALBUM_WIDTH,
-      height: 150,
-      borderRadius: 12,
-      backgroundColor: "#000000",
-      alignItems: "center",
-      justifyContent: "center",
-    },
+    video: { width: ALBUM_WIDTH, borderRadius: 12, borderCurve: "continuous", overflow: "hidden", backgroundColor: "#000000" },
+    poster: { flex: 1, alignItems: "center", justifyContent: "center" },
     playDisk: {
       width: 52,
       height: 52,

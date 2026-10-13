@@ -2,7 +2,7 @@ import { randomSurpriseMark } from "@kuru/shared";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
+import { darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { useResolvedScheme } from "../theme/appearance";
 import { Avatar } from "../ui/Avatar";
 import { PrimaryButton } from "../ui/PrimaryButton";

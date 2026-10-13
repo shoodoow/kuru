@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { createCore } from "../../src/api";
@@ -25,6 +25,12 @@ export default function ChatRoute() {
   const leaveRef = useRef(session.leaveChat);
   leaveRef.current = session.leaveChat;
   const core = useRef(createCore());
+  // One array for as long as the roster and the room stay the same, so the
+  // thread's rows are not rebuilt on every render of this route.
+  const members = useMemo(
+    () => (chat?.kind === "group" ? session.agents.filter((row) => chat.memberIds.includes(row.id)) : []),
+    [chat, session.agents],
+  );
 
   useEffect(() => {
     return () => {
@@ -102,9 +108,10 @@ export default function ChatRoute() {
       title={chat.title}
       subtitle={chat.subtitle}
       contextRing={session.contextRing}
-      members={chat.kind === "group" ? session.agents.filter((row) => chat.memberIds.includes(row.id)) : []}
+      members={members}
       roster={session.agents}
       messages={session.messages}
+      loading={session.threadLoading}
       draft={session.draft}
       sending={session.sending}
       roomActivity={activity}

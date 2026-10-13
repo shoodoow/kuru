@@ -13,6 +13,8 @@ import { PrimaryButton } from "../ui/PrimaryButton";
 import { SettingsRow } from "../ui/SettingsRow";
 import { pressableStyle } from "../ui/pressableStyles";
 import { useSheetScrollStyle } from "../ui/sheet-scroll";
+import { FormScroll } from "../ui/FormScroll";
+import { useNavBarPad } from "../ui/nav-bar-pad";
 import { IconCheck, IconChevron, IconTrash } from "../ui/icons";
 
 export type SignedAccount = {
@@ -105,8 +107,9 @@ export function MenuSheet({
 }) {
   useResolvedScheme();
   const scrollStyle = useSheetScrollStyle();
+  const navBarPad = useNavBarPad();
   return (
-    <View style={styles.sheet}>
+    <View style={[styles.sheet, navBarPad]}>
       {page === "menu" && account ? (
         <MenuPageView
           account={account}
@@ -380,7 +383,7 @@ function ProviderPage({
 
   const ready = provider === "local" ? baseUrl.trim().length > 0 : secret.trim().length > 0 || configured?.configured;
   return (
-    <ScrollView style={scrollStyle} contentInsetAdjustmentBehavior="automatic" nestedScrollEnabled contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+    <FormScroll style={scrollStyle} contentInsetAdjustmentBehavior="automatic" nestedScrollEnabled contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
       <Text style={styles.hint}>Keys are encrypted on the server and never returned to this phone.</Text>
       <View style={styles.group}>
         {providerNames.map((name) => (
@@ -397,7 +400,6 @@ function ProviderPage({
         secureTextEntry
         autoCapitalize="none"
         autoCorrect={false}
-        keyboardAppearance="dark"
         placeholder={configured?.configured ? "Leave blank to keep current key" : provider === "local" ? "Optional local key" : "API key"}
         placeholderTextColor={colors.muted}
         style={styles.input}
@@ -408,7 +410,6 @@ function ProviderPage({
           onChangeText={setBaseUrl}
           autoCapitalize="none"
           autoCorrect={false}
-          keyboardAppearance="dark"
           placeholder="https://your-openai-compatible-server/v1"
           placeholderTextColor={colors.muted}
           style={styles.input}
@@ -432,7 +433,6 @@ function ProviderPage({
             onChangeText={setModelId}
             autoCapitalize="none"
             autoCorrect={false}
-            keyboardAppearance="dark"
             placeholder="Default model id"
             placeholderTextColor={colors.muted}
             style={styles.input}
@@ -446,7 +446,7 @@ function ProviderPage({
           {failure?.from === "model" ? <Text style={styles.error}>{failure.text}</Text> : null}
         </>
       ) : null}
-    </ScrollView>
+    </FormScroll>
   );
 }
 
@@ -561,18 +561,17 @@ function SignupPage({
   scrollStyle: ViewStyle;
 }) {
   return (
-    <ScrollView
+    <FormScroll
       style={scrollStyle}
       contentInsetAdjustmentBehavior="automatic"
       nestedScrollEnabled
-      keyboardShouldPersistTaps="handled"
       contentContainerStyle={styles.scroll}
       showsVerticalScrollIndicator={false}
     >
       <Text style={styles.hint}>Google creates your account. Chats and groups use that account id.</Text>
       <PrimaryButton label="Continue with Google" onPress={onGoogle} />
       <ServerCard serverUrl={serverUrl} onChange={onChangeServer} onError={onError} />
-    </ScrollView>
+    </FormScroll>
   );
 }
 
@@ -626,7 +625,6 @@ function ServerCard({
             onChangeText={setTyped}
             placeholder="https://agents.example.com"
             placeholderTextColor={colors.muted}
-            keyboardAppearance="dark"
             keyboardType="url"
             autoCapitalize="none"
             autoCorrect={false}

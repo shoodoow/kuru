@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, AppState, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ViewStyle } from "react-native";
+import { Alert, AppState, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { PluginCard, PluginList } from "../api";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { CircleButton } from "../ui/CircleButton";
 import { PrimaryButton } from "../ui/PrimaryButton";
 import { pressableStyle } from "../ui/pressableStyles";
+import { FormScroll } from "../ui/FormScroll";
+import { Sheet } from "../ui/Sheet";
 import { IconClose, IconPlus, IconSearch } from "../ui/icons";
 
 /**
@@ -70,7 +72,7 @@ export function PluginsPage({
     </Pressable>
   );
   return (
-    <ScrollView style={scrollStyle} contentInsetAdjustmentBehavior="automatic" nestedScrollEnabled contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+    <FormScroll style={scrollStyle} contentInsetAdjustmentBehavior="automatic" nestedScrollEnabled contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <View style={styles.search}>
           <IconSearch />
@@ -81,7 +83,6 @@ export function PluginsPage({
             placeholderTextColor={colors.muted}
             autoCapitalize="none"
             autoCorrect={false}
-            keyboardAppearance="dark"
             style={styles.searchInput}
           />
         </View>
@@ -126,7 +127,7 @@ export function PluginsPage({
           setSelected(null);
         }}
       />
-    </ScrollView>
+    </FormScroll>
   );
 }
 
@@ -149,19 +150,19 @@ export function CustomPluginPage({
   const [secret, setSecret] = useState("");
   const ready = name.trim().length > 0 && url.trim().length > 0;
   return (
-    <ScrollView style={scrollStyle} contentInsetAdjustmentBehavior="automatic" nestedScrollEnabled contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+    <FormScroll style={scrollStyle} contentInsetAdjustmentBehavior="automatic" nestedScrollEnabled contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
       <Text style={styles.description}>Paste a public HTTPS MCP URL. The token stays on this account's computer.</Text>
-      <TextInput value={name} onChangeText={setName} placeholder="Name" placeholderTextColor={colors.muted} autoCapitalize="none" keyboardAppearance="dark" style={styles.input} />
-      <TextInput value={url} onChangeText={setUrl} placeholder="https://example.com/mcp" placeholderTextColor={colors.muted} autoCapitalize="none" autoCorrect={false} keyboardAppearance="dark" style={styles.input} />
-      <TextInput value={secret} onChangeText={setSecret} placeholder="Bearer token, if the server uses one" placeholderTextColor={colors.muted} autoCapitalize="none" autoCorrect={false} secureTextEntry keyboardAppearance="dark" style={styles.input} />
+      <TextInput value={name} onChangeText={setName} placeholder="Name" placeholderTextColor={colors.muted} autoCapitalize="none" style={styles.input} />
+      <TextInput value={url} onChangeText={setUrl} placeholder="https://example.com/mcp" placeholderTextColor={colors.muted} autoCapitalize="none" autoCorrect={false} style={styles.input} />
+      <TextInput value={secret} onChangeText={setSecret} placeholder="Bearer token, if the server uses one" placeholderTextColor={colors.muted} autoCapitalize="none" autoCorrect={false} secureTextEntry style={styles.input} />
       <PrimaryButton label="Add" disabled={!ready} onPress={() => onSave(name, url, secret)} />
       <PrimaryButton label="Sign in" variant="secondary" disabled={!ready} onPress={() => onSignIn(name, url)} />
-    </ScrollView>
+    </FormScroll>
   );
 }
 
 /**
- * Plugin detail. iOS uses a page sheet; Android uses a full-screen page.
+ * Plugin detail, in the system bottom sheet on both platforms.
  * Input: the selected plugin. Output: description, bundled skills, and Add.
  */
 function PluginDetail({
@@ -178,15 +179,14 @@ function PluginDetail({
   const skills = plugin?.skills ?? [];
   const skillLabel = skills.length === 1 ? "1 skill" : `${skills.length} skills`;
   const insets = useSafeAreaInsets();
-  const pageSheet = process.env.EXPO_OS === "ios";
   return (
-    <Modal visible={plugin !== null} animationType="slide" presentationStyle={pageSheet ? "pageSheet" : "fullScreen"} onRequestClose={onClose}>
+    <Sheet open={plugin !== null} onClose={onClose}>
       {plugin ? (
-        <View style={[styles.detail, pageSheet ? null : { paddingTop: insets.top + 8, paddingBottom: Math.max(28, insets.bottom + 12) }]}>
+        <View style={[styles.detail, { paddingBottom: Math.max(28, insets.bottom + 12) }]}>
           <CircleButton label="Close" onPress={onClose}>
             <IconClose />
           </CircleButton>
-          <ScrollView style={styles.detailScrollView} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.detailScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.detailScrollView} contentContainerStyle={styles.detailScroll} showsVerticalScrollIndicator={false}>
             <View style={styles.detailTitle}>
               <PluginGlyph mark={plugin.mark} name={plugin.name} large />
               <Text style={styles.detailName}>{plugin.name}</Text>
@@ -220,7 +220,7 @@ function PluginDetail({
           )}
         </View>
       ) : null}
-    </Modal>
+    </Sheet>
   );
 }
 

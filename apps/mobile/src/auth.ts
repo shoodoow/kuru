@@ -6,7 +6,7 @@ import { Platform } from "react-native";
 import { activeSlot } from "./account-slots";
 import { coreBaseUrl, defaultCoreUrl } from "./core-url";
 
-export { activeSlot, forgetSlot, newSlot, rememberAccount, savedAccounts, useSlot, type SavedAccount } from "./account-slots";
+export { activeSlot, forgetSlot, newSlot, rememberAccount, savedAccounts, selectSlot, type SavedAccount } from "./account-slots";
 
 // Required so Android/iOS can close the Chrome tab and return after OAuth deep link.
 if (Platform.OS !== "web") {

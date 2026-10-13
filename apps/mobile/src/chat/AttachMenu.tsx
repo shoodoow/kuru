@@ -66,7 +66,7 @@ function createStyles(colors: ColorPalette) {
     paddingVertical: 13,
     paddingHorizontal: 18,
   },
-  rowPressed: { backgroundColor: "rgba(255, 255, 255, 0.08)" },
+  rowPressed: { backgroundColor: colors.pressed },
   label: { color: colors.text, fontSize: 17, fontWeight: "400" },
 });
 }

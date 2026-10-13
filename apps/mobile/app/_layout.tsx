@@ -1,12 +1,13 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider } from "../src/session/SessionProvider";
-import { AppKeyboardShell } from "../src/ui/AppKeyboardShell";
 import { DotBakery } from "../src/ui/DotStage";
 import { AppearanceProvider, useResolvedScheme } from "../src/theme/appearance";
 import { colors } from "../src/theme/tokens";
+import { OverlayHost } from "../src/ui/overlay";
 import { sheetScreenOptions } from "../src/ui/sheet-screen";
 
 export default function RootLayout() {
@@ -14,11 +15,15 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AppearanceProvider>
         <SafeAreaProvider>
-          <SessionProvider>
-            <AppKeyboardShell>
+          {/* Reports the keyboard frame by frame. Each screen that has a field
+              moves itself; nothing here resizes the screens underneath.
+              Android already draws this app edge to edge, so the provider is
+              told to leave the status and navigation bars as they are. */}
+          <KeyboardProvider statusBarTranslucent navigationBarTranslucent preserveEdgeToEdge>
+            <SessionProvider>
               <ThemedStack />
-            </AppKeyboardShell>
-          </SessionProvider>
+            </SessionProvider>
+          </KeyboardProvider>
         </SafeAreaProvider>
       </AppearanceProvider>
     </GestureHandlerRootView>
@@ -38,10 +43,16 @@ function ThemedStack() {
           headerStyle: { backgroundColor: dark ? "#000000" : "#FFFFFF" },
           headerTitleStyle: { color: dark ? "#FFFFFF" : "#000000" },
           contentStyle: { backgroundColor: colors.bg },
+          // A screen that is covered stops rendering until it is shown again,
+          // so typing in a chat no longer redraws the list underneath it.
+          freezeOnBlur: true,
         }}
       >
         <Stack.Screen name="index" options={{ title: "Chats" }} />
-        <Stack.Screen name="chat/[conversationId]" options={{ title: "Chat" }} />
+        {/* iOS 26 goes back on a rightward swipe anywhere on the screen. In a
+            chat that swipe belongs to a bubble (reply), so here Back is the
+            swipe from the left edge only. */}
+        <Stack.Screen name="chat/[conversationId]" options={{ title: "Chat", fullScreenGestureEnabled: false }} />
         {/* No swipe-back here: moving the pointer toward the right edge of the
             remote screen used to be read as "go back" and closed the desktop. */}
         <Stack.Screen name="desktop/[agentId]" options={{ title: "Desktop", gestureEnabled: false, fullScreenGestureEnabled: false }} />
@@ -49,8 +60,10 @@ function ThemedStack() {
         <Stack.Screen name="group/[conversationId]" options={{ title: "Group" }} />
         <Stack.Screen name="approvals" options={{ title: "Approvals" }} />
         <Stack.Screen name="account" options={sheetScreenOptions("Account")} />
-        <Stack.Screen name="new-room" options={sheetScreenOptions("New chat")} />
+        {/* The form says what it is (Chat | Group), so it carries no title bar. */}
+        <Stack.Screen name="new-room" options={{ ...sheetScreenOptions("New chat"), headerShown: false }} />
       </Stack>
+      <OverlayHost />
     </>
   );
 }

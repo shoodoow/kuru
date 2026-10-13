@@ -9,6 +9,7 @@ import { authClient } from "../auth";
 import { darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { useResolvedScheme } from "../theme/appearance";
 import { Avatar } from "../ui/Avatar";
+import { KeyboardLift } from "../ui/KeyboardLift";
 import { CircleButton } from "../ui/CircleButton";
 import { IconHelp, IconKeyboard, IconMore } from "../ui/icons";
 import { DesktopInputMenu } from "./DesktopInputMenu";
@@ -255,7 +256,8 @@ export function DesktopScreen({
   }, [agent, navigation, trackpad]);
 
   return (
-    <View style={styles.screen}>
+    // The remote screen and the buttons under it stay above the keyboard.
+    <KeyboardLift style={styles.screen} absorb={Math.max(18, insets.bottom) - 18}>
       {menuOpen ? (
         <>
           <Pressable
@@ -351,7 +353,7 @@ export function DesktopScreen({
           <IconKeyboard />
         </CircleButton>
       </View>
-    </View>
+    </KeyboardLift>
   );
 }
 

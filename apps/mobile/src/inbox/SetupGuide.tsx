@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Text, TextInput, View, Pressable } from "react-native";
+import { StyleSheet, Text, TextInput, View, Pressable } from "react-native";
 import { defaultModelIds } from "@kuru/shared";
 import type { ProviderSetting } from "../api";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { useResolvedScheme } from "../theme/appearance";
 import { PrimaryButton } from "../ui/PrimaryButton";
 import { pressableStyle } from "../ui/pressableStyles";
+import { FormScroll } from "../ui/FormScroll";
+import { useNavBarPad } from "../ui/nav-bar-pad";
 
 type Provider = ProviderSetting["provider"];
 
@@ -52,12 +54,12 @@ export function SetupGuide({
 
   const keyReady = provider === "local" ? baseUrl.trim().length > 0 : hasKey || secret.trim().length > 0;
   const ready = keyReady && modelId.trim().length > 0;
+  const navBarPad = useNavBarPad();
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
+    <FormScroll
+      style={[{ flex: 1, backgroundColor: colors.bg }, navBarPad]}
       contentInsetAdjustmentBehavior="automatic"
-      keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
       contentContainerStyle={styles.content}
     >
@@ -88,7 +90,6 @@ export function SetupGuide({
           onChangeText={setBaseUrl}
           autoCapitalize="none"
           autoCorrect={false}
-          keyboardAppearance="dark"
           placeholder="https://your-server/v1"
           placeholderTextColor={colors.muted}
           style={styles.input}
@@ -100,7 +101,6 @@ export function SetupGuide({
         secureTextEntry
         autoCapitalize="none"
         autoCorrect={false}
-        keyboardAppearance="dark"
         placeholder={hasKey ? "Key saved. Leave blank to keep it" : provider === "local" ? "API key (if your server needs one)" : "Paste your API key"}
         placeholderTextColor={colors.muted}
         style={styles.input}
@@ -116,7 +116,6 @@ export function SetupGuide({
         onChangeText={setModelId}
         autoCapitalize="none"
         autoCorrect={false}
-        keyboardAppearance="dark"
         placeholder="Model id"
         placeholderTextColor={colors.muted}
         style={styles.input}
@@ -138,7 +137,7 @@ export function SetupGuide({
         }}
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
-    </ScrollView>
+    </FormScroll>
   );
 }
 

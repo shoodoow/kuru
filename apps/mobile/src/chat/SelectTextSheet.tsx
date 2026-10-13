@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { PillButton } from "../ui/PrimaryButton";
+import { Sheet } from "../ui/Sheet";
 
 /** Puts text on the clipboard with the light tap that confirms it on iOS. */
 export async function copyText(text: string): Promise<void> {
@@ -28,8 +29,8 @@ export function SelectTextSheet({ text, onClose }: { text: string | null; onClos
     setCopied(false);
   }, [text]);
   return (
-    <Modal visible={text !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={[styles.sheet, Platform.OS === "android" ? { paddingTop: insets.top } : null]}>
+    <Sheet open={text !== null} onClose={onClose}>
+      <View style={styles.sheet}>
         <View style={styles.bar}>
           <Pressable onPress={onClose} hitSlop={8} accessibilityRole="button">
             <Text style={styles.done}>Done</Text>
@@ -55,7 +56,7 @@ export function SelectTextSheet({ text, onClose }: { text: string | null; onClos
           )}
         </ScrollView>
       </View>
-    </Modal>
+    </Sheet>
   );
 }
 

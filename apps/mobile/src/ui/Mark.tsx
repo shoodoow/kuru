@@ -15,7 +15,7 @@ import {
   type MarkShape,
   type MarkStyle,
 } from "@kuru/shared";
-import { DotLive, DotThumb, isLiveMark, peekMarkThumb } from "./DotStage";
+import { DotLive, DotThumb, isLiveMark } from "./DotStage";
 
 export type { MarkGender, MarkMaterial, MarkShape, MarkStyle };
 
@@ -146,26 +146,25 @@ export function LivingMark({
   interactive?: boolean;
 }) {
   const label = `${shape} ${material} mark${mood === "working" ? ", working" : ""}`;
-  const look = { shape, color, material, style, gender };
-  const [live, setLive] = useState(() => !isLiveMark(size) || !peekMarkThumb(look));
+  const wantsLive = isLiveMark(size);
+  // The still picture shows first; the 3D view starts once the screen has
+  // finished sliding in, so opening a profile never stutters. It then stays
+  // up: a new color or shape is applied inside the same view. Starting it
+  // over for every change was what made the character editor slow.
+  const [live, setLive] = useState(false);
 
   useEffect(() => {
-    if (!isLiveMark(size)) {
+    if (!wantsLive) {
       setLive(false);
       return;
     }
-    if (!peekMarkThumb(look)) {
-      setLive(true);
-      return;
-    }
-    setLive(false);
     const task = InteractionManager.runAfterInteractions(() => setLive(true));
     return () => task.cancel();
-  }, [size, shape, color, material, style, gender]);
+  }, [wantsLive]);
 
   return (
     <View accessibilityRole="image" accessibilityLabel={label}>
-      {isLiveMark(size) && live ? (
+      {wantsLive && live ? (
         <DotLive shape={shape} color={color} material={material} style={style} gender={gender} size={size} />
       ) : (
         <DotThumb shape={shape} color={color} material={material} style={style} gender={gender} size={size} />

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { PillButton } from "../ui/PrimaryButton";
+import { presentOverlay } from "../ui/overlay";
+import { Sheet } from "../ui/Sheet";
 import { MONO, MarkdownText } from "./MarkdownText";
 import { openFileBlock, readFileText, saveFileBlock, shareFileBlock, type FetchBlob, type FileBlock } from "./media";
 
@@ -22,22 +24,19 @@ export function isTextFile(block: FileBlock): boolean {
  * else goes to the system preview/share sheet as before.
  */
 export function FileCard({ block, fetchBlob }: { block: FileBlock; fetchBlob?: FetchBlob }) {
-  const [open, setOpen] = useState(false);
   const readable = isTextFile(block);
   return (
-    <>
-      <Pressable
-        style={styles.fileWrap}
-        onPress={() => {
-          if (readable) setOpen(true);
-          else void openFileBlock(block, fetchBlob);
-        }}
-      >
-        <Text style={styles.fileName}>{block.name}</Text>
-        <Text style={styles.fileHint}>{readable ? "Tap to view" : "Tap to open"}</Text>
-      </Pressable>
-      {open ? <FileViewer block={block} fetchBlob={fetchBlob} onClose={() => setOpen(false)} /> : null}
-    </>
+    <Pressable
+      style={styles.fileWrap}
+      onPress={() => {
+        // Drawn from the top of the app, not from inside this bubble: see presentOverlay.
+        if (readable) presentOverlay((close) => <FileViewer block={block} fetchBlob={fetchBlob} onClose={close} />);
+        else void openFileBlock(block, fetchBlob);
+      }}
+    >
+      <Text style={styles.fileName}>{block.name}</Text>
+      <Text style={styles.fileHint}>{readable ? "Tap to view" : "Tap to open"}</Text>
+    </Pressable>
   );
 }
 
@@ -53,6 +52,12 @@ function FileViewer({ block, fetchBlob, onClose }: { block: FileBlock; fetchBlob
   const [text, setText] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<"save" | "share" | null>(null);
+  // The sheet slides shut first; the card forgets the viewer once it is gone.
+  const [open, setOpen] = useState(true);
+  const close = (): void => {
+    setOpen(false);
+    setTimeout(onClose, 320);
+  };
   useEffect(() => {
     let live = true;
     void readFileText(block, fetchBlob)
@@ -85,10 +90,10 @@ function FileViewer({ block, fetchBlob, onClose }: { block: FileBlock; fetchBlob
   }
 
   return (
-    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={[styles.sheet, Platform.OS === "android" ? { paddingTop: insets.top } : null]}>
+    <Sheet open={open} onClose={close}>
+      <View style={styles.sheet}>
         <View style={styles.bar}>
-          <Pressable onPress={onClose} hitSlop={8} accessibilityRole="button">
+          <Pressable onPress={close} hitSlop={8} accessibilityRole="button">
             <Text style={styles.done}>Done</Text>
           </Pressable>
           <Text style={styles.title} numberOfLines={1}>
@@ -124,7 +129,7 @@ function FileViewer({ block, fetchBlob, onClose }: { block: FileBlock; fetchBlob
           </View>
         </View>
       </View>
-    </Modal>
+    </Sheet>
   );
 }
 

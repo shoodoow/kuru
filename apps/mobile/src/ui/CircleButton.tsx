@@ -31,7 +31,7 @@ export function CircleButton({
       accessibilityRole="button"
       accessibilityState={{ disabled: off, busy, selected: active }}
       disabled={off}
-      android_ripple={{ color: "rgba(255,255,255,0.16)", borderless: true, radius: 22 }}
+      android_ripple={{ color: colors.pressed, borderless: true, radius: 22 }}
       onPress={() => {
         if (process.env.EXPO_OS === "ios") {
           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

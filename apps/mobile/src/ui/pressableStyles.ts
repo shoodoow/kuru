@@ -4,7 +4,6 @@ export const interaction = {
   pressedOpacity: 0.72,
   pressedScale: 0.97,
   disabledOpacity: 0.38,
-  rowPressedBackground: "rgba(255, 255, 255, 0.07)",
 } as const;
 
 type PressState = { pressed: boolean; disabled?: boolean };

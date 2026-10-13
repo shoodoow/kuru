@@ -151,8 +151,9 @@ export function IconDownloadLight() {
   return <PlatformIcon sf="arrow.down.to.line" md="file-download" size={18} color="#FFFFFF" />;
 }
 
-export function IconFullscreen() {
-  return <PlatformIcon sf="arrow.up.left.and.arrow.down.right" md="fullscreen" size={16} color={colors.label} />;
+/** The send glyph: an up arrow on iOS, a paper plane on Android, as in Telegram on each. */
+export function IconSend({ color }: { color: ColorValue }) {
+  return <PlatformIcon sf="arrow.up" md="send" size={process.env.EXPO_OS === "ios" ? 18 : 26} color={color} />;
 }
 
 export function IconToastDone() {

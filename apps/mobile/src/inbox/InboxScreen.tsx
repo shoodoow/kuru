@@ -4,6 +4,7 @@ import type { InboxStatus, RosterAgent } from "../api";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { useResolvedScheme } from "../theme/appearance";
 import { Avatar } from "../ui/Avatar";
+import { useNavBarPad } from "../ui/nav-bar-pad";
 import { GroupCluster, type GroupFace } from "../ui/GroupCluster";
 import { IconPin, IconEyeOff, IconReply } from "../ui/icons";
 
@@ -54,6 +55,7 @@ export function InboxScreen({
   }, [query, visible]);
   const [held, setHeld] = useState<RosterAgent | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const navBarPad = useNavBarPad();
   const marks = useMemo(() => {
     const working = new Set(status?.workingAgentIds ?? []);
     const unreadByAgent = new Map<string, number>();
@@ -80,7 +82,6 @@ export function InboxScreen({
           onChangeText={setQuery}
           placeholder="Search"
           placeholderTextColor={colors.muted}
-          keyboardAppearance="dark"
           autoCapitalize="none"
           style={styles.search}
         />
@@ -88,7 +89,7 @@ export function InboxScreen({
       <FlatList
         data={rows}
         keyExtractor={(agent) => agent.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, navBarPad ? { paddingBottom: 32 + navBarPad.paddingBottom } : null]}
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
         refreshControl={
@@ -369,10 +370,10 @@ function createStyles(colors: ColorPalette) {
   preview: { color: colors.muted, fontSize: 15, flex: 1 },
   scrim: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", paddingHorizontal: 36 },
   holdCard: { gap: 10 },
-  holdPreview: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", backgroundColor: "#2C2C2E", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
+  holdPreview: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", backgroundColor: colors.control, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
   holdName: { color: colors.text, fontSize: 16, fontWeight: "600", maxWidth: 180 },
-  holdBody: { color: colors.text, fontSize: 15, lineHeight: 20, backgroundColor: "#2C2C2E", borderRadius: 16, paddingHorizontal: 14, paddingVertical: 12 },
-  holdMenu: { backgroundColor: "#2C2C2E", borderRadius: 16, overflow: "hidden", marginTop: 4 },
+  holdBody: { color: colors.text, fontSize: 15, lineHeight: 20, backgroundColor: colors.control, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 12 },
+  holdMenu: { backgroundColor: colors.control, borderRadius: 16, overflow: "hidden", marginTop: 4 },
   holdRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
   holdLabel: { color: colors.text, fontSize: 16 },
   holdDanger: { color: colors.danger },

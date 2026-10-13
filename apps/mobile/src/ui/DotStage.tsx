@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { Image } from "expo-image";
 import { Asset } from "expo-asset";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { markStyleGender, type MarkGender, type MarkMaterial, type MarkShape, type MarkStyle } from "@kuru/shared";
 import { hydrateMarkThumbsFromDisk, persistMarkThumb } from "./mark-thumb-disk";
-import { ShapeGlyph } from "./ShapeGlyph";
 
-const studioModule = require("../../assets/dot-avatar-maker.html") as number;
+// The studio page with three.js built in (scripts/build-dot-studio.mjs), so
+// drawing an avatar never waits on a download and works with no connection.
+const studioModule = require("../../assets/dot-studio.html") as number;
 
 /** Below this width (px), avatars use one shared bakery PNG; at/above, a live WebGL view. */
 export const MARK_LIVE_MIN_PX = 96;
 const LIVE_AT = MARK_LIVE_MIN_PX;
+/** Marks smaller than this (badges, stacked faces) wait empty; a spinner would not fit. */
+const MARK_SPINNER_MIN_PX = 24;
 
 type Job = {
   shape: string;
@@ -176,18 +179,15 @@ function pump(): void {
   const job = jobs.get(key);
   if (!job) return;
   inflight = key;
-  const script =
-    lastBakedKey === key
-      ? `setTimeout(function(){
+  // snapshot() rebuilds nothing and draws the settled pose itself, so there is
+  // no need to wait for the page's own animation before taking the picture.
+  // (The 200ms pause that used to sit here made a roster of ten take two
+  // seconds longer than the drawing did.)
+  const shot = `setTimeout(function(){
       var url=null; try{ url=window.__dot&&window.__dot.snapshot(320); }catch(e){}
       window.ReactNativeWebView.postMessage(JSON.stringify({type:'shot',key:${JSON.stringify(key)},url:url}));
-    }, 120); true;`
-      : `${apply(job)};
-    setTimeout(function(){
-      var url=null; try{ url=window.__dot&&window.__dot.snapshot(320); }catch(e){}
-      window.ReactNativeWebView.postMessage(JSON.stringify({type:'shot',key:${JSON.stringify(key)},url:url}));
-    }, 200);
-    true;`;
+    }, 0); true;`;
+  const script = lastBakedKey === key ? shot : `${apply(job)};\n${shot}`;
   web.injectJavaScript(script);
 }
 
@@ -285,7 +285,7 @@ export function DotBakery() {
           { shape: "cloud", color: "#FFCC38", material: "plush", style: "gentleman", gender: "male" },
           false,
         )}
-        injectedJavaScript={`(function wait(){ if(window.__dot&&window.__dot.snapshot){ window.ReactNativeWebView.postMessage(JSON.stringify({type:'ready'})); } else setTimeout(wait, 120); })(); true;`}
+        injectedJavaScript={`(function wait(){ if(window.__dot&&window.__dot.snapshot){ window.ReactNativeWebView.postMessage(JSON.stringify({type:'ready'})); } else setTimeout(wait, 30); })(); true;`}
         onMessage={onBakeryMessage}
         originWhitelist={["*"]}
         scrollEnabled={false}
@@ -305,7 +305,6 @@ export function DotThumb({
   style = "minimal",
   gender = "male",
   size,
-  flatFallback = false,
 }: {
   shape: MarkShape;
   color: string;
@@ -313,8 +312,6 @@ export function DotThumb({
   style?: MarkStyle;
   gender?: MarkGender;
   size: number;
-  /** When false, wait for the baked PNG instead of showing a flat silhouette. */
-  flatFallback?: boolean;
 }) {
   const job = { shape, color, material, style, gender };
   const [url, setUrl] = useState<string | null>(() => cache.get(keyOf(job)) ?? null);
@@ -358,8 +355,9 @@ export function DotThumb({
           style={{ width: size, height: size, backgroundColor: "transparent" }}
           contentFit="contain"
         />
-      ) : flatFallback ? (
-        <ShapeGlyph shape={shape} color={color} size={size} />
+      ) : size >= MARK_SPINNER_MIN_PX ? (
+        // Until the picture is baked: a spinner, never a stand-in face.
+        <ActivityIndicator size="small" color={color} />
       ) : null}
     </View>
   );

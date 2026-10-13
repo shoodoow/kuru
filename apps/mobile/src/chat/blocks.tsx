@@ -12,7 +12,7 @@ import { ImageGroup, VideoBlock, isVideoBlock, openFileBlock, type FetchBlob, ty
 
 export { openFileBlock };
 
-type BlockHandlers = {
+export type BlockHandlers = {
   messageId?: string;
   onApprove?: (approvalId?: string) => void;
   onDeny?: (approvalId?: string) => void;
@@ -532,7 +532,6 @@ function QuestionWidget({
             onChangeText={setCustom}
             placeholder="Write your own answer"
             placeholderTextColor={colors.muted}
-            keyboardAppearance="dark"
             style={styles.questionCustom}
           />
           <Pressable
@@ -794,7 +793,6 @@ function SecretWidget({
           secureTextEntry
           autoCapitalize="none"
           autoCorrect={false}
-          keyboardAppearance="dark"
           style={styles.secretInput}
         />
         <Pressable

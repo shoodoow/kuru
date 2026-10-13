@@ -52,7 +52,7 @@ export function activeSlot(): string {
 }
 
 /** Makes a slot the one in use. The caller points the app at that slot's server first. */
-export function useSlot(slot: string): void {
+export function selectSlot(slot: string): void {
   active = slot;
   write(ACTIVE_KEY, slot);
 }

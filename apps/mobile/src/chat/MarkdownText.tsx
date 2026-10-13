@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { makeMutable } from "react-native-reanimated";
 import { darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { LinkPreview } from "./LinkPreview";
 import { extractUrls, parseMarkdownBlocks, trimUrl } from "./markdown";
@@ -25,12 +26,10 @@ export function CopyButton({ text }: { text: string }) {
   );
 }
 
-// True while a finger is down on a table. The bubble's swipe-to-reply reads it
-// and stands down, so dragging a table back to its first column never replies.
-let tableTouch = false;
-export function isTableTouch(): boolean {
-  return tableTouch;
-}
+// True while a finger is down on something inside a bubble that handles its own
+// drags: a table that scrolls sideways, a video being scrubbed. The bubble's
+// swipe-to-reply reads it on the UI thread and stands down.
+export const innerTouching = makeMutable(false);
 
 /**
  * Wide tables scroll sideways inside the bubble.
@@ -46,7 +45,7 @@ export function isTableTouch(): boolean {
 export function HorizontalTableScroll({ children }: { children: ReactNode }) {
   const { width } = useWindowDimensions();
   const release = (): void => {
-    tableTouch = false;
+    innerTouching.value = false;
   };
   return (
     <ScrollView
@@ -58,7 +57,7 @@ export function HorizontalTableScroll({ children }: { children: ReactNode }) {
       style={[styles.horizontalTableScroll, { maxWidth: Math.round((width - 24) * 0.85) }]}
       contentContainerStyle={styles.horizontalTableContent}
       onTouchStart={() => {
-        tableTouch = true;
+        innerTouching.value = true;
       }}
       onTouchEnd={release}
       onTouchCancel={release}

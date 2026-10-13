@@ -3,10 +3,10 @@ import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-nativ
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { AdaptiveSurface } from "../ui/AdaptiveSurface";
-import { AppKeyboardShell } from "../ui/AppKeyboardShell";
 import { ContextUsageRing } from "../ui/ContextUsageRing";
+import { KeyboardLift } from "../ui/KeyboardLift";
 import { IconCollapse, IconDismiss, IconExpand } from "../ui/icons";
-import { PillButton } from "../ui/PrimaryButton";
+import { SendButton } from "./SendButton";
 
 const LINE_HEIGHT = 22;
 /** Vertical padding inside the box; one line plus both pads is the 44pt rest height. */
@@ -87,7 +87,6 @@ export function Composer({
         onChangeText={onChange}
         placeholder={placeholder}
         placeholderTextColor={colors.muted}
-        keyboardAppearance="dark"
         style={[styles.input, contextRing || capped ? styles.inputWithSide : null]}
         multiline
         // A long placeholder wraps in a multiline field and makes the empty
@@ -119,7 +118,7 @@ export function Composer({
       {/* Full screen, not a page sheet: a sheet sits below the top of the
           window, which throws the keyboard padding off by that gap. */}
       <Modal visible={fullScreen} animationType="slide" onRequestClose={() => setFullScreen(false)}>
-        <AppKeyboardShell>
+        <KeyboardLift style={styles.editorShell}>
           <View style={[styles.editor, { paddingTop: insets.top }]}>
             <View style={styles.editorBar}>
               <Pressable
@@ -134,8 +133,7 @@ export function Composer({
               <Text style={styles.editorTitle} numberOfLines={1}>
                 {placeholder}
               </Text>
-              <PillButton
-                label="Send"
+<SendButton
                 disabled={!canSend}
                 busy={sending}
                 onPress={() => {
@@ -149,7 +147,6 @@ export function Composer({
               onChangeText={onChange}
               placeholder={placeholder}
               placeholderTextColor={colors.muted}
-              keyboardAppearance="dark"
               style={styles.editorInput}
               multiline
               autoFocus
@@ -157,7 +154,7 @@ export function Composer({
               textAlignVertical="top"
             />
           </View>
-        </AppKeyboardShell>
+        </KeyboardLift>
       </Modal>
     </AdaptiveSurface>
   );
@@ -212,6 +209,7 @@ function createStyles(colors: ColorPalette) {
       height: MIN_HEIGHT,
       justifyContent: "center",
     },
+    editorShell: { flex: 1, backgroundColor: colors.bg },
     editor: { flex: 1, backgroundColor: colors.bg },
     editorBar: {
       flexDirection: "row",

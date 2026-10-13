@@ -1,13 +1,18 @@
 import { randomSurpriseMark, type AgentMark } from "@kuru/shared";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { router } from "expo-router";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { RosterAgent } from "../api";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { useResolvedScheme } from "../theme/appearance";
 import { Avatar } from "../ui/Avatar";
-import { IconCheck } from "../ui/icons";
+import { CircleButton } from "../ui/CircleButton";
+import { IconCheck, IconClose } from "../ui/icons";
 import { PrimaryButton } from "../ui/PrimaryButton";
 import { pressableStyle } from "../ui/pressableStyles";
+import { FormScroll } from "../ui/FormScroll";
+import { useNavBarPad } from "../ui/nav-bar-pad";
 
 /**
  * Creates a direct chat or a group on the signed-in account.
@@ -41,6 +46,11 @@ export function NewRoomSheet({
   const chatReady = name.trim().length > 0;
   const groupReady = title.trim().length > 0 && picked.length >= 2;
   useResolvedScheme();
+  const navBarPad = useNavBarPad();
+  const insets = useSafeAreaInsets();
+  // iOS shows this as a sheet with a grabber, which is also how it closes.
+  // Android shows a full page, so it gets a close button under the status bar.
+  const android = process.env.EXPO_OS === "android";
 
   /**
    * Toggles one agent in the group.
@@ -52,16 +62,22 @@ export function NewRoomSheet({
   }
 
   return (
-      <ScrollView
+      <FormScroll
         // Fills a fixed-height sheet. Sizing the sheet to this form left the
         // bottom of it, the create button, outside the area that takes taps.
-        style={{ flex: 1, backgroundColor: colors.sheet }}
+        style={[{ flex: 1, backgroundColor: colors.sheet }, navBarPad]}
         nestedScrollEnabled
         contentInsetAdjustmentBehavior="automatic"
-        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: android ? insets.top + 4 : 26 }]}
       >
+          {android ? (
+            <View style={styles.closeRow}>
+              <CircleButton label="Close" onPress={() => router.back()}>
+                <IconClose />
+              </CircleButton>
+            </View>
+          ) : null}
           <View style={styles.kinds}>
             <Pressable
               accessibilityRole="button"
@@ -102,7 +118,6 @@ export function NewRoomSheet({
                 onChangeText={setName}
                 placeholder="Name"
                 placeholderTextColor={colors.muted}
-                keyboardAppearance="dark"
                 style={styles.input}
               />
               <PrimaryButton
@@ -146,7 +161,7 @@ export function NewRoomSheet({
             </>
           ) : (
             <>
-              <TextInput value={title} onChangeText={setTitle} placeholder="Group name" placeholderTextColor={colors.muted} keyboardAppearance="dark" style={styles.input} />
+              <TextInput value={title} onChangeText={setTitle} placeholder="Group name" placeholderTextColor={colors.muted} style={styles.input} />
               {agents.length < 2 ? <Text style={styles.hint}>Create at least two chats before a group.</Text> : null}
               {agents.filter((agent) => agent.kind !== "support" && agent.kind !== "companion").map((agent) => (
                 <Pressable
@@ -177,13 +192,14 @@ export function NewRoomSheet({
               {error && kind === "group" ? <Text style={styles.error}>{error}</Text> : null}
             </>
           )}
-      </ScrollView>
+      </FormScroll>
   );
 }
 
 function createStyles(colors: ColorPalette) {
   return StyleSheet.create({
   scrollContent: { padding: 14, paddingBottom: 28, gap: 10 },
+  closeRow: { flexDirection: "row", marginLeft: -4 },
   kinds: { flexDirection: "row", gap: 8 },
   kind: { flex: 1, height: 40, borderRadius: 14, backgroundColor: colors.card, alignItems: "center", justifyContent: "center" },
   kindOn: { backgroundColor: colors.text },

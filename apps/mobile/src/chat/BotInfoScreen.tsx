@@ -17,9 +17,11 @@ import {
 import type { MessageBlock, ProviderSetting, RosterAgent, Routine, RoutineRun } from "../api";
 import { formatLastRun, formatNextRunRelative, formatRunHistoryWhen, formatSchedule, routineTitle } from "../api";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
-import { Feather } from "@expo/vector-icons";
+import Feather from "@expo/vector-icons/Feather";
 import { IconCheck, IconChevron, IconClock, IconDoc, IconMore, IconShare } from "../ui/icons";
 import { warmMarkThumbs } from "../ui/DotStage";
+import { FormScroll } from "../ui/FormScroll";
+import { useNavBarPad } from "../ui/nav-bar-pad";
 import {
   LivingMark,
   MARK_COLORS,
@@ -293,13 +295,13 @@ function InfoPage({
     providerChoices.length > 0 &&
     configured.some((row) => row.provider === profile.provider);
   const providerName = profile.provider === "xai" ? "xAI" : profile.provider[0]?.toUpperCase() + profile.provider.slice(1);
+  const navBarPad = useNavBarPad();
   return (
-    <View style={styles.screen}>
-      <ScrollView
+    <View style={[styles.screen, navBarPad]}>
+      <FormScroll
         contentContainerStyle={styles.pageScroll}
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.markWrap} accessibilityRole="image" accessibilityLabel="Bot character">
           {profile.avatarUrl ? (
@@ -320,7 +322,6 @@ function InfoPage({
           <TextInput
             value={profile.name}
             onChangeText={(name) => onChange({ ...profile, name })}
-            keyboardAppearance="dark"
             style={styles.nameInput}
           />
           <View style={styles.nameDivider} />
@@ -329,7 +330,6 @@ function InfoPage({
             onChangeText={(label) => onChange({ ...profile, label })}
             placeholder="Title (optional)"
             placeholderTextColor={colors.muted}
-            keyboardAppearance="dark"
             style={styles.titleInput}
           />
         </View>
@@ -549,7 +549,6 @@ function InfoPage({
                   onChangeText={(modelId) => onChange({ ...profile, modelId })}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  keyboardAppearance="dark"
                   style={styles.input}
                 />
               </View>
@@ -565,7 +564,7 @@ function InfoPage({
             <PrimaryButton label="Save changes" disabled={!saveReady} onPress={onSave} style={styles.saveSpace} />
           </View>
         )}
-      </ScrollView>
+      </FormScroll>
     </View>
   );
 }
@@ -645,16 +644,16 @@ function InstructionsPage({
 }) {
   // The default agent's role and job are set by the core; only its voice is the person's to change.
   const fixed = profile.kind === "support";
+  const navBarPad = useNavBarPad();
   return (
-    <View style={styles.screen}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+    <View style={[styles.screen, navBarPad]}>
+      <FormScroll contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {fixed ? null : (
           <>
             <Text style={styles.fieldLabel}>Role</Text>
             <TextInput
               value={profile.role}
               onChangeText={(role) => onChange({ ...profile, role })}
-              keyboardAppearance="dark"
               style={styles.input}
             />
           </>
@@ -663,7 +662,6 @@ function InstructionsPage({
         <TextInput
           value={profile.personality}
           onChangeText={(personality) => onChange({ ...profile, personality })}
-          keyboardAppearance="dark"
           multiline
           style={styles.area}
         />
@@ -673,14 +671,13 @@ function InstructionsPage({
             <TextInput
               value={profile.jobDescription}
               onChangeText={(jobDescription) => onChange({ ...profile, jobDescription })}
-              keyboardAppearance="dark"
               multiline
               style={styles.area}
             />
           </>
         )}
         <PrimaryButton label="Save changes" onPress={onSave} style={styles.saveSpace} />
-      </ScrollView>
+      </FormScroll>
     </View>
   );
 }
@@ -698,12 +695,13 @@ function ProviderPage({
   providers: ProviderSetting[];
   onSelect: (provider: ProviderSetting["provider"]) => void;
 }) {
+  const navBarPad = useNavBarPad();
   const configured = providers.filter((row) => row.configured);
   const choices: ProviderSetting["provider"][] = [
     ...new Set([...configured.map((row) => row.provider), ...(profile.provider ? [profile.provider] : [])]),
   ];
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, navBarPad]}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.group}>
           {choices.map((name) => (
@@ -739,6 +737,7 @@ function RoutineDetailPage({
 }) {
   const [runs, setRuns] = useState<RoutineRun[]>(routine.recentRuns ?? []);
   const [showInstructions, setShowInstructions] = useState(false);
+  const navBarPad = useNavBarPad();
   useEffect(() => {
     setRuns(routine.recentRuns ?? []);
     setShowInstructions(false);
@@ -774,7 +773,7 @@ function RoutineDetailPage({
 
   if (showInstructions) {
     return (
-      <View style={styles.screen}>
+      <View style={[styles.screen, navBarPad]}>
         <ScrollView contentContainerStyle={styles.routineScroll} showsVerticalScrollIndicator={false}>
           <View style={styles.card}>
             <Text style={styles.routineFullBody} selectable>
@@ -787,7 +786,7 @@ function RoutineDetailPage({
   }
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, navBarPad]}>
       <ScrollView contentContainerStyle={styles.routineScroll} showsVerticalScrollIndicator={false}>
         <View style={styles.activeCard}>
           <Text style={styles.rowLabel}>Active</Text>

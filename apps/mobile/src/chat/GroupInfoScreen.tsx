@@ -4,6 +4,7 @@ import { useNavigation } from "expo-router";
 import type { MessageBlock, RosterAgent } from "../api";
 import { darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { Avatar } from "../ui/Avatar";
+import { useNavBarPad } from "../ui/nav-bar-pad";
 import { GroupCluster } from "../ui/GroupCluster";
 import { IconChevron } from "../ui/icons";
 import { openFileBlock } from "./blocks";
@@ -37,11 +38,12 @@ export function GroupInfoScreen({
   const [tab, setTab] = useState<Tab>("info");
   const shares = collectShares(messages);
   const navigation = useNavigation();
+  const navBarPad = useNavBarPad();
   useLayoutEffect(() => {
     navigation.setOptions({ title: title || "Group" });
   }, [navigation, title]);
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, navBarPad]}>
       <ScrollView contentContainerStyle={styles.page} contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false}>
         <View style={styles.cluster}>
           <GroupCluster members={members} size={52} />

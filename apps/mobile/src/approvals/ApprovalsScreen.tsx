@@ -2,6 +2,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { Proposal, ToolApproval } from "../api";
 import { darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { pressableStyle } from "../ui/pressableStyles";
+import { useNavBarPad } from "../ui/nav-bar-pad";
 
 /**
  * Lists pending skill proposals and Auto-review tool rows.
@@ -26,8 +27,9 @@ export function ApprovalsScreen({
   onBack: () => void;
 }) {
   const empty = proposals.length === 0 && toolApprovals.length === 0;
+  const navBarPad = useNavBarPad();
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, navBarPad]}>
       <ScrollView contentContainerStyle={styles.list} contentInsetAdjustmentBehavior="automatic">
         {empty ? <Text style={styles.empty}>Nothing to review.</Text> : null}
         {toolApprovals.map((row) => (

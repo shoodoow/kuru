@@ -32,7 +32,7 @@ import {
   onPushTap,
   scheduleLocalNotification,
 } from "../push";
-import { activeSlot, authClient, authClientFor, forgetSlot, newSlot, rememberAccount, savedAccounts, useSlot, type SavedAccount } from "../auth";
+import { activeSlot, authClient, authClientFor, forgetSlot, newSlot, rememberAccount, savedAccounts, selectSlot, type SavedAccount } from "../auth";
 import { installOAuthReturnHandler } from "../auth-oauth-return";
 import * as WebBrowser from "expo-web-browser";
 import { coreBaseUrl, defaultCoreUrl, normalizeCoreUrl, saveCoreUrl } from "../core-url";
@@ -154,7 +154,11 @@ export type ChatTarget = {
   memberIds: string[];
 };
 
-function closeSheets(): void {
+/** Screens that slide up over whatever is underneath, and are closed before another screen opens. */
+const SHEET_ROUTES = new Set(["/account", "/new-room"]);
+
+/** Goes back to the chat list, closing every screen above it. */
+function backToInbox(): void {
   if (router.canDismiss()) {
     router.dismissAll();
   }
@@ -243,6 +247,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // False until the saved sign-in has been checked, so a signed-in person never sees the welcome page flash by.
   const [restored, setRestored] = useState(false);
   const [inbox, setInbox] = useState<InboxStatus | null>(null);
+  const inboxRef = useRef(inbox);
+  inboxRef.current = inbox;
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
+  // Threads and member lists already seen, so a chat opens on what was last
+  // on screen instead of waiting for the server before it even appears.
+  const threadCacheRef = useRef(new Map<string, Bubble[]>());
+  const membersCacheRef = useRef(new Map<string, string[]>());
+  /** The chat being opened; a slower, older open must not overwrite it. */
+  const enteringRef = useRef("");
+  // True while a chat that has never been seen is loading its first page.
+  const [threadLoading, setThreadLoading] = useState(false);
   const [autoReview, setAutoReview] = useState(true);
   const [defaultModel, setDefaultModel] = useState<DefaultModelSetting | null>(null);
   // True for a signed-in account that has no default agent yet: the inbox shows the setup guide.
@@ -251,6 +267,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
+
+  /**
+   * Closes the account or new-chat sheet if one is on top, and nothing else.
+   * Why: this used to close every screen above the chat list. Opening the
+   * desktop or the approvals from a chat therefore threw the chat away, and
+   * Back landed on the list instead of the chat.
+   */
+  function closeSheet(): void {
+    if (SHEET_ROUTES.has(pathnameRef.current) && router.canDismiss()) {
+      router.dismiss();
+    }
+  }
   const account = accounts.find((row) => row.id === accountId) ?? null;
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -367,6 +395,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setContextRing(null);
     setDraft("");
     draftsRef.current.clear();
+    threadCacheRef.current.clear();
+    membersCacheRef.current.clear();
+    enteringRef.current = "";
+    setThreadLoading(false);
     setNote("");
   }
 
@@ -382,7 +414,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setAccounts(savedAccounts());
     setAccountId("");
     setMenu(null);
-    closeSheets();
+    backToInbox();
   }
 
   /**
@@ -397,7 +429,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const next = savedAccounts()[0]!;
       saveCoreUrl(next.server);
       setServerUrl(coreBaseUrl());
-      useSlot(next.slot);
+      selectSlot(next.slot);
       await refreshSession().catch(() => {});
       if (accountIdRef.current) return;
       // Could not be checked (offline): stop here and keep the list as it is.
@@ -416,7 +448,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!entry || (slot === activeSlot() && entry.server === coreBaseUrl() && accountIdRef.current === entry.id)) return;
     saveCoreUrl(entry.server);
     setServerUrl(coreBaseUrl());
-    useSlot(slot);
+    selectSlot(slot);
     try {
       await refreshSession();
     } catch (error) {
@@ -440,11 +472,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       throw new Error("Five accounts are signed in on this phone. Sign out of one to add another.");
     }
     const previous = activeSlot();
-    useSlot(newSlot());
+    selectSlot(newSlot());
     try {
       await signInWithGoogle();
     } catch (error) {
-      useSlot(previous);
+      selectSlot(previous);
       throw error;
     }
   }
@@ -497,7 +529,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     saveCoreUrl(next);
     setServerUrl(coreBaseUrl());
     // An account already signed in on that server is used; otherwise a fresh slot waits for a sign-in.
-    useSlot(savedAccounts().find((row) => row.server === coreBaseUrl())?.slot ?? newSlot());
+    selectSlot(savedAccounts().find((row) => row.server === coreBaseUrl())?.slot ?? newSlot());
     clearAccountData();
     accountIdRef.current = "";
     setAccountId("");
@@ -623,7 +655,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const status = await core.inboxStatus(id).catch(() => null);
       if (stopped || !status) return;
       const open = openRoomRef.current;
-      setInbox({ ...status, rooms: status.rooms.map((room) => (room.id === open ? { ...room, unread: 0 } : room)) });
+      const next = { ...status, rooms: status.rooms.map((room) => (room.id === open ? { ...room, unread: 0 } : room)) };
+      // Nothing new since the last poll: keep the old object, so no screen redraws.
+      setInbox((current) => (current && JSON.stringify(current) === JSON.stringify(next) ? current : next));
     };
     void pull();
     refreshInboxRef.current = () => void pull();
@@ -830,6 +864,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const liveRoomId = conversationId;
   openRoomRef.current = conversationId;
 
+  // Remembers the open thread's latest page for the next time it is opened.
+  useEffect(() => {
+    // Not while the first page is still loading: an empty list is not the thread.
+    if (!conversationId || threadLoading) return;
+    const cache = threadCacheRef.current;
+    cache.delete(conversationId);
+    cache.set(conversationId, messages.slice(-THREAD_PAGE));
+    if (cache.size > 12) {
+      const oldest = cache.keys().next().value;
+      if (oldest) cache.delete(oldest);
+    }
+  }, [conversationId, messages, threadLoading]);
+
   /**
    * Keeps the open chat matched to the server while the room stays on screen.
    * Why: agent bubbles commit as the turn runs; polling merges them in true
@@ -949,36 +996,66 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!owner) {
       throw new Error("The new agent did not appear in the roster. Try again in a few seconds.");
     }
-    const [memberRows, history, taps] = await Promise.all([
-      core.listMembers(id, room.id).catch(() => [{ agentId: owner.id }]),
-      core.listMessages(id, room.id, { limit: THREAD_PAGE }),
-      core.listReactions(id, room.id),
-    ]);
-    olderRef.current = { roomId: room.id, more: history.length >= THREAD_PAGE, loading: false };
     const kind = room.kind === "group" ? ("group" as const) : ("direct" as const);
-    const names = memberRows.map((member) => roster.find((row) => row.id === member.agentId)?.name ?? "Agent");
-    const opened = {
+    const target = (memberIds: string[]): ChatTarget => ({
       agent: owner,
       conversationId: room.id,
       kind,
       title: kind === "group" ? room.title : owner.name,
-      subtitle: kind === "group" ? names.join(", ").slice(0, 60) : "",
-      memberIds: memberRows.map((member) => member.agentId),
-    };
+      subtitle:
+        kind === "group"
+          ? memberIds
+              .map((memberId) => roster.find((row) => row.id === memberId)?.name ?? "Agent")
+              .join(", ")
+              .slice(0, 60)
+          : "",
+      memberIds,
+    });
+
+    // Show the chat at once, on whatever was last seen of it. Waiting for the
+    // server first left the list frozen under the finger for a second or more.
+    const cached = threadCacheRef.current.get(room.id);
     const leaving = lastChatRef.current?.conversationId;
     if (leaving) draftsRef.current.set(leaving, draftRef.current);
+    enteringRef.current = room.id;
     setAgents(roster);
     setConversationId(room.id);
-    setLastChat(opened);
-    closeSheets();
-    router.push(`/chat/${room.id}`);
+    setLastChat(target(membersCacheRef.current.get(room.id) ?? [owner.id]));
+    setMessages(cached ?? []);
+    setThreadLoading(!cached);
     setContextRing(null);
-    void loadContextLine(room.id);
-    setMessages(toBubbles(history, taps, roster));
     setDraft(draftsRef.current.get(room.id) ?? "");
     setReplyTo(null);
     setAttachments([]);
     setNote("");
+    // Already looking at this chat (a push for the open room): leave the screen be.
+    if (pathnameRef.current !== `/chat/${room.id}`) {
+      // One chat is open at a time, so opening one replaces whatever was above the list.
+      backToInbox();
+      router.push(`/chat/${room.id}`);
+    }
+    void loadContextLine(room.id);
+
+    try {
+      const [memberRows, history, taps] = await Promise.all([
+        core.listMembers(id, room.id).catch(() => [{ agentId: owner.id }]),
+        core.listMessages(id, room.id, { limit: THREAD_PAGE }),
+        core.listReactions(id, room.id),
+      ]);
+      // Another chat was opened, or this one closed, while it loaded.
+      if (enteringRef.current !== room.id) return;
+      const memberIds = memberRows.map((member) => member.agentId);
+      membersCacheRef.current.set(room.id, memberIds);
+      olderRef.current = { roomId: room.id, more: history.length >= THREAD_PAGE, loading: false };
+      setLastChat((current) => (current?.conversationId === room.id ? target(memberIds) : current));
+      mergeThread(toBubbles(history, taps, roster));
+    } catch (error) {
+      // The chat is already on screen, so the reason goes on its own error line.
+      if (enteringRef.current === room.id) setNote(error instanceof Error ? error.message : "The chat did not load.");
+      throw error;
+    } finally {
+      if (enteringRef.current === room.id) setThreadLoading(false);
+    }
   }
 
   /**
@@ -1022,6 +1099,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
    */
   async function openAgent(agent: RosterAgent): Promise<void> {
     const id = accountId.trim();
+    // The chat list already knows this agent's room: open it now and bring
+    // the roster up to date behind it.
+    const known = inboxRef.current?.rooms.find((room) => room.kind === "direct" && room.ownerAgentId === agent.id);
+    if (known) {
+      const roster = agentsRef.current.some((row) => row.id === agent.id) ? agentsRef.current : [...agentsRef.current, agent];
+      void core
+        .listAgents(id)
+        .then((rows) => {
+          if (accountIdRef.current === id) setAgents(rows);
+        })
+        .catch(() => {});
+      await enterRoom({ id: known.id, kind: "direct", title: agent.name, ownerAgentId: agent.id }, roster);
+      return;
+    }
     const rooms = await core.listConversations(id);
     const existing = rooms.find((room) => room.kind === "direct" && room.ownerAgentId === agent.id);
     const rows = await core.listAgents(id);
@@ -1041,6 +1132,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
    */
   async function openGroup(roomId: string): Promise<void> {
     const id = accountId.trim();
+    // A group the list already shows opens at once, like a direct chat.
+    const listed = groupsRef.current.find((group) => group.id === roomId);
+    const known = inboxRef.current?.rooms.find((room) => room.id === roomId && room.kind === "group");
+    if (listed && known && agentsRef.current.some((row) => row.id === known.ownerAgentId)) {
+      await enterRoom({ id: roomId, kind: "group", title: listed.title, ownerAgentId: known.ownerAgentId }, agentsRef.current);
+      return;
+    }
     const [rooms, rows] = await Promise.all([core.listConversations(id), core.listAgents(id)]);
     const room = rooms.find((row) => row.id === roomId);
     if (!room) {
@@ -1369,8 +1467,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setProposals(next);
     setToolApprovals(await core.listToolApprovals(accountId.trim()).catch(() => []));
     setMenu(null);
-    closeSheets();
-    router.push("/approvals");
+    // Deciding a row on the approvals screen reloads it in place.
+    if (pathnameRef.current !== "/approvals") {
+      closeSheet();
+      router.push("/approvals");
+    }
     setNote("");
   }
 
@@ -1614,11 +1715,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   function openDesktop(agent: RosterAgent): void {
     setDesktopAgent(agent);
-    closeSheets();
+    closeSheet();
     router.push(`/desktop/${agent.id}`);
   }
 
   function leaveChat(roomId: string): void {
+    if (enteringRef.current === roomId) enteringRef.current = "";
     setConversationId((current) => (current === roomId ? "" : current));
   }
 
@@ -1638,6 +1740,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     sending,
     setSending,
     roomActivity,
+    threadLoading,
     replyTo,
     setReplyTo,
     attachments,
@@ -1746,6 +1849,8 @@ type SessionValue = {
   sending: boolean;
   setSending: (value: boolean) => void;
   roomActivity: RoomActivityPhase | null;
+  /** True while a chat seen for the first time is loading its messages. */
+  threadLoading: boolean;
   replyTo: Bubble | null;
   setReplyTo: (bubble: Bubble | null) => void;
   attachments: Attachment[];

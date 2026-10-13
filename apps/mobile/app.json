@@ -26,7 +26,7 @@
     },
     "android": {
       "package": "com.kuru.app",
-      "softwareKeyboardLayoutMode": "pan",
+      "softwareKeyboardLayoutMode": "resize",
       "intentFilters": [
         {
           "action": "VIEW",
@@ -44,6 +44,16 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "buildArchs": ["arm64-v8a", "armeabi-v7a"],
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ],
       "expo-web-browser",
       "expo-sharing",
       "expo-video",
