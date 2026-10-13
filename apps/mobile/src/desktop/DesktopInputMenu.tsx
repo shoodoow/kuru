@@ -63,6 +63,41 @@ export function DesktopInputMenu({
   );
 }
 
+/**
+ * The two ways text moves between the phone and the agent's computer.
+ * Input: what each row does, and how the menu closes. Output: the menu card.
+ */
+export function DesktopClipboardMenu({
+  onToComputer,
+  onToPhone,
+  onClose,
+}: {
+  onToComputer: () => void;
+  onToPhone: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <View style={styles.menu}>
+      <MenuRow
+        label="Paste from phone"
+        icon="upload"
+        onPress={() => {
+          onToComputer();
+          onClose();
+        }}
+      />
+      <MenuRow
+        label="Copy to phone"
+        icon="download"
+        onPress={() => {
+          onToPhone();
+          onClose();
+        }}
+      />
+    </View>
+  );
+}
+
 function MenuRow({
   label,
   icon,

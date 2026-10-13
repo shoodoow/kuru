@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ActivityIndicator, FlatList, Linking, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { useEventListener } from "expo";
 import { Image } from "expo-image";
@@ -234,6 +234,71 @@ export function ImageGroup({ images, fetchBlob }: { images: ImageBlock[]; fetchB
       })}
     </View>
   );
+}
+
+const IMAGE_NAME = /\.(png|jpe?g|gif|webp|heic|heif|bmp|avif)([?#]|$)/i;
+
+/** True for a file that is a picture, so it can be shown instead of offered to other apps. */
+export function isImageFile(block: FileBlock): boolean {
+  const mime = (block.mime ?? "").toLowerCase();
+  if (mime.startsWith("image/") && mime !== "image/svg+xml") return true;
+  return IMAGE_NAME.test(block.name) || (/^https?:\/\//i.test(block.url) && IMAGE_NAME.test(block.url));
+}
+
+/**
+ * Finds something the picture view can load for a picture sent as a file.
+ * A web address is used as it is. Bytes held in the message, and a picture
+ * that has to be fetched with the session from the agent's computer, are
+ * written to the cache folder once, under a name of their own.
+ * Output: a URI, or null when the file has no content.
+ */
+async function imageFileUri(block: FileBlock, fetchBlob: FetchBlob | undefined): Promise<string | null> {
+  const file = await materializeFile(block, fetchBlob, true);
+  if (!file) return null;
+  if (!file.headers) return file.uri;
+  const prefix = block.blobRef ? `${block.blobRef.messageId.slice(0, 8)}-${block.blobRef.index}-` : "";
+  const target = new File(Paths.cache, `${prefix}${block.name.replace(/[^A-Za-z0-9._-]+/g, "_") || "image"}`);
+  if (target.exists) return target.uri;
+  const saved = await File.downloadFileAsync(file.uri, target, { headers: file.headers });
+  return saved.uri;
+}
+
+/**
+ * Shows a picture that an agent sent as a file.
+ * Why: agents often attach a screenshot or a chart as a plain file. That used
+ * to be a "Tap to open" row that only handed the picture to other apps. It is
+ * now drawn in the chat like any other picture, with the same viewer.
+ * Input: the file block, the blob fetcher, and what to show if the picture
+ * cannot be loaded (the ordinary file row). Output: the picture.
+ */
+export function ImageFileBlock({ block, fetchBlob, fallback }: { block: FileBlock; fetchBlob?: FetchBlob; fallback: ReactNode }) {
+  const [uri, setUri] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void imageFileUri(block, fetchBlob)
+      .then((found) => {
+        if (!live) return;
+        if (found) setUri(found);
+        else setFailed(true);
+      })
+      .catch(() => {
+        if (live) setFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [block, fetchBlob]);
+  const image = useMemo<ImageBlock[]>(() => (uri ? [{ kind: "image", url: uri, alt: block.name }] : []), [uri, block.name]);
+  if (failed) return <>{fallback}</>;
+  if (!uri) {
+    return (
+      <View style={[styles.single, styles.singleLoading]}>
+        <ActivityIndicator color={colors.muted} />
+      </View>
+    );
+  }
+  return <ImageGroup images={image} />;
 }
 
 const ZOOM_MAX = 4;
@@ -551,6 +616,29 @@ function ImageViewer({
 const VIDEO_NAME = /\.(mp4|m4v|mov)([?#]|$)/i;
 const VIDEO_MIME: Record<string, string> = { "video/mp4": ".mp4", "video/quicktime": ".mov", "video/x-m4v": ".m4v" };
 
+const AUDIO_NAME = /\.(wav|mp3|m4a|aac|flac|caf|aiff?)([?#]|$)/i;
+const AUDIO_MIME: Record<string, string> = {
+  "audio/wav": ".wav",
+  "audio/x-wav": ".wav",
+  "audio/wave": ".wav",
+  "audio/vnd.wave": ".wav",
+  "audio/mpeg": ".mp3",
+  "audio/mp3": ".mp3",
+  "audio/mp4": ".m4a",
+  "audio/x-m4a": ".m4a",
+  "audio/aac": ".aac",
+  "audio/flac": ".flac",
+  "audio/x-flac": ".flac",
+  "audio/aiff": ".aiff",
+  "audio/x-aiff": ".aiff",
+};
+
+/** True for sound files the system player can play in place. */
+export function isAudioBlock(block: FileBlock): boolean {
+  if ((block.mime ?? "").toLowerCase() in AUDIO_MIME) return true;
+  return AUDIO_NAME.test(block.name) || (/^https?:\/\//i.test(block.url) && AUDIO_NAME.test(block.url));
+}
+
 /** True for file blocks the system player can play in place. */
 export function isVideoBlock(block: FileBlock): boolean {
   if ((block.mime ?? "").toLowerCase() in VIDEO_MIME) return true;
@@ -565,7 +653,7 @@ export function isVideoBlock(block: FileBlock): boolean {
  * `download` also pulls a web URL down, for the share sheet and Save.
  * Output: a URL or file URI plus the mime type found, or null with no bytes.
  */
-async function materializeFile(
+export async function materializeFile(
   block: FileBlock,
   fetchBlob: FetchBlob | undefined,
   keep = false,
@@ -592,8 +680,9 @@ async function materializeFile(
   const mime = block.mime ?? data[1];
   let name = block.name.replace(/[^A-Za-z0-9._-]+/g, "_") || "attachment";
   // The player picks its decoder from the extension, so a bare name gets one.
-  const extension = VIDEO_MIME[(mime ?? "").toLowerCase()];
-  if (keep && extension && !VIDEO_NAME.test(name)) name = `${name}${extension}`;
+  const kind = (mime ?? "").toLowerCase();
+  const extension = VIDEO_MIME[kind] ?? AUDIO_MIME[kind];
+  if (keep && extension && !VIDEO_NAME.test(name) && !AUDIO_NAME.test(name)) name = `${name}${extension}`;
   if (keep && block.blobRef) name = `${block.blobRef.messageId.slice(0, 8)}-${block.blobRef.index}-${name}`;
   const file = new File(Paths.cache, name);
   if (keep && file.exists) return { uri: file.uri, mime, local: true };
@@ -795,6 +884,7 @@ function createStyles(colors: ColorPalette) {
     mediaWrap: { gap: 6 },
     fill: { flex: 1 },
     single: { width: ALBUM_WIDTH, borderRadius: 12, borderCurve: "continuous", overflow: "hidden", backgroundColor: colors.control },
+    singleLoading: { height: 180, alignItems: "center", justifyContent: "center" },
     tilePressed: { opacity: 0.85 },
     loading: { flex: 1, backgroundColor: colors.control, opacity: 0.6 },
     caption: { color: colors.muted, fontSize: 13, maxWidth: ALBUM_WIDTH },

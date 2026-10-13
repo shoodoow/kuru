@@ -63,6 +63,10 @@ export function IconClipboard() {
   return <PlatformIcon sf="list.clipboard" md="assignment" size={18} color={colors.label} />;
 }
 
+export function IconPaste() {
+  return <PlatformIcon sf="doc.on.clipboard" md="content-paste" size={20} color={colors.label} />;
+}
+
 export function IconKeyboard() {
   return <PlatformIcon sf="keyboard" md="keyboard" size={20} color={colors.label} />;
 }
@@ -137,6 +141,14 @@ export function IconGlobe() {
 
 export function IconPlay() {
   return <PlatformIcon sf="play.fill" md="play-arrow" size={26} color="#FFFFFF" />;
+}
+
+export function IconPlaySmall() {
+  return <PlatformIcon sf="play.fill" md="play-arrow" size={process.env.EXPO_OS === "ios" ? 16 : 24} color="#FFFFFF" />;
+}
+
+export function IconPauseSmall() {
+  return <PlatformIcon sf="pause.fill" md="pause" size={process.env.EXPO_OS === "ios" ? 16 : 24} color="#FFFFFF" />;
 }
 
 export function IconCloseLight() {

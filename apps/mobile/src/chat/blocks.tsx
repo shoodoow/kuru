@@ -8,7 +8,8 @@ import { IconCheck, IconClose, IconMonitor, IconShield } from "../ui/icons";
 import { FileCard } from "./FileViewer";
 import { CopyButton, HorizontalTableScroll, MarkdownText } from "./MarkdownText";
 import { ChartWidget } from "./ChartWidget";
-import { ImageGroup, VideoBlock, isVideoBlock, openFileBlock, type FetchBlob, type ImageBlock } from "./media";
+import { AudioBlock } from "./audio";
+import { ImageFileBlock, ImageGroup, VideoBlock, isAudioBlock, isImageFile, isVideoBlock, openFileBlock, type FetchBlob, type ImageBlock } from "./media";
 
 export { openFileBlock };
 
@@ -151,6 +152,13 @@ export function BlockView({
   if (block.kind === "file") {
     if (isVideoBlock(block)) {
       return <VideoBlock block={block} fetchBlob={fetchBlob} />;
+    }
+    if (isAudioBlock(block)) {
+      return <AudioBlock block={block} fetchBlob={fetchBlob} />;
+    }
+    if (isImageFile(block)) {
+      // A picture sent as a file is still a picture. If it will not load, it falls back to the file row.
+      return <ImageFileBlock block={block} fetchBlob={fetchBlob} fallback={<FileCard block={block} fetchBlob={fetchBlob} />} />;
     }
     return <FileCard block={block} fetchBlob={fetchBlob} />;
   }

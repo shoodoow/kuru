@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
@@ -11,8 +12,8 @@ import { useResolvedScheme } from "../theme/appearance";
 import { Avatar } from "../ui/Avatar";
 import { KeyboardLift } from "../ui/KeyboardLift";
 import { CircleButton } from "../ui/CircleButton";
-import { IconHelp, IconKeyboard, IconMore } from "../ui/icons";
-import { DesktopInputMenu } from "./DesktopInputMenu";
+import { IconPaste, IconHelp, IconKeyboard, IconMore } from "../ui/icons";
+import { DesktopClipboardMenu, DesktopInputMenu } from "./DesktopInputMenu";
 import { getTrackpadMode, setTrackpadMode } from "./desktopPrefs";
 import { TrackpadCapture } from "./TrackpadCapture";
 
@@ -21,6 +22,23 @@ const core = createCore();
 /** Keysym codes the shell understands, for the keys a phone lacks. */
 const KEYSYM_BACKSPACE = 0xff08;
 const KEYSYM_RETURN = 0xff0d;
+/** The most text one paste will type; beyond this it would run for minutes. */
+const PASTE_LIMIT = 20_000;
+
+/**
+ * The key code that types one character on the computer.
+ * Latin letters are their own code; a line break is Return; anything else
+ * (Persian, emoji, accents outside Latin-1) is the X11 code for a Unicode
+ * character. Before, those were sent as their bare character number, which is
+ * a different key altogether. Returns 0 for a character with no key.
+ */
+function keysymOf(char: string): number {
+  if (char === "\n") return KEYSYM_RETURN;
+  if (char === "\t") return 0xff09;
+  const point = char.codePointAt(0) ?? 0;
+  if (point < 0x20) return 0;
+  return point <= 0xff ? point : 0x01000000 + point;
+}
 
 /**
  * Shows one agent's desktop.
@@ -54,6 +72,11 @@ export function DesktopScreen({
   const [page, setPage] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [trackpad, setTrackpad] = useState(false);
+  const [clipOpen, setClipOpen] = useState(false);
+  // A word on what a clipboard action did, shown for a moment where "Live" is.
+  const [notice, setNotice] = useState<string | null>(null);
+  // The latest text the computer said was selected or copied there.
+  const remoteClip = useRef("");
   const [prefsReady, setPrefsReady] = useState(false);
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -156,13 +179,15 @@ export function DesktopScreen({
   }, [accountId, profile]);
 
   function onMessage(event: WebViewMessageEvent): void {
-    let payload: { kind?: string; message?: string };
+    let payload: { kind?: string; message?: string; text?: string };
     try {
-      payload = JSON.parse(event.nativeEvent.data) as { kind?: string; message?: string };
+      payload = JSON.parse(event.nativeEvent.data) as { kind?: string; message?: string; text?: string };
     } catch {
       return;
     }
-    if (payload.kind === "connect") {
+    if (payload.kind === "clipboard") {
+      if (typeof payload.text === "string") remoteClip.current = payload.text;
+    } else if (payload.kind === "connect") {
       setLive(true);
       applyTrackpad(trackpadRef.current);
     } else if (payload.kind === "disconnect") {
@@ -188,10 +213,55 @@ export function DesktopScreen({
       }
     } else {
       for (const char of next.slice(typed.length)) {
-        sendKey(char === "\n" ? KEYSYM_RETURN : char.charCodeAt(0));
+        const keysym = keysymOf(char);
+        if (keysym) sendKey(keysym);
       }
     }
     setTyped(next);
+  }
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 2600);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  /**
+   * Phone to computer: types what is on the phone's clipboard where the
+   * computer's cursor is, and puts it on the computer's clipboard too.
+   * Why typed: a phone keyboard has no Ctrl+V to paste with, and typing works
+   * in every program, a terminal included, in any language.
+   */
+  async function pasteFromPhone(): Promise<void> {
+    const text = (await Clipboard.getStringAsync().catch(() => "")).slice(0, PASTE_LIMIT);
+    if (!text) {
+      setNotice("Nothing is copied on the phone");
+      return;
+    }
+    const keysyms = Array.from(text.replace(/\r\n?/g, "\n"), keysymOf).filter((keysym) => keysym > 0);
+    // Sent a few dozen keys at a time, so a long paste does not flood the connection.
+    webRef.current?.injectJavaScript(`(function(){
+      var rfb = window.nanoRfb; if (!rfb) return;
+      try { rfb.clipboardPasteFrom(${JSON.stringify(text)}); } catch (e) {}
+      var keys = ${JSON.stringify(keysyms)}; var at = 0;
+      (function step(){
+        var end = Math.min(at + 40, keys.length);
+        for (; at < end; at++) rfb.sendKey(keys[at], "");
+        if (at < keys.length) setTimeout(step, 30);
+      })();
+    })(); true;`);
+    setNotice(keysyms.length > 400 ? "Typing it on the computer…" : "Pasted on the computer");
+  }
+
+  /** Computer to phone: what was last selected or copied there goes on the phone's clipboard. */
+  async function copyToPhone(): Promise<void> {
+    const text = remoteClip.current;
+    if (!text) {
+      setNotice("Select or copy text on the computer first");
+      return;
+    }
+    await Clipboard.setStringAsync(text);
+    setNotice("Copied to the phone");
   }
 
   function toggleTrackpad(): void {
@@ -316,8 +386,8 @@ export function DesktopScreen({
             <Text style={styles.emptyText}>This agent has no desktop yet.</Text>
           </View>
         ) : null}
-        <Text style={[styles.status, live ? styles.live : null]} pointerEvents="none">
-          {profile ? (live ? "Live" : "Connecting") : "No desktop"}
+        <Text style={[styles.status, live ? styles.live : null]} pointerEvents="none" accessibilityLiveRegion="polite">
+          {notice ?? (profile ? (live ? "Live" : "Connecting") : "No desktop")}
         </Text>
       </View>
       {/* Off-screen so no field shows on screen; the keyboard button focuses it
@@ -339,7 +409,26 @@ export function DesktopScreen({
         onSubmitEditing={() => sendKey(KEYSYM_RETURN)}
         style={styles.hidden}
       />
-      <View style={[styles.footer, { paddingBottom: Math.max(18, insets.bottom) }]}>
+      {clipOpen ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close clipboard menu"
+          onPress={() => setClipOpen(false)}
+          style={styles.menuScrim}
+        />
+      ) : null}
+      {clipOpen ? (
+        // Its own layer, a fixed distance above the row of buttons (18 + 44 +
+        // the bottom padding), so it can never sit behind them.
+        <View style={[styles.clipCard, { bottom: 62 + Math.max(18, insets.bottom) + 8 }]} pointerEvents="box-none">
+          <DesktopClipboardMenu
+            onToComputer={() => void pasteFromPhone()}
+            onToPhone={() => void copyToPhone()}
+            onClose={() => setClipOpen(false)}
+          />
+        </View>
+      ) : null}
+      <View style={[styles.footer, clipOpen ? styles.footerRaised : null, { paddingBottom: Math.max(18, insets.bottom) }]}>
         <CircleButton
           label={keyboard ? "Hide keyboard" : "Keyboard"}
           onPress={() => {
@@ -351,6 +440,9 @@ export function DesktopScreen({
           }}
         >
           <IconKeyboard />
+        </CircleButton>
+        <CircleButton label="Clipboard" active={clipOpen} onPress={() => setClipOpen((open) => !open)} disabled={!live}>
+          <IconPaste />
         </CircleButton>
       </View>
     </KeyboardLift>
@@ -371,7 +463,10 @@ function createStyles(colors: ColorPalette) {
   status: { position: "absolute", bottom: 16, left: 0, right: 0, textAlign: "center", color: "#ddd", fontSize: 13 },
   live: { color: "#7ddc7d" },
   hidden: { position: "absolute", top: 0, left: 0, width: 1, height: 1, opacity: 0 },
-  footer: { flexDirection: "row", justifyContent: "center", paddingHorizontal: 16, paddingVertical: 18 },
+  footer: { flexDirection: "row", justifyContent: "center", gap: 16, paddingHorizontal: 16, paddingVertical: 18 },
+  // Above the scrim that closes the clipboard menu, so the menu and buttons still take taps.
+  footerRaised: { zIndex: 3 },
+  clipCard: { position: "absolute", left: 0, right: 0, alignItems: "center", zIndex: 4, elevation: 20 },
   menuCard: { position: "absolute", top: 8, right: 8, zIndex: 3 },
   menuScrim: { ...StyleSheet.absoluteFill, zIndex: 2 },
 });
