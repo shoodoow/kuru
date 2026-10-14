@@ -41,12 +41,13 @@ export function ApprovalsScreen({
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toolApprovals.length]);
-  const empty = proposals.length === 0 && toolApprovals.length === 0 && allowances.length === 0;
+  const nothingWaiting = proposals.length === 0 && toolApprovals.length === 0;
   const navBarPad = useNavBarPad();
   return (
     <View style={[styles.screen, navBarPad]}>
       <ScrollView contentContainerStyle={styles.list} contentInsetAdjustmentBehavior="automatic">
-        {empty ? <Text style={styles.empty}>Nothing to review.</Text> : null}
+        <Text style={styles.section}>Waiting for you</Text>
+        {nothingWaiting ? <Text style={styles.quiet}>Nothing is waiting for your approval.</Text> : null}
         {toolApprovals.map((row) => (
           <View key={row.id} style={styles.card}>
             <Text style={styles.kind}>{row.tool}</Text>
@@ -78,23 +79,6 @@ export function ApprovalsScreen({
             </View>
           </View>
         ))}
-        {allowances.length > 0 ? <Text style={styles.section}>Allowed without asking</Text> : null}
-        {allowances.map((row) => (
-          <View key={row.id} style={styles.allowRow}>
-            <View style={styles.allowBody}>
-              <Text style={styles.body}>{row.label}</Text>
-              <Text style={styles.kind}>{row.agentName}</Text>
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Ask again before ${row.agentName}: ${row.label}`}
-              onPress={() => void onRemoveAllowance(row.id).then(setAllowances).catch(() => {})}
-              style={(state) => pressableStyle(styles.action, state)}
-            >
-              <Text style={styles.rejectText}>Ask again</Text>
-            </Pressable>
-          </View>
-        ))}
         {proposals.map((proposal) => (
           <View key={proposal.id} style={styles.card}>
             <Text style={styles.kind}>{proposal.kind}</Text>
@@ -117,6 +101,28 @@ export function ApprovalsScreen({
             </View>
           </View>
         ))}
+        <Text style={styles.section}>Allowed without asking</Text>
+        <Text style={styles.quiet}>
+          {allowances.length > 0
+            ? "These agents take these actions without asking. Tap Ask again to need your approval each time."
+            : "Nothing yet. Choose Always allow on an approval, and that agent stops asking for that action."}
+        </Text>
+        {allowances.map((row) => (
+          <View key={row.id} style={styles.allowRow}>
+            <View style={styles.allowBody}>
+              <Text style={styles.body}>{row.label}</Text>
+              <Text style={styles.kind}>{row.agentName}</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Ask again before ${row.agentName}: ${row.label}`}
+              onPress={() => void onRemoveAllowance(row.id).then(setAllowances).catch(() => {})}
+              style={(state) => pressableStyle(styles.action, state)}
+            >
+              <Text style={styles.rejectText}>Ask again</Text>
+            </Pressable>
+          </View>
+        ))}
       </ScrollView>
     </View>
   );
@@ -129,7 +135,6 @@ function createStyles(colors: ColorPalette) {
   title: { color: colors.text, fontSize: 17, fontWeight: "600" },
   spacer: { width: 44 },
   list: { padding: 16, gap: 12 },
-  empty: { color: colors.muted, textAlign: "center", marginTop: 48, fontSize: 16 },
   card: { backgroundColor: colors.bubble, borderRadius: 22, padding: 16 },
   kind: { color: colors.muted, fontSize: 13, marginBottom: 6 },
   body: { color: colors.text, fontSize: 16, lineHeight: 24 },
@@ -137,7 +142,8 @@ function createStyles(colors: ColorPalette) {
   action: { minHeight: 44, justifyContent: "center", paddingHorizontal: 4 },
   actionText: { color: colors.link, fontSize: 16, fontWeight: "600" },
   rejectText: { color: colors.danger, fontSize: 16, fontWeight: "600" },
-  section: { color: colors.muted, fontSize: 13, marginTop: 8, marginLeft: 6 },
+  section: { color: colors.text, fontSize: 15, fontWeight: "600", marginTop: 8, marginLeft: 4 },
+  quiet: { color: colors.muted, fontSize: 14, lineHeight: 20, marginHorizontal: 4 },
   allowRow: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.bubble, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 10 },
   allowBody: { flex: 1, gap: 2 },
 });

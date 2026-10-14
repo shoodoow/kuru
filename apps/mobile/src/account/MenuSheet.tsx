@@ -281,11 +281,11 @@ function MenuPageView({
           <Switch value={autoReview} onValueChange={onAutoReview} trackColor={{ true: colors.green, false: colors.line }} />
         </View>
         <SettingsRow onPress={onApprovals}>
-          <Text style={styles.rowLabel}>Auto-review Rules</Text>
-          <View style={styles.trailing}>
-            <Text style={styles.trailingText}>Approvals</Text>
-            <IconChevron />
+          <View style={styles.cardBody}>
+            <Text style={styles.rowLabel}>Approvals</Text>
+            <Text style={styles.hint}>Waiting for you, and what agents may do without asking</Text>
           </View>
+          <IconChevron />
         </SettingsRow>
         <View style={styles.groupRow}>
           <View style={styles.cardBody}>

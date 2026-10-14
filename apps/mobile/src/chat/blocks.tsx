@@ -243,37 +243,17 @@ function WidgetBody({
     const approvalId = typeof props.approvalId === "string" ? props.approvalId : undefined;
     const status = props.status === "approved" || props.status === "denied" ? props.status : null;
     return (
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>{String(props.title ?? "Needs approval")}</Text>
-        {props.detail ? <Text style={styles.cardLine}>{String(props.detail)}</Text> : null}
-        {status ? (
-          <Text style={styles.approvalStatus}>{status === "approved" ? "Approved" : "Denied"}</Text>
-        ) : (
-          <>
-            <View style={styles.approvalRow}>
-              <Pressable style={[styles.choice, styles.allow]} onPress={() => onApprove?.(approvalId)}>
-                <Text style={styles.choiceText}>Approve</Text>
-              </Pressable>
-              <Pressable style={[styles.choice, styles.deny]} onPress={() => onDeny?.(approvalId)}>
-                <Text style={styles.choiceText}>Deny</Text>
-              </Pressable>
-            </View>
-            {/* Yes for good, for this agent and this action only; shell commands and removing an agent always ask. */}
-            {props.canAlwaysAllow === true ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityHint="This agent will do this kind of action from now on without asking. You can take it back under Approvals."
-                style={styles.alwaysAllow}
-                onPress={() => onApprove?.(approvalId, true)}
-              >
-                <Text style={styles.alwaysAllowText}>Always allow</Text>
-              </Pressable>
-            ) : null}
-          </>
-        )}
-      </View>
+      <ApprovalWidget
+        title={String(props.title ?? "Needs approval")}
+        detail={props.detail ? String(props.detail) : ""}
+        status={status}
+        canAlwaysAllow={props.canAlwaysAllow === true}
+        onApprove={(always) => onApprove?.(approvalId, always)}
+        onDeny={() => onDeny?.(approvalId)}
+      />
     );
   }
+
   if (widget === "agent-card") {
     const agentId = typeof props.agentId === "string" ? props.agentId : "";
     const known = agentId ? agentInfo?.(agentId) : undefined;
@@ -448,6 +428,98 @@ function parseQuestionOptions(raw: unknown): QuestionOption[] {
     const description = typeof row.description === "string" ? row.description : "";
     return [{ label, value, description, style }];
   }).slice(0, 6);
+}
+
+/**
+ * An approval drawn like a question: lettered rows to tap, the pick checked
+ * and the rest faded once it is made.
+ * Why: the old card was two small buttons with "Always allow" as a link
+ * under them, unlike every other choice in the chat. "Always allow" is only
+ * offered where one yes may cover later calls (never a shell command or
+ * removing an agent), and it can be taken back under Approvals.
+ */
+function ApprovalWidget({
+  title,
+  detail,
+  status,
+  canAlwaysAllow,
+  onApprove,
+  onDeny,
+}: {
+  title: string;
+  detail: string;
+  status: "approved" | "denied" | null;
+  canAlwaysAllow: boolean;
+  onApprove: (always: boolean) => void;
+  onDeny: () => void;
+}) {
+  // What was tapped here; the saved status covers a card decided elsewhere.
+  const [picked, setPicked] = useState<"once" | "always" | "deny" | null>(null);
+  const chosen = picked ?? (status === "approved" ? "once" : status === "denied" ? "deny" : null);
+  const done = chosen !== null;
+  const options: { id: "once" | "always" | "deny"; label: string; description: string; style?: "primary" | "danger" }[] = [
+    { id: "once", label: "Approve", description: "Just this once.", style: "primary" },
+    ...(canAlwaysAllow
+      ? [{ id: "always" as const, label: "Always allow", description: "Don't ask again for this action. You can undo it under Approvals." }]
+      : []),
+    { id: "deny", label: "Deny", description: "The agent takes another way or asks you what to do.", style: "danger" },
+  ];
+  function choose(id: "once" | "always" | "deny"): void {
+    if (done) return;
+    setPicked(id);
+    if (id === "deny") onDeny();
+    else onApprove(id === "always");
+  }
+  return (
+    <View style={styles.surface}>
+      <View style={styles.pollHead}>
+        <Text style={styles.pollTitle}>{title}</Text>
+      </View>
+      {detail ? <Text style={styles.pollDesc}>{detail}</Text> : null}
+      <View style={styles.pollOptions}>
+        {options.map((option, index) => {
+          const on = chosen === option.id;
+          const letter = POLL_LETTERS[index] ?? String(index + 1);
+          return (
+            <Pressable
+              key={option.id}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on, disabled: done }}
+              accessibilityLabel={`${letter}. ${option.label}. ${option.description}`}
+              disabled={done}
+              onPress={() => choose(option.id)}
+              style={({ pressed }) => [
+                styles.pollRow,
+                index > 0 ? styles.pollDivider : null,
+                on ? styles.pollRowOn : null,
+                done && !on ? styles.questionRowDone : null,
+                pressed ? styles.pollRowPressed : null,
+              ]}
+            >
+              <View style={[styles.pollLetter, on ? styles.pollLetterOn : null]}>
+                <Text style={[styles.pollLetterText, on ? styles.pollLetterTextOn : null]}>{letter}</Text>
+              </View>
+              <View style={styles.questionRowText}>
+                <Text
+                  style={[
+                    styles.questionLabel,
+                    option.style === "danger" ? styles.pollDanger : null,
+                    option.style === "primary" ? styles.questionPrimaryLabel : null,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+                <Text style={styles.questionDescription} numberOfLines={2}>
+                  {option.description}
+                </Text>
+              </View>
+              {on ? <IconCheck /> : null}
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
 }
 
 /**
@@ -891,8 +963,6 @@ function createStyles(colors: ColorPalette) {
   handoverBtnDisabled: { opacity: 0.45 },
   handoverBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   approvalRow: { flexDirection: "row", gap: 8, marginTop: 4 },
-  alwaysAllow: { alignSelf: "flex-start", paddingVertical: 8, paddingHorizontal: 2 },
-  alwaysAllowText: { color: colors.link, fontSize: 15, fontWeight: "600" },
   approvalStatus: { color: colors.muted, fontSize: 14, fontWeight: "600", marginTop: 2 },
   choice: { flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center" },
   allow: { backgroundColor: "#1d5c2e" },
