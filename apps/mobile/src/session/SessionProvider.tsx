@@ -27,10 +27,9 @@ import {
 import { blocksFromMaybeWidgetText, expandWidgetMarkupBlocks, versionNotice, type AgentMark, type ServerVersionInfo } from "@kuru/shared";
 import {
   configureForegroundBanners,
-  ensureLocalNotificationsReady,
   getPushToken,
   onPushTap,
-  scheduleLocalNotification,
+  onPushWhileOpen,
 } from "../push";
 import { activeSlot, authClient, authClientFor, forgetSlot, newSlot, rememberAccount, savedAccounts, selectSlot, type SavedAccount } from "../auth";
 import { installOAuthReturnHandler } from "../auth-oauth-return";
@@ -618,17 +617,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const pending = await core.listNotifications(id).catch(() => []);
       if (stopped) return;
       setPendingCount(pending.length);
-      const canNotify = notifications && (await ensureLocalNotificationsReady());
       for (const note of pending) {
         if (shown.has(note.id)) continue;
         shown.add(note.id);
-        setNote(`${note.title}: ${note.body}`.slice(0, 180));
-        if (canNotify) {
-          await scheduleLocalNotification({
-            title: note.title,
-            body: note.body,
-            data: { conversationId: note.conversationId, notificationId: note.id },
-          }).catch(() => {});
+        // The app is open, so this is an in-app note, never a system banner, and
+        // nothing at all for the chat the person is already reading.
+        if (notifications && !pathnameRef.current.includes(note.conversationId)) {
+          setNote(`${note.title}: ${note.body}`.slice(0, 180));
         }
         await core.ackNotification(id, note.id).catch(() => {});
       }
@@ -672,16 +667,39 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [accountId]);
 
+  // A push that lands while the app is open shows no system banner; it becomes
+  // the app's own note, unless it is about the chat being read.
+  useEffect(
+    () =>
+      onPushWhileOpen((content) => {
+        const room = typeof content.data.conversationId === "string" ? content.data.conversationId : "";
+        if (room && pathnameRef.current.includes(room)) return;
+        setNote(`${content.title}: ${content.body}`.slice(0, 180));
+      }),
+    [],
+  );
+
   useEffect(() => {
     configureForegroundBanners();
     return onPushTap((data) => {
-      // A push tap carries the exact room — open it instead of the inbox.
-      // Badge reconciles on foreground; the room shows the full result.
+      // A push tap carries the exact room: open it instead of the inbox. It is
+      // held until the account and its agents are loaded, since a tap that
+      // launched the app arrives before they are.
       const conversationId = typeof data.conversationId === "string" ? data.conversationId : null;
       if (!conversationId) return;
-      void openGroup(conversationId).catch(show);
+      setTappedRoom(conversationId);
     });
   }, [show]);
+
+  const [tappedRoom, setTappedRoom] = useState<string | null>(null);
+  useEffect(() => {
+    if (!tappedRoom || !accountId.trim() || agents.length === 0) return;
+    const roomId = tappedRoom;
+    setTappedRoom(null);
+    void openGroup(roomId).catch(show);
+    // openGroup reads the current account through refs; the room and the loaded roster are what matter here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tappedRoom, accountId, agents.length]);
 
   /**
    * Hires an agent and opens a direct chat on the signed-in account.

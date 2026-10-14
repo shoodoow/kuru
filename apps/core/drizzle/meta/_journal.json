@@ -330,6 +330,13 @@
       "when": 1791328100000,
       "tag": "0046_job-model",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791328200000,
+      "tag": "0047_support-pinned",
+      "breakpoints": true
     }
   ]
 }

@@ -146,13 +146,26 @@ export async function updateAgentFlags(db: Store, accountId: string, agentId: st
     data.personality !== undefined ||
     data.jobDescription !== undefined ||
     data.kind !== undefined;
-  if (data.role !== undefined || data.jobDescription !== undefined || data.kind !== undefined) {
+  if (
+    data.role !== undefined ||
+    data.jobDescription !== undefined ||
+    data.kind !== undefined ||
+    data.name !== undefined ||
+    data.label !== undefined ||
+    data.pinned !== undefined ||
+    data.hidden !== undefined
+  ) {
     // The app saves the whole profile at once, so only a real change is refused.
+    // The Chief of Staff keeps its name and title, and stays pinned and visible.
     const current = await getAgent(db, accountId, agentId);
     const changed =
       (data.role !== undefined && data.role !== current?.role) ||
       (data.jobDescription !== undefined && data.jobDescription !== current?.jobDescription) ||
-      (data.kind !== undefined && data.kind !== current?.kind);
+      (data.kind !== undefined && data.kind !== current?.kind) ||
+      (data.name !== undefined && data.name !== current?.name) ||
+      (data.label !== undefined && data.label !== current?.label) ||
+      (data.pinned === false) ||
+      (data.hidden === true);
     if (current?.kind === "support" && changed) throw new ProtectedAgentError();
     if (current && current.kind !== "support" && data.kind === "support") {
       throw new ProtectedAgentError("An account has one default agent, and it is created for you.");

@@ -71,8 +71,12 @@ export function InboxScreen({
       group: (id: string) => rooms.get(id) ?? { working: false, unread: 0 },
     };
   }, [status]);
-  const pinned = query.trim() ? [] : filtered.filter((agent) => agent.pinned);
-  const rows = query.trim() ? filtered : filtered.filter((agent) => !agent.pinned);
+  // The Chief of Staff is always pinned, and first.
+  const isPinned = (agent: RosterAgent): boolean => agent.pinned || agent.kind === "support";
+  const pinned = query.trim()
+    ? []
+    : filtered.filter(isPinned).sort((left, right) => Number(right.kind === "support") - Number(left.kind === "support"));
+  const rows = query.trim() ? filtered : filtered.filter((agent) => !isPinned(agent));
 
   return (
     <View style={styles.screen}>
@@ -238,6 +242,8 @@ export function InboxScreen({
               </View>
               <Text style={styles.holdBody} numberOfLines={4}>{held.role || `Message ${held.name}`}</Text>
               <View style={styles.holdMenu}>
+                {held.kind !== "support" ? (
+                <>
                 <Pressable
                   accessibilityRole="button"
                   style={styles.holdRow}
@@ -262,6 +268,8 @@ export function InboxScreen({
                   <IconEyeOff />
                   <Text style={[styles.holdLabel, styles.holdDanger]}>Hide</Text>
                 </Pressable>
+                </>
+                ) : null}
               </View>
             </Pressable>
           ) : null}

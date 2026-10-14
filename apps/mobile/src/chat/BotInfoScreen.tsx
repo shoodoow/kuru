@@ -319,19 +319,34 @@ function InfoPage({
           )}
         </View>
         <View style={styles.nameCard}>
-          <TextInput
-            value={profile.name}
-            onChangeText={(name) => onChange({ ...profile, name })}
-            style={styles.nameInput}
-          />
-          <View style={styles.nameDivider} />
-          <TextInput
-            value={profile.label}
-            onChangeText={(label) => onChange({ ...profile, label })}
-            placeholder="Title (optional)"
-            placeholderTextColor={colors.muted}
-            style={styles.titleInput}
-          />
+          {/* The Chief of Staff's name and title are the product's, not the person's to change. */}
+          {profile.kind === "support" ? (
+            <>
+              <Text style={styles.nameInput}>{profile.name}</Text>
+              {profile.label && profile.label !== profile.name ? (
+                <>
+                  <View style={styles.nameDivider} />
+                  <Text style={styles.titleInput}>{profile.label}</Text>
+                </>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <TextInput
+                value={profile.name}
+                onChangeText={(name) => onChange({ ...profile, name })}
+                style={styles.nameInput}
+              />
+              <View style={styles.nameDivider} />
+              <TextInput
+                value={profile.label}
+                onChangeText={(label) => onChange({ ...profile, label })}
+                placeholder="Title (optional)"
+                placeholderTextColor={colors.muted}
+                style={styles.titleInput}
+              />
+            </>
+          )}
         </View>
         <View style={styles.tabs}>
           {TABS.map((entry) => (
@@ -552,14 +567,19 @@ function InfoPage({
                   style={styles.input}
                 />
               </View>
-              <View style={styles.flagRow}>
-                <Text style={styles.rowLabel}>Pin</Text>
-                <Switch value={profile.pinned} onValueChange={(pinned) => onChange({ ...profile, pinned })} />
-              </View>
-              <View style={styles.flagRow}>
-                <Text style={styles.rowLabel}>Hide</Text>
-                <Switch value={profile.hidden} onValueChange={(hidden) => onChange({ ...profile, hidden })} />
-              </View>
+              {/* The Chief of Staff always stays pinned at the top and is never hidden. */}
+              {profile.kind !== "support" ? (
+                <>
+                  <View style={styles.flagRow}>
+                    <Text style={styles.rowLabel}>Pin</Text>
+                    <Switch value={profile.pinned} onValueChange={(pinned) => onChange({ ...profile, pinned })} />
+                  </View>
+                  <View style={styles.flagRow}>
+                    <Text style={styles.rowLabel}>Hide</Text>
+                    <Switch value={profile.hidden} onValueChange={(hidden) => onChange({ ...profile, hidden })} />
+                  </View>
+                </>
+              ) : null}
             </View>
             <PrimaryButton label="Save changes" disabled={!saveReady} onPress={onSave} style={styles.saveSpace} />
           </View>

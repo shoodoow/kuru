@@ -102,6 +102,9 @@ export async function getPushToken(): Promise<{ token: string; platform: string 
   }
 }
 
+/** Launch taps already acted on, so remounting the listener does not open the chat again. */
+const handledLaunchTaps = new Set<string>();
+
 export function onPushTap(callback: (data: Record<string, unknown>) => void): () => void {
   if (isAndroidExpoGo()) return () => {};
   let remove = (): void => {};
@@ -110,6 +113,31 @@ export function onPushTap(callback: (data: Record<string, unknown>) => void): ()
     const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data as Record<string, unknown> | undefined;
       if (data) callback(data);
+    });
+    remove = () => subscription.remove();
+    // A tap that launched the app arrived before this listener existed: read it once.
+    void Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        const data = response?.notification.request.content.data as Record<string, unknown> | undefined;
+        const id = response?.notification.request.identifier;
+        if (!data || !id || handledLaunchTaps.has(id)) return;
+        handledLaunchTaps.add(id);
+        callback(data);
+      })
+      .catch(() => {});
+  });
+  return () => remove();
+}
+
+/** Calls back with each push that arrives while the app is open. */
+export function onPushWhileOpen(callback: (content: { title: string; body: string; data: Record<string, unknown> }) => void): () => void {
+  if (isAndroidExpoGo()) return () => {};
+  let remove = (): void => {};
+  void loadNotifications().then((Notifications) => {
+    if (!Notifications) return;
+    const subscription = Notifications.addNotificationReceivedListener((notification) => {
+      const content = notification.request.content;
+      callback({ title: content.title ?? "", body: content.body ?? "", data: (content.data ?? {}) as Record<string, unknown> });
     });
     remove = () => subscription.remove();
   });
@@ -122,13 +150,16 @@ export function configureForegroundBanners(): void {
     if (!Notifications) return;
     void ensureLocalNotificationsReady();
     try {
+      // This runs only while the app is open. The person is already here, so
+      // a push that lands now shows no banner and makes no sound; the app
+      // shows its own note for other chats. Closed, the system shows it as usual.
       Notifications.setNotificationHandler({
         handleNotification: async () => ({
-          shouldPlaySound: true,
+          shouldPlaySound: false,
           shouldSetBadge: false,
-          shouldShowBanner: true,
+          shouldShowBanner: false,
           shouldShowList: true,
-          shouldShowAlert: true,
+          shouldShowAlert: false,
         }),
       });
     } catch {

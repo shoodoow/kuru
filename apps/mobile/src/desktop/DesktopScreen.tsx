@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, AppState, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { useNavigation } from "expo-router";
+import { useFocusEffect, useNavigation } from "expo-router";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { createCore } from "../api";
@@ -39,6 +40,10 @@ function keysymOf(char: string): number {
   if (point < 0x20) return 0;
   return point <= 0xff ? point : 0x01000000 + point;
 }
+
+/** Tries at reopening a dropped screen before giving up (about a minute in all). */
+const MAX_RECONNECTS = 10;
+const KEEP_AWAKE_TAG = "desktop-screen";
 
 /**
  * Shows one agent's desktop.
@@ -83,6 +88,59 @@ export function DesktopScreen({
   const webRef = useRef<WebView>(null);
   const inputRef = useRef<TextInput>(null);
   const trackpadRef = useRef(false);
+  // Reconnecting: a dropped screen comes back on its own, with a fresh token.
+  const [attempt, setAttempt] = useState(0);
+  const [reconnecting, setReconnecting] = useState(false);
+  const wasLive = useRef(false);
+  const liveRef = useRef(false);
+  const retries = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Opens the screen again after it dropped: a phone that slept, a network
+   * switch, a core restart. Each try fetches a new token, waiting a little
+   * longer each time (1s, 2s, 4s, up to 10s), and stops after a minute or so.
+   */
+  const reconnect = useCallback((now = false) => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    if (retries.current >= MAX_RECONNECTS) {
+      setReconnecting(false);
+      setNotice("The screen stays disconnected. Leave and open it again.");
+      return;
+    }
+    setReconnecting(true);
+    const wait = now ? 0 : Math.min(10_000, 1_000 * 2 ** retries.current);
+    retries.current += 1;
+    retryTimer.current = setTimeout(() => setAttempt((count) => count + 1), wait);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+    },
+    [],
+  );
+
+  // Back from the background with the screen gone: reconnect at once.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active" && wasLive.current && !liveRef.current) {
+        retries.current = 0;
+        reconnect(true);
+      }
+    });
+    return () => subscription.remove();
+  }, [reconnect]);
+
+  // The phone stays awake while this screen is shown, and may sleep again on any other page.
+  useFocusEffect(
+    useCallback(() => {
+      void activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
+      return () => {
+        void deactivateKeepAwake(KEEP_AWAKE_TAG).catch(() => {});
+      };
+    }, []),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -131,15 +189,16 @@ export function DesktopScreen({
         }).toString()}`;
         setPage(viewer);
       } catch (error) {
-        if (!cancelled) {
-          onError(error);
-        }
+        if (cancelled) return;
+        // While coming back, a failed token fetch (no network yet) is one more try, not an error.
+        if (wasLive.current) reconnect();
+        else onError(error);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [accountId, profile, onError, prefsReady]);
+  }, [accountId, profile, onError, prefsReady, attempt, reconnect]);
 
   // The WebView keeps its own cookie jar and the expo client keeps the session
   // in SecureStore, so the cookie has to be copied across before the viewer can
@@ -189,18 +248,30 @@ export function DesktopScreen({
       if (typeof payload.text === "string") remoteClip.current = payload.text;
     } else if (payload.kind === "connect") {
       setLive(true);
+      liveRef.current = true;
+      wasLive.current = true;
+      retries.current = 0;
+      setReconnecting(false);
       applyTrackpad(trackpadRef.current);
     } else if (payload.kind === "disconnect") {
       setLive(false);
-    } else if (payload.kind === "error") {
+      liveRef.current = false;
+      reconnect();
+    } else if (payload.kind === "error" || payload.kind === "auth") {
       setLive(false);
-      onError(new Error(payload.message ?? "The desktop connection failed."));
-    } else if (payload.kind === "auth") {
-      // The viewer reached the core but the socket was refused, which means the
-      // page loaded without a usable session cookie. Say so instead of sitting
-      // on "Connecting" forever.
-      setLive(false);
-      onError(new Error("Sign in again to watch this screen."));
+      liveRef.current = false;
+      if (wasLive.current) {
+        // It worked before, so this is a failed try at coming back (the viewer
+        // reports any first failure as "auth"): try again.
+        reconnect();
+      } else if (payload.kind === "error") {
+        onError(new Error(payload.message ?? "The desktop connection failed."));
+      } else {
+        // The viewer reached the core but the socket was refused, which means the
+        // page loaded without a usable session cookie. Say so instead of sitting
+        // on "Connecting" forever.
+        onError(new Error("Sign in again to watch this screen."));
+      }
     }
   }
 
@@ -366,7 +437,10 @@ export function DesktopScreen({
               webRef.current?.injectJavaScript(injected);
             }}
             onMessage={onMessage}
-            onError={() => onError(new Error("The desktop viewer failed to load."))}
+            onError={() => (wasLive.current ? reconnect() : onError(new Error("The desktop viewer failed to load.")))}
+            // The system can kill the page behind the screen; bring it back.
+            onContentProcessDidTerminate={() => reconnect(true)}
+            onRenderProcessGone={() => reconnect(true)}
             androidLayerType="hardware"
             allowsInlineMediaPlayback
             style={styles.viewer}
@@ -387,7 +461,7 @@ export function DesktopScreen({
           </View>
         ) : null}
         <Text style={[styles.status, live ? styles.live : null]} pointerEvents="none" accessibilityLiveRegion="polite">
-          {notice ?? (profile ? (live ? "Live" : "Connecting") : "No desktop")}
+          {notice ?? (profile ? (live ? "Live" : reconnecting ? "Reconnecting…" : "Connecting") : "No desktop")}
         </Text>
       </View>
       {/* Off-screen so no field shows on screen; the keyboard button focuses it

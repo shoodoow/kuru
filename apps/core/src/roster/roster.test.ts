@@ -133,7 +133,7 @@ describe("roster", () => {
     expect(await db.select().from(messages).where(eq(messages.conversationId, room!.id))).toHaveLength(0);
   });
 
-  it("lets the default agent be renamed but not given another role, job or kind", async () => {
+  it("keeps the default agent's name, title, role, job and kind, and keeps it pinned and visible", async () => {
     const account = await createAccount(db, { name: "Guarded" });
     const helper = await createAgent(db, account.id, {
       name: "Ada",
@@ -146,14 +146,21 @@ describe("roster", () => {
     const support = (await ensureSupportAgent(db, account.id))!;
 
     // The app saves the whole profile at once; unchanged fixed fields pass.
-    const renamed = await updateAgentFlags(db, account.id, support.id, {
-      name: "Pilot",
-      label: "Pilot",
+    const saved = await updateAgentFlags(db, account.id, support.id, {
+      name: support.name,
+      label: support.label,
       role: support.role,
       jobDescription: support.jobDescription,
       kind: "support",
+      pinned: true,
+      notify: false,
     });
-    expect(renamed).toMatchObject({ name: "Pilot", kind: "support", promptVersion: support.promptVersion + 1 });
+    expect(saved).toMatchObject({ name: support.name, kind: "support", notify: false });
+
+    await expect(updateAgentFlags(db, account.id, support.id, { name: "Pilot" })).rejects.toThrow(ProtectedAgentError);
+    await expect(updateAgentFlags(db, account.id, support.id, { label: "Pilot" })).rejects.toThrow(ProtectedAgentError);
+    await expect(updateAgentFlags(db, account.id, support.id, { pinned: false })).rejects.toThrow(ProtectedAgentError);
+    await expect(updateAgentFlags(db, account.id, support.id, { hidden: true })).rejects.toThrow(ProtectedAgentError);
 
     await expect(updateAgentFlags(db, account.id, support.id, { jobDescription: "Do everything yourself." })).rejects.toThrow(ProtectedAgentError);
     await expect(updateAgentFlags(db, account.id, support.id, { kind: "work" })).rejects.toThrow(ProtectedAgentError);

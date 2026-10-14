@@ -18,6 +18,7 @@ import { speakOnce } from "./speaker.js";
 import { compactConversation } from "../memory/compact-turn.js";
 import type { GenerateResult, TurnInput, TurnOptions } from "./types.js";
 import { noted } from "../log/logger.js";
+import { pingForReply } from "../notify/reply-ping.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -185,6 +186,10 @@ export async function runTurn(
             onEvent: (event) => publish(accountId, roomId, event),
           }),
       ).catch(noted("A queued follow-up turn"));
+    }
+    // What was said reaches the person's phone when they are not in this chat.
+    if (!generate && saved.length > 0) {
+      void pingForReply(db, { accountId, conversationId, rows: saved }).catch(noted("Queuing a reply notification"));
     }
     // An answer another agent is waiting for goes back to that agent's chat.
     if (room.kind === "direct" && room.ownerAgentId && !generate && saved.length > 0) {
