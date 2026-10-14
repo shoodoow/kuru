@@ -21,6 +21,7 @@ describe("agent-tools catalog", () => {
       "delete_routine",
       "delete_routines",
       "enable_tools",
+      "fire_agent",
       "glob",
       "grep",
       "hire_agent",

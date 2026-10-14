@@ -5,7 +5,7 @@
 import { isWorkerLive } from "../rooms/subagents.js";
 import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { getDb } from "../db/client.js";
-import { accounts, agents, conversations, delegations, jobs, messages, reactions, routines, summaryItems } from "../db/schema.js";
+import { accounts, agents, conversations, delegations, jobs, messages, reactions, routines, summaryItems, workerTranscripts } from "../db/schema.js";
 import { buildContext, type PersonContext } from "../memory/context.js";
 import { stallMessage } from "./narration-stall.js";
 import { briefFor, factsAboutMentioned, memoriesFor, profileFor } from "../memory/memory.js";
@@ -16,6 +16,8 @@ import { fileBlocksFromText, inlineSharedOutputBlocks } from "../rooms/uploads.j
 import { RECENT_WINDOW, SUMMARY_WINDOW } from "./constants.js";
 import { propose } from "../skills/proposals.js";
 import { skillCatalogForAgent } from "../skills/agent-skills.js";
+import { budgetedCatalog, catalogBudgetTokens } from "../skills/catalog-budget.js";
+import { modelInfoFor } from "./usage/model-info.js";
 import { blocksToText, mirrorGroupSpeechToOwnerDm, type TurnEvent } from "../rooms/send-message.js";
 import { runAgentLoop } from "./agent-loop.js";
 import { teamContextFor } from "./team-chat.js";
@@ -29,7 +31,7 @@ import type { GenerateResult, TurnInput } from "./types.js";
 import { tailSlice, unwrapGenerateResult } from "./util.js";
 import { createTraceSession } from "./trace/plugins.js";
 import { randomUUID } from "node:crypto";
-import { noted } from "../log/logger.js";
+import { logger, noted } from "../log/logger.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -139,15 +141,17 @@ export async function speakOnce(
   )
     .filter((hit) => !factBodies.has(hit.body) && !facts.some((fact) => hit.body.endsWith(fact.body)))
     .map((hit) => hitLine(hit));
-  const catalog = (
+  const catalog = budgetedCatalog(
     await skillCatalogForAgent({
       skillsRoot,
       accountId,
       linuxProfile: agent.linuxProfile,
-    })
-  )
-    .map((skill) => catalogLine(skill))
-    .join("\n");
+    }),
+    {
+      budgetTokens: catalogBudgetTokens(modelInfoFor(agent.provider, agent.modelId, agent.modelContextWindow).contextWindow),
+      favored: await skillsUsedBy(db, accountId, agentId).catch(() => new Set<string>()),
+    },
+  );
   // Query active background workers running for this parent agent in this room.
   // This gives the dispatcher full visibility over background tasks so it:
   // 1) Remains available to converse with the user while tasks run.
@@ -398,13 +402,8 @@ export async function speakOnce(
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     void traceSession.emit({ type: "run.error", phase: "model", message: message.slice(0, 500) });
-    console.log('error', message);
-    result = {
-      text: message.startsWith("Add an API key")
-        ? message
-        : "The model provider failed. Check the provider key, model id, and endpoint.",
-      cacheReadTokens: null,
-    };
+    logger.error({ accountId, conversationId, agentId, runId, error: message.slice(0, 2_000) }, "A turn failed before it could answer.");
+    result = { text: message.startsWith("Add an API key") ? message : turnFailureText(error), cacheReadTokens: null };
   }
   // Bubbles already sent stand on their own unless the model went on to do
   // more work and answered in plain text afterwards; then that text is posted too.
@@ -500,21 +499,65 @@ export async function speakOnce(
 }
 
 /** Longest skill description shown in the prompt's skill list. */
-const CATALOG_DESCRIPTION_CHARS = 110;
+const SKILL_USE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
- * One skill as a prompt line.
- * Why: a bare name told the model nothing, so it loaded skills just to learn
- * what they were for. A short description lets it pick without reading.
+ * What the person is told when a turn fails before it can answer.
+ * Why: every failure used to read "The model provider failed. Check the
+ * provider key, model id, and endpoint", including failures that had nothing
+ * to do with the provider, and it never said what the provider had answered.
+ * Whoever runs the server had to dig the cause out of its logs. The cause is
+ * now in the message, cut short and with anything that looks like a key removed.
+ * Input: the thrown error. Output: the text shown in the chat.
  */
-function catalogLine(skill: { name: string; description?: string }): string {
-  const description = (skill.description ?? "").replace(/\s+/g, " ").trim();
-  if (!description) return `- ${skill.name}`;
-  const short =
-    description.length > CATALOG_DESCRIPTION_CHARS
-      ? `${description.slice(0, CATALOG_DESCRIPTION_CHARS).replace(/\s+\S*$/, "")}…`
-      : description;
-  return `- ${skill.name}: ${short}`;
+export function turnFailureText(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error ?? "");
+  const cause = raw
+    .replace(/\b(sk|pk|rk|key|xai|gsk|nvapi)[-_][A-Za-z0-9_-]{12,}/gi, "[key]")
+    .replace(/Bearer\s+[A-Za-z0-9._-]{12,}/gi, "Bearer [key]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 300);
+  const status = Number((error as { statusCode?: unknown } | null)?.statusCode);
+  // The AI SDK marks an answer from the provider itself with its HTTP status.
+  const fromProvider = Number.isFinite(status) && status > 0;
+  if (fromProvider) {
+    const hint =
+      status === 401 || status === 403
+        ? "The key was refused: check the provider key."
+        : status === 404
+          ? "The model or address was not found: check the model id and the endpoint."
+          : status === 402
+            ? "The provider says the account has no credit left."
+            : status === 429
+              ? "The provider is limiting requests or the account is out of quota. Try again in a moment."
+              : status >= 500
+                ? "The provider had a problem on its side. Try again in a moment."
+                : "The provider refused the request.";
+    return `The model provider answered with an error (${status}). ${hint}${cause ? ` It said: ${cause}` : ""}`;
+  }
+  return `I could not answer: something failed on the server before the model replied.${cause ? ` The error was: ${cause}` : ""}`;
+}
+
+/**
+ * Skills this agent's workers were given in the last month.
+ * Why: these keep their full description when the skill list has to shrink.
+ * A month, not a count, so the set (and the cached prompt) changes rarely.
+ */
+async function skillsUsedBy(db: Db, accountId: string, agentId: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ meta: workerTranscripts.meta })
+    .from(workerTranscripts)
+    .innerJoin(delegations, eq(delegations.id, workerTranscripts.delegationId))
+    .where(
+      and(
+        eq(workerTranscripts.accountId, accountId),
+        eq(delegations.parentAgentId, agentId),
+        gt(workerTranscripts.updatedAt, new Date(Date.now() - SKILL_USE_WINDOW_MS)),
+      ),
+    )
+    .limit(200);
+  return new Set(rows.flatMap((row) => row.meta?.skills ?? []));
 }
 
 /**
@@ -556,7 +599,7 @@ async function otherAgents(
   accountId: string,
   agentId: string,
   teamIds: Set<string>,
-): Promise<{ label: string; role: string }[]> {
+): Promise<{ name: string; label: string; role: string }[]> {
   const rows = await db
     .select({ id: agents.id, name: agents.name, label: agents.label, role: agents.role })
     .from(agents)
@@ -567,7 +610,7 @@ async function otherAgents(
   return rows
     .filter((row) => row.id !== agentId && !teamIds.has(row.id) && !seen.has(row.id) && Boolean(seen.add(row.id)))
     .slice(0, 12)
-    .map((row) => ({ label: row.label?.trim() || row.name, role: row.role?.trim() ?? "" }));
+    .map((row) => ({ name: row.name, label: row.label?.trim() || row.name, role: row.role?.trim() ?? "" }));
 }
 
 /**

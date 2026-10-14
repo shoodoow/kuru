@@ -2,6 +2,7 @@
  * Tool execute bodies for the dispatcher registry.
  * DB: per tool — messages, delegations, agents, routines, notifications.
  */
+import { deleteAgent, FireAgentError } from "../../roster/delete-agent.js";
 import { answerWorkerQuestion } from "../../rooms/worker-questions.js";
 import { connectSocial } from "../../social/connect.js";
 import { chartData } from "@kuru/shared";
@@ -14,6 +15,7 @@ import {
   agentMemoryAddInputSchema,
   agentMemoryCorrectInputSchema,
   agentMemoryReadInputSchema,
+  fireAgentInputSchema,
   hireAgentInputSchema,
   deleteRoutinesInputSchema,
   correctMemoryToolInputSchema,
@@ -68,6 +70,9 @@ import { AgentNameError, createAgent, isUnsetAgent, updateAgentFlags } from "../
 import { createRoom } from "../../rooms/rooms.js";
 import { createProfile } from "../../linux/linux.js";
 import { catalogTextForAgent, readSkillForAgent, skillCatalogForAgent } from "../../skills/agent-skills.js";
+import { workerLessons } from "../../memory/worker-lessons.js";
+import { readAgentFile } from "../../routines/routine-worker.js";
+import { clipDescription, FULL_DESCRIPTION_CHARS, searchSkills, SHORT_DESCRIPTION_CHARS } from "../../skills/catalog-budget.js";
 import { bumpAccountPromptVersions } from "../../skills/install.js";
 import { publishLocalSkills } from "../../skills/local.js";
 import {
@@ -272,10 +277,29 @@ export async function executeReadSkill(ctx: ToolContext, input: Record<string, u
 /** How much of a skill the chat agent sees; workers get the whole thing. */
 const SKILL_SUMMARY_CHARS = 1_200;
 
-export async function executeListSkills(ctx: Pick<ToolContext, "skillsRoot" | "accountId" | "linuxProfile">) {
+/** How many skills a `list_skills` search returns. */
+const SKILL_SEARCH_LIMIT = 8;
+
+/**
+ * Lists skills, or the few that match a search.
+ * Why: the whole list with full descriptions was about 6k tokens for 55
+ * skills, and it stays in the transcript. Without a query each skill gets a
+ * short line; with one, the best matches get their full description.
+ */
+export async function executeListSkills(
+  ctx: Pick<ToolContext, "skillsRoot" | "accountId" | "linuxProfile">,
+  input: Record<string, unknown> = {},
+) {
   if (!ctx.skillsRoot && !ctx.linuxProfile) return "No skills directory configured.";
-  const catalog = await catalogTextForAgent(skillCtx(ctx));
-  return catalog || "No skills available yet.";
+  const skills = await skillCatalogForAgent(skillCtx(ctx));
+  if (skills.length === 0) return "No skills available yet.";
+  const query = typeof input.query === "string" ? input.query.trim() : "";
+  if (!query) {
+    return skills.map((skill) => `${skill.name}: ${clipDescription(skill.description ?? "", SHORT_DESCRIPTION_CHARS)}`).join("\n");
+  }
+  const matches = searchSkills(skills, query).slice(0, SKILL_SEARCH_LIMIT);
+  if (matches.length === 0) return `No skill matches "${query}". Call list_skills without a query to see them all.`;
+  return matches.map((skill) => `${skill.name}: ${clipDescription(skill.description ?? "", FULL_DESCRIPTION_CHARS)}`).join("\n");
 }
 
 export async function executeRefreshSkills(
@@ -913,6 +937,12 @@ export async function executeSpawnWorker(ctx: ToolContext, input: Record<string,
     }
   }
   const parsed = spawnWorkerToolInputSchema.parse({ ...input, task: valid.task });
+  // A brief kept in a file goes to the worker with the task, read now, so the worker spends no step opening it.
+  if (parsed.briefFile) {
+    const text = await readAgentFile(ctx.accountId, ctx.linuxProfile ?? null, parsed.briefFile).catch(() => null);
+    if (text === null) return { error: `Could not read ${parsed.briefFile}. Write the brief there with write first, or put it in task.` };
+    parsed.task = prompt("worker-rules", "brief-file", { task: parsed.task, path: parsed.briefFile, brief: text });
+  }
   // A follow-up to work that just ran goes back to the worker that did it,
   // with its conversation intact, instead of to a blank one that has to
   // rediscover the project before it can change a line.
@@ -930,7 +960,7 @@ export async function executeSpawnWorker(ctx: ToolContext, input: Record<string,
         ctx.spawnCount = (ctx.spawnCount ?? 0) + 1;
         launchDetachedWorker(ctx, continued, parsed.task, undefined, {
           skills: await workerSkills(ctx, parsed.task, parsed.skills ?? []),
-          context: await workerContext(ctx),
+          context: await workerContext(ctx, parsed.task),
           resumeFrom: continued.resumeFrom,
         });
         return {
@@ -945,7 +975,7 @@ export async function executeSpawnWorker(ctx: ToolContext, input: Record<string,
       ctx.spawnCount = (ctx.spawnCount ?? 0) + 1;
       launchDetachedWorker(ctx, continued, parsed.task, undefined, {
         skills: await workerSkills(ctx, parsed.task, parsed.skills ?? []),
-        context: await workerContext(ctx),
+        context: await workerContext(ctx, parsed.task),
       });
       return { workerId: continued.workerId, delegationId: continued.delegationId, status: continued.status };
     } catch {
@@ -977,13 +1007,11 @@ export async function executeSpawnWorker(ctx: ToolContext, input: Record<string,
   ctx.spawnCount = (ctx.spawnCount ?? 0) + 1;
   launchDetachedWorker(ctx, spawned, parsed.task, parsed.maxSteps, {
     skills: await workerSkills(ctx, parsed.task, parsed.skills ?? []),
-    context: await workerContext(ctx),
+    context: await workerContext(ctx, parsed.task),
   });
   return spawned;
 }
 
-/** How long after a clean finish a new job still goes to the same worker. */
-const CONTINUE_FINISHED_MS = 30 * 60 * 1000;
 /** How long unfinished work stays open for the same worker to pick up. */
 const CONTINUE_UNFINISHED_MS = 6 * 60 * 60 * 1000;
 
@@ -996,9 +1024,13 @@ export function reportLooksUnfinished(status: string, result: string | null): bo
 
 /**
  * The worker a new job in this chat should continue, if any.
- * Why: "fix the blank frames" or "try again" is the same job. The worker that
- * built it knows the files and what was tried.
- * Output: a free worker id whose last job here was recent and of the same kind, or null.
+ * Why: work that was cut off (a stop, a restart, a blocker) is best finished
+ * by the worker that knows the files and what was tried. A job that finished
+ * cleanly is not continued: the next job used to inherit its whole
+ * conversation even when it was unrelated, so a new video started at 100,000
+ * tokens carrying three earlier jobs, and a research task carried a video
+ * build. A follow-up on finished work goes through redirect_worker instead.
+ * Output: a free worker id whose last job here is unfinished, recent and of the same kind, or null.
  */
 async function workerToContinue(ctx: ToolContext, kind: string): Promise<string | null> {
   const [last] = await ctx.store
@@ -1023,9 +1055,8 @@ async function workerToContinue(ctx: ToolContext, kind: string): Promise<string 
     .limit(1);
   if (!last || last.status === "running") return null;
   if (unpackWorkerJobDescription(last.jobDescription).kind !== kind) return null;
-  const age = Date.now() - last.heartbeatAt.getTime();
-  const window = reportLooksUnfinished(last.status, last.result) ? CONTINUE_UNFINISHED_MS : CONTINUE_FINISHED_MS;
-  if (age > window) return null;
+  if (!reportLooksUnfinished(last.status, last.result)) return null;
+  if (Date.now() - last.heartbeatAt.getTime() > CONTINUE_UNFINISHED_MS) return null;
   const [saved] = await ctx.store
     .select({ delegationId: workerTranscripts.delegationId })
     .from(workerTranscripts)
@@ -1090,7 +1121,7 @@ export function workerLabel(task: string): string {
  * worker repeating reads the parent just did.
  * Output: text appended to the task the worker sees (not stored as the task).
  */
-async function workerContext(ctx: ToolContext): Promise<string> {
+async function workerContext(ctx: ToolContext, task: string): Promise<string> {
   const lines: string[] = [];
   // The person often gives a job over several messages ("make a video", then
   // "15 seconds, 480p"). The worker gets all of the recent ones, oldest first.
@@ -1125,6 +1156,9 @@ async function workerContext(ctx: ToolContext): Promise<string> {
   // Skills are not listed here: the ones that matter are loaded into the worker.
   const touched = [...(ctx.touched ?? [])].filter((item) => !item.startsWith("skill ")).slice(0, 20);
   if (touched.length > 0) lines.push(prompt("worker-rules", "context-touched", { list: touched.join(", ") }));
+  // How the person wants this kind of work done, as they taught this agent.
+  const lessons = await workerLessons(ctx.db, ctx.accountId, ctx.agentId, task).catch(() => "");
+  if (lessons) lines.push(lessons);
   return lines.join("\n");
 }
 
@@ -1223,7 +1257,7 @@ export async function executeRedirectWorker(ctx: ToolContext, input: Record<stri
     return { error: error instanceof Error ? error.message : "That worker could not be continued." };
   }
   launchDetachedWorker(ctx, continued, parsed.instruction, undefined, {
-    context: await workerContext(ctx),
+    context: await workerContext(ctx, parsed.instruction),
     resumeFrom: continued.resumeFrom ?? undefined,
   });
   return {
@@ -1305,6 +1339,39 @@ async function otherAgentByName(ctx: ToolContext, wanted: string) {
   return { error: `No agent called "${wanted}" on this account. Agents here: ${names}.` };
 }
 
+/**
+ * Removes one of the person's agents for good (support agent only).
+ * Why: an agent the person let go stayed in every roster and could still be
+ * messaged or handed work. Auto-review asks the person before this runs, even
+ * when they turned Auto-review off, because nothing here can be undone.
+ */
+async function executeFireAgent(ctx: ToolContext, input: Record<string, unknown>) {
+  const me = await supportOnly(ctx);
+  if ("error" in me) return me;
+  const parsed = fireAgentInputSchema.safeParse(input);
+  if (!parsed.success) return { error: "Give the name of the agent to remove." };
+  const target = await otherAgentByName(ctx, parsed.data.agent);
+  if ("error" in target) return target;
+  // Its background jobs are stopped first, so none is left running for an agent that is gone.
+  const running = await ctx.store
+    .select({ childAgentId: delegations.childAgentId })
+    .from(delegations)
+    .where(and(eq(delegations.accountId, ctx.accountId), eq(delegations.parentAgentId, target.id), eq(delegations.status, "running")));
+  for (const row of running) await stopWorker(ctx.store, ctx.accountId, row.childAgentId).catch(noted("Stopping a removed agent's worker"));
+  try {
+    const fired = await deleteAgent(ctx.db, ctx.accountId, target.id);
+    return {
+      removed: fired.label || fired.name,
+      chats: fired.chats,
+      messages: fired.messages,
+      note: "Removed for good. Update the brief's \"Who does what\" now, and tell whoever takes over its area what they own.",
+    };
+  } catch (error) {
+    if (error instanceof FireAgentError) return { error: error.message };
+    throw error;
+  }
+}
+
 /** The support tools belong to the account's default agent; a turn by anyone else is refused. */
 async function supportOnly(ctx: ToolContext): Promise<{ provider: string; modelId: string } | { error: string }> {
   const [me] = await ctx.store
@@ -1348,8 +1415,33 @@ async function executeSetBrief(ctx: ToolContext, input: Record<string, unknown>)
   if ("error" in me) return me;
   const parsed = accountBriefInputSchema.safeParse(input);
   if (!parsed.success) return { error: "Write the whole brief, between 10 and 4,000 characters." };
+  const copied = copiedContextSections(parsed.data.brief);
+  if (copied.length > 0) {
+    return {
+      error: `The brief repeats parts of your own context (${copied.join(", ")}). Every agent already gets those separately, so a copy shows them twice, and it goes stale. Remove those sections and send the brief again.`,
+    };
+  }
   const saved = await saveBrief(ctx.store, ctx.accountId, parsed.data.brief);
   return { saved: true, characters: saved.length, note: "Every agent on this account reads this brief from its next turn." };
+}
+
+/** Section names every agent's context already has; a brief must not carry its own copy. */
+const CONTEXT_SECTIONS = ["Now", "Memory", "Profile", "Summary", "Recall", "Work in progress", "Recent work", "Room", "Person"];
+
+/**
+ * Headings in a brief that copy sections of the agent's own context.
+ * Why: the brief once carried "## Now", "## Memory" and an old "## Profile",
+ * so every agent saw two of each, the older one contradicting the newer.
+ * Input: the brief text. Output: the copied section names, empty when clean.
+ */
+export function copiedContextSections(brief: string): string[] {
+  const found = new Set<string>();
+  for (const match of brief.matchAll(/^#{1,6}[ \t]+(.+?)[ \t#]*$/gm)) {
+    const title = match[1]!.trim().toLowerCase();
+    const hit = CONTEXT_SECTIONS.find((name) => name.toLowerCase() === title);
+    if (hit) found.add(hit);
+  }
+  return [...found];
 }
 
 /**
@@ -1510,7 +1602,7 @@ export const dispatcherExecutors: Record<string, ToolExecutor> = {
   remember_fact: executeRememberFact,
   correct_memory: executeCorrectMemory,
   read_skill: executeReadSkill,
-  list_skills: (ctx) => executeListSkills(ctx),
+  list_skills: (ctx, input) => executeListSkills(ctx, input),
   refresh_skills: (ctx) => executeRefreshSkills(ctx),
   hire_subagent: executeHireSubagent,
   update_teammate: executeUpdateTeammate,
@@ -1556,6 +1648,7 @@ export const dispatcherExecutors: Record<string, ToolExecutor> = {
   message_agent: executeMessageAgent,
   set_my_profile: executeSetMyProfile,
   set_brief: executeSetBrief,
+  fire_agent: executeFireAgent,
   hire_agent: executeHireAgent,
   read_agent_memory: executeReadAgentMemory,
   remember_for_agent: executeRememberForAgent,
@@ -1587,8 +1680,15 @@ export const dispatcherExecutors: Record<string, ToolExecutor> = {
       instructions: String(input.instructions),
       cron: String(input.cron),
       timezone: typeof input.timezone === "string" ? input.timezone : "UTC",
+      runAs: (input.runAs as "worker" | "agent" | undefined) ?? "worker",
+      kind: input.kind as string | undefined,
+      skills: input.skills as string[] | undefined,
+      briefFile: input.briefFile as string | undefined,
     });
-    return { routineId: routine.id, title: routine.title, nextRunAt: routine.nextRunAt };
+    if (routine.briefPath && (await readAgentFile(ctx.accountId, ctx.linuxProfile ?? null, routine.briefPath).catch(() => null)) === null) {
+      return { routineId: routine.id, title: routine.title, nextRunAt: routine.nextRunAt, warning: `${routine.briefPath} does not exist yet. Write the brief there before the first run.` };
+    }
+    return { routineId: routine.id, title: routine.title, runsAs: routine.runsAs, nextRunAt: routine.nextRunAt };
   },
   update_routine: async (ctx, input) => {
     const updated = await updateOwnRoutine(ctx.store, ctx.accountId, ctx.agentId, {
@@ -1598,6 +1698,10 @@ export const dispatcherExecutors: Record<string, ToolExecutor> = {
       cron: input.cron as string | undefined,
       timezone: input.timezone as string | undefined,
       paused: input.paused as boolean | undefined,
+      runAs: input.runAs as "worker" | "agent" | undefined,
+      kind: input.kind as string | undefined,
+      skills: input.skills as string[] | undefined,
+      briefFile: input.briefFile as string | undefined,
     });
     if (!updated) throw new Error("No routine of yours with that id.");
     return { routineId: updated.id, title: updated.title, nextRunAt: updated.nextRunAt, paused: updated.paused };

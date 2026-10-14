@@ -10,6 +10,7 @@ import { publish } from "../rooms/stream.js";
 import { runTurn, type GenerateResult, type TurnInput } from "../rooms/turn.js";
 import type { StreamEvent } from "../rooms/stream.js";
 import { nextCronRun } from "./cron.js";
+import { routineNotesPath, startRoutineWorker } from "./routine-worker.js";
 
 type Database = Pick<ReturnType<typeof getDb>, "insert" | "select" | "update" | "transaction">;
 
@@ -162,6 +163,23 @@ export async function runDue(
       runAt: upcoming,
     });
   };
+  // A worker routine starts its worker and returns: no chat turn, and the
+  // room stays free. The worker's report settles the job when it finishes.
+  if (routine.runsAs === "worker") {
+    try {
+      const started = await startRoutineWorker(db, routine, job, { skillsRoot: opts.skillsRoot });
+      if (!started) {
+        await db.update(jobs).set({ status: "pending", runAt: new Date(Date.now() + 5 * 60_000) }).where(eq(jobs.id, job.id));
+        return [];
+      }
+    } catch (error) {
+      const failure = error instanceof Error ? error.message : "Routine failed.";
+      await db.update(jobs).set({ status: "failed", result: failure.slice(0, 4000) }).where(eq(jobs.id, job.id));
+      await db.update(routines).set({ lastRunAt: new Date(), lastRunStatus: "failed" }).where(eq(routines.id, routine.id));
+    }
+    await reschedule();
+    return [];
+  }
   let runId: string | null = null;
   try {
     try {
@@ -267,6 +285,10 @@ export async function createOwnRoutine(
     cron: string;
     timezone?: string;
     paused?: boolean;
+    runAs?: "worker" | "agent";
+    kind?: string;
+    skills?: string[];
+    briefFile?: string;
   },
 ) {
   const data = routineCreateInputSchema.parse({
@@ -275,6 +297,10 @@ export async function createOwnRoutine(
     cron: input.cron,
     timezone: input.timezone ?? "UTC",
     paused: input.paused ?? false,
+    runAs: input.runAs,
+    kind: input.kind,
+    skills: input.skills,
+    briefFile: input.briefFile,
   });
   const runAt = nextCronRun(data.cron, data.timezone);
   const [routine] = await store
@@ -289,9 +315,17 @@ export async function createOwnRoutine(
       timezone: data.timezone,
       paused: data.paused,
       nextRunAt: runAt,
+      runsAs: data.runAs ?? "agent",
+      workerKind: data.kind ?? null,
+      workerSkills: data.skills ?? [],
+      briefPath: data.briefFile ?? null,
     })
     .returning();
   if (!routine) throw new Error("The routine insert returned no row.");
+  if (routine.runsAs === "worker") {
+    routine.notesPath = routineNotesPath(routine);
+    await store.update(routines).set({ notesPath: routine.notesPath }).where(eq(routines.id, routine.id));
+  }
   if (!data.paused) {
     await store.insert(jobs).values({ accountId: input.accountId, routineId: routine.id, status: "pending", runAt });
   }
@@ -410,6 +444,10 @@ export async function updateOwnRoutine(
     cron?: string;
     timezone?: string;
     paused?: boolean;
+    runAs?: "worker" | "agent";
+    kind?: string;
+    skills?: string[];
+    briefFile?: string;
   },
 ) {
   const data = routineUpdateInputSchema.parse(input);
@@ -425,7 +463,19 @@ export async function updateOwnRoutine(
     timezone: string;
     paused: boolean;
     nextRunAt: Date;
+    runsAs: string;
+    workerKind: string | null;
+    workerSkills: string[];
+    briefPath: string | null;
+    notesPath: string | null;
   }> = {};
+  if (data.runAs !== undefined) {
+    patch.runsAs = data.runAs;
+    if (data.runAs === "worker" && !owned.notesPath) patch.notesPath = routineNotesPath(owned);
+  }
+  if (data.kind !== undefined) patch.workerKind = data.kind;
+  if (data.skills !== undefined) patch.workerSkills = data.skills;
+  if (data.briefFile !== undefined) patch.briefPath = data.briefFile || null;
   if (data.title !== undefined) patch.title = data.title;
   if (data.instructions !== undefined) patch.instructions = data.instructions;
   if (data.timezone !== undefined) patch.timezone = data.timezone;

@@ -165,3 +165,24 @@ describe("stripLeakedThinking", () => {
     expect(stripLeakedThinking("All good (let me know if not).")).toBe("All good (let me know if not).");
   });
 });
+
+describe("what the person is told when a turn fails", () => {
+  it("names the provider's answer, says what to check, and never shows a key", async () => {
+    const { turnFailureText } = await import("./speaker.js");
+    const refused = Object.assign(new Error("Incorrect API key provided: sk-proj-abcdefghijklmnop1234. Bearer abcdefghijklmnopqrstu"), { statusCode: 401 });
+    const text = turnFailureText(refused);
+    expect(text).toContain("(401)");
+    expect(text).toContain("check the provider key");
+    expect(text).not.toContain("abcdefghijklmnop");
+    expect(turnFailureText(Object.assign(new Error("No endpoints found for x/y"), { statusCode: 404 }))).toContain("check the model id");
+    expect(turnFailureText(Object.assign(new Error("Insufficient credits"), { statusCode: 402 }))).toContain("no credit left");
+  });
+
+  it("does not blame the provider for a failure on the server", async () => {
+    const { turnFailureText } = await import("./speaker.js");
+    const text = turnFailureText(new Error("connect ECONNREFUSED /var/run/docker.sock"));
+    expect(text).toContain("something failed on the server");
+    expect(text).toContain("docker.sock");
+    expect(text).not.toContain("provider");
+  });
+});

@@ -216,6 +216,90 @@ export function compactTranscript(
   });
 }
 
+/** Opens the note that stands in for collapsed steps; also how a later collapse recognises an earlier one. */
+const COLLAPSED_HEAD = "[Earlier steps of this job were collapsed to keep it light.";
+/** Most action lines one collapsed note keeps; older ones are only counted. */
+const COLLAPSED_ACTIONS_KEPT = 40;
+/** Most instruction notes one collapsed note keeps word for word. */
+const COLLAPSED_NOTES_KEPT = 8;
+const COLLAPSED_NOTE_CHARS = 1_500;
+
+/** One tool call as a short line: the tool and the part of its input that says what it did. */
+function actionLine(part: Part): string {
+  const name = String(part.toolName ?? "tool");
+  const input = (part.input ?? {}) as Record<string, unknown>;
+  const said = typeof input.command === "string" ? input.command : typeof input.path === "string" ? input.path : JSON.stringify(input);
+  return `- ${name}: ${String(said ?? "").replace(/\s+/g, " ").slice(0, 120)}`;
+}
+
+/** Text of a plain message, whether its content is a string or a list of parts. */
+function plainText(message: ModelMessage): string {
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return (content as Part[])
+    .map((part) => (typeof part.text === "string" ? part.text : ""))
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * Replaces the oldest steps of a worker conversation with one short note.
+ * Why: compactTranscript only shortens old steps and never removes them, so
+ * every step still cost about 200 tokens at every later step, and its hidden
+ * reasoning was resent in full by the provider. A job of 400 steps resent
+ * 100,000 tokens of old steps each time it moved. The note keeps what matters
+ * from them: the tools it ran, and every instruction it was given, word for word.
+ * The first message (the brief) and the newest steps stay whole. A tool result
+ * is never separated from its call, so the conversation stays valid.
+ * Input: the conversation and how many of the newest messages to keep.
+ * Output: a new, shorter array, or the same one when there is nothing old enough.
+ */
+export function collapseOldSteps(messages: ModelMessage[], keepRecent = 16): ModelMessage[] {
+  let cut = messages.length - keepRecent;
+  if (cut <= 2) return messages;
+  // The kept part must not start with tool results whose calls were collapsed.
+  while (cut < messages.length && messages[cut]!.role === "tool") cut += 1;
+  if (cut <= 2 || cut >= messages.length) return messages;
+  const actions: string[] = [];
+  const notes: string[] = [];
+  let earlierActions = 0;
+  for (const message of messages.slice(1, cut)) {
+    if (message.role === "assistant" && Array.isArray(message.content)) {
+      for (const part of message.content as Part[]) {
+        if (part.type === "tool-call") actions.push(actionLine(part));
+      }
+      continue;
+    }
+    if (message.role !== "user") continue;
+    const text = plainText(message).trim();
+    if (!text) continue;
+    if (text.startsWith(COLLAPSED_HEAD)) {
+      // An earlier collapse: carry its notes and actions forward, not the note itself.
+      const counted = /\((\d+) earlier tool calls/.exec(text);
+      earlierActions += counted ? Number(counted[1]) : 0;
+      const [, noteBlock = "", actionBlock = ""] = /Instructions given during those steps:\n([\s\S]*?)\n\nTools run[^\n]*\n([\s\S]*)$/.exec(text) ?? [];
+      if (noteBlock.trim() && noteBlock.trim() !== "(none)") notes.push(...noteBlock.split("\n\n").filter(Boolean));
+      actions.push(...actionBlock.split("\n").filter((line) => line.startsWith("- ")));
+      continue;
+    }
+    notes.push(text.slice(0, COLLAPSED_NOTE_CHARS));
+  }
+  const keptActions = actions.slice(-COLLAPSED_ACTIONS_KEPT);
+  earlierActions += actions.length - keptActions.length;
+  const keptNotes = notes.slice(-COLLAPSED_NOTES_KEPT);
+  const note = [
+    `${COLLAPSED_HEAD} Their results are no longer in view: what was built is on disk, so look there or rerun a command if you need something again.]`,
+    "",
+    "Instructions given during those steps:",
+    keptNotes.length > 0 ? keptNotes.join("\n\n") : "(none)",
+    "",
+    `Tools run in those steps, oldest first${earlierActions > 0 ? ` (${earlierActions} earlier tool calls not listed)` : ""}:`,
+    ...keptActions,
+  ].join("\n");
+  return [messages[0]!, { role: "user", content: note }, ...messages.slice(cut)];
+}
+
 /** Tools whose result is a view of something that has since changed: the page, the screen. */
 const VIEW_TOOLS = new Set(["browser_navigate", "browser_snapshot", "browser_read", "browser_screenshot", "computer_screenshot"]);
 const VIEW_GONE = "[An earlier view of the page was here. The page has moved on since; take a new browser_snapshot to see it as it is now.]";

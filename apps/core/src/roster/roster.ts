@@ -250,6 +250,26 @@ export async function setDefaultModel(
    */
   tryModel?: (provider: string, modelId: string, apiKey: string, baseUrl: string | null) => Promise<string | null>,
 ) {
+  const data = await checkedModelChoice(db, accountId, input, check, tryModel);
+  await db
+    .update(accounts)
+    .set({ defaultProvider: data.provider, defaultModelId: data.modelId })
+    .where(eq(accounts.id, accountId));
+  return data;
+}
+
+/**
+ * Validates a provider and model the person typed.
+ * Input: db, account id, the raw choice, and the optional provider checks.
+ * Output: the parsed choice. Throws when there is no key, or the provider rejects the id.
+ */
+async function checkedModelChoice(
+  db: Database,
+  accountId: string,
+  input: unknown,
+  check?: (provider: string, apiKey: string, baseUrl: string | null) => Promise<ProviderCheck>,
+  tryModel?: (provider: string, modelId: string, apiKey: string, baseUrl: string | null) => Promise<string | null>,
+) {
   const data = defaultModelSchema.parse(input);
   const keys = await listProviderKeys(db, accountId);
   if (!keys.some((key) => key.provider === data.provider && key.configured)) {
@@ -265,9 +285,41 @@ export async function setDefaultModel(
       if (failure !== null) throw new ProviderCheckError(unknown);
     }
   }
+  return data;
+}
+
+/** The cheaper model for background work, or null when the person has not set one. */
+export async function cheapModelFor(db: Database, accountId: string): Promise<{ provider: string; modelId: string } | null> {
+  const [row] = await db
+    .select({ provider: accounts.cheapProvider, modelId: accounts.cheapModelId })
+    .from(accounts)
+    .where(eq(accounts.id, accountId));
+  return row?.provider && row.modelId ? { provider: row.provider, modelId: row.modelId } : null;
+}
+
+/**
+ * Saves or clears the account's cheap model.
+ * Why: background workers spend almost all of an account's tokens (51 of 53
+ * million in one day for one agent), on long tool loops that a cheaper model
+ * handles well. Chat agents, where judgment matters, keep their own model.
+ * Input: db, account id, and a provider/model choice, or null to clear it.
+ * Output: what was saved, or null when cleared.
+ */
+export async function setCheapModel(
+  db: Database,
+  accountId: string,
+  input: unknown,
+  check?: (provider: string, apiKey: string, baseUrl: string | null) => Promise<ProviderCheck>,
+  tryModel?: (provider: string, modelId: string, apiKey: string, baseUrl: string | null) => Promise<string | null>,
+) {
+  if (input === null || (typeof input === "object" && input !== null && !(input as { modelId?: unknown }).modelId)) {
+    await db.update(accounts).set({ cheapProvider: null, cheapModelId: null }).where(eq(accounts.id, accountId));
+    return null;
+  }
+  const data = await checkedModelChoice(db, accountId, input, check, tryModel);
   await db
     .update(accounts)
-    .set({ defaultProvider: data.provider, defaultModelId: data.modelId })
+    .set({ cheapProvider: data.provider, cheapModelId: data.modelId })
     .where(eq(accounts.id, accountId));
   return data;
 }

@@ -4,6 +4,14 @@ import { renderWorkLog, weaveWorkLogs, workEntry } from "./work-log.js";
 const at = (minute: number) => new Date(Date.UTC(2026, 0, 1, 10, minute));
 
 describe("workEntry", () => {
+  it("keeps only the title and address of a page tree", () => {
+    const tree = "✓ Results - Google Search\n  https://www.google.com/search?q=x\n- generic\n  - link \"Skip\" [ref=e1]\n".repeat(20);
+    const entry = workEntry("browser_navigate", { url: "https://www.google.com/search?q=x" }, tree, false);
+    expect(entry.output).toContain("Results - Google Search");
+    expect(entry.output).not.toContain("[ref=e1]");
+    expect(workEntry("browser_read", {}, "Plain page text", false).output).toBe("Plain page text");
+  });
+
   it("keeps the identifying argument and clips long output", () => {
     const entry = workEntry("read", { path: "/shared/a.md" }, "x".repeat(5000), false);
     expect(entry.input).toBe("/shared/a.md");

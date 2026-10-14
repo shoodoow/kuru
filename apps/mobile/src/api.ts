@@ -90,6 +90,8 @@ export type AccountSettings = {
   timezone: string;
   /** The model new agents start on; null until setup is finished. */
   defaultModel?: DefaultModelSetting | null;
+  /** The cheaper model background work runs on; null when unset. */
+  cheapModel?: DefaultModelSetting | null;
 };
 
 export type DefaultModelSetting = { provider: ProviderSetting["provider"]; modelId: string };
@@ -182,7 +184,7 @@ function formatWindowSharePct(share: number): string {
   return `${Math.round(share * 100)}%`;
 }
 
-/** Header line: window fill (matches the composer ring), then optional lifetime billing. */
+/** Header line: how full the context window is (matches the composer ring). */
 export function contextLine(info: ChatContextInfo): string {
   const share = contextUsageShare(info);
   const ctx = formatTokenCount(info.context.estTokens);
@@ -193,14 +195,16 @@ export function contextLine(info: ChatContextInfo): string {
   } else {
     parts.push(`${ctx} est ctx`);
   }
-  const billed = info.usage.totalTokens;
-  if (billed > 0) {
-    parts.push(`${formatTokenCount(billed)} billed`);
-  }
-  const untrackedCount = info.usage.runsUntracked + info.usage.delegationsUntracked;
-  if (untrackedCount > 0) {
-    parts.push(`+${untrackedCount} untracked`);
-  }
+  // Hidden for now: the lifetime total and the untracked count read as a bill
+  // and a fault next to the window figure, and the Usage page now carries both.
+  // const billed = info.usage.totalTokens;
+  // if (billed > 0) {
+  //   parts.push(`${formatTokenCount(billed)} billed`);
+  // }
+  // const untrackedCount = info.usage.runsUntracked + info.usage.delegationsUntracked;
+  // if (untrackedCount > 0) {
+  //   parts.push(`+${untrackedCount} untracked`);
+  // }
   return parts.join(" · ");
 }
 
@@ -236,13 +240,20 @@ export type PendingNotification = {
 };
 
 type UsageTotals = { inputTokens: number; outputTokens: number; cacheReadTokens: number; turns: number; jobs: number };
-/** What the account's agents used over a period, by day and by agent. */
+/** The windows the Usage page offers. */
+export type UsagePeriod = "today" | "week" | "month";
+/** What the account's agents used in a period: by hour (today) or day, by agent and by model. */
 export type AccountUsage = {
-  days: number;
+  period: UsagePeriod;
   timezone: string;
+  /** What one bar covers. */
+  bucket: "hour" | "day";
   totals: UsageTotals;
-  daily: ({ day: string } & UsageTotals)[];
+  /** `key` is "HH" for an hour or "YYYY-MM-DD" for a day; `models` is tokens per model key. */
+  series: ({ key: string; models: Record<string, number> } & UsageTotals)[];
   agents: ({ agentId: string; name: string; provider: string; modelId: string } & UsageTotals)[];
+  /** `key` is "provider/model". */
+  models: ({ key: string; provider: string; modelId: string } & UsageTotals)[];
 };
 
 /** What the inbox list shows beside each chat. */
@@ -306,7 +317,7 @@ export type CoreClient = {
   /** Deletes the account and everything it owns on the server, for good. */
   deleteAccount: (accountId: string) => Promise<void>;
   /** Tokens, turns and background jobs for the last 7, 30 or 90 days. */
-  usage: (accountId: string, days: number) => Promise<AccountUsage>;
+  usage: (accountId: string, period: UsagePeriod) => Promise<AccountUsage>;
   /** Unread counts and busy agents for the inbox list. */
   inboxStatus: (accountId: string) => Promise<InboxStatus>;
   /** Tells the server the person has this chat open, so its messages count as seen. */
@@ -319,6 +330,8 @@ export type CoreClient = {
   getSettings: (accountId: string) => Promise<AccountSettings>;
   setAutoReview: (accountId: string, autoReview: boolean) => Promise<AccountSettings>;
   setDefaultModel: (accountId: string, model: DefaultModelSetting) => Promise<DefaultModelSetting>;
+  /** Saves the cheap model, or clears it with null. */
+  setCheapModel: (accountId: string, model: DefaultModelSetting | null) => Promise<DefaultModelSetting | null>;
   /** Asks a new chat's agent to write its first message. */
   sayHello: (accountId: string, conversationId: string) => Promise<unknown>;
   rememberTimezone: (accountId: string, timezone: string) => Promise<AccountSettings>;
@@ -411,7 +424,7 @@ function buildCore(baseUrl: string, fetchImpl: typeof fetch): CoreClient {
     deleteAccount: async (accountId) => {
       await readJson<unknown>(fetchImpl, `${baseUrl}/accounts/${accountId}`, { method: "DELETE" });
     },
-    usage: (accountId, days) => readJson<AccountUsage>(fetchImpl, `${baseUrl}/accounts/${accountId}/usage?days=${days}`),
+    usage: (accountId, period) => readJson<AccountUsage>(fetchImpl, `${baseUrl}/accounts/${accountId}/usage?period=${period}`),
     inboxStatus: (accountId) => readJson<InboxStatus>(fetchImpl, `${baseUrl}/accounts/${accountId}/inbox`),
     markRead: (accountId, conversationId) =>
       readJson<unknown>(fetchImpl, `${baseUrl}/conversations/${conversationId}/read?accountId=${accountId}`, { method: "POST" }),
@@ -428,6 +441,12 @@ function buildCore(baseUrl: string, fetchImpl: typeof fetch): CoreClient {
       readJson<DefaultModelSetting>(fetchImpl, `${baseUrl}/accounts/${accountId}/default-model`, {
         method: "PUT",
         body: JSON.stringify(model),
+      }),
+    setCheapModel: (accountId, model) =>
+      readJson<DefaultModelSetting | null>(fetchImpl, `${baseUrl}/accounts/${accountId}/cheap-model`, {
+        method: "PUT",
+        // An empty object clears it: the server's JSON parser refuses a bare null.
+        body: JSON.stringify(model ?? {}),
       }),
     rememberTimezone: (accountId, timezone) => rememberTimezone(baseUrl, accountId, timezone, fetchImpl),
     listToolApprovals: (accountId) => listToolApprovals(baseUrl, accountId, fetchImpl),

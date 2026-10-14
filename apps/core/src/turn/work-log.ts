@@ -49,12 +49,29 @@ function mainInput(tool: string, input: Record<string, unknown>): string {
   return oneLine(input);
 }
 
+/** Tools whose result is a page's structure tree: useless later, and long. */
+const PAGE_TREE_TOOLS = new Set(["browser_navigate", "browser_snapshot"]);
+
+/**
+ * What of a result is worth replaying later.
+ * Why: a page tree ("generic - link [ref=e123] …") filled 1,500 characters of
+ * every later prompt per call and told the agent nothing; its first lines,
+ * the page title and address, say where it went.
+ */
+function keptOutput(tool: string, output: unknown): string {
+  if (PAGE_TREE_TOOLS.has(tool) && typeof output === "string") {
+    const tree = output.search(/\n\s*- /);
+    return tree < 0 ? output : `${output.slice(0, tree)} [page structure not kept]`;
+  }
+  return typeof output === "string" ? output : (JSON.stringify(output) ?? "");
+}
+
 /** Builds one stored entry from a finished tool call. */
 export function workEntry(tool: string, input: Record<string, unknown>, output: unknown, failed: boolean): WorkLogEntry {
   return {
     tool,
     input: clip(oneLine(mainInput(tool, input)), STORED_INPUT_CHARS),
-    output: clip(oneLine(output), STORED_OUTPUT_CHARS),
+    output: clip(oneLine(keptOutput(tool, output)), STORED_OUTPUT_CHARS),
     ...(failed ? { failed: true } : {}),
   };
 }

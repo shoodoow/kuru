@@ -111,7 +111,7 @@ function workerExecute(
       accountId: workerCtx.accountId,
       linuxProfile: workerCtx.profile,
     };
-    if (def.name === "list_skills") return async () => executeListSkills(skillCtx);
+    if (def.name === "list_skills") return async (input: Record<string, unknown>) => executeListSkills(skillCtx, input);
     return async () => executeRefreshSkills(skillCtx);
   }
   const linuxFn = linux[def.name];

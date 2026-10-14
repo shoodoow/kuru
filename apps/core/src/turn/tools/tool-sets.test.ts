@@ -2,7 +2,7 @@ import { toolNamesInSet } from "@kuru/agent-tools";
 import { describe, expect, it } from "vitest";
 import { activeDispatcherTools, allowedForKind, initialToolSets, isRequestableToolSet } from "./tool-sets.js";
 
-const supportTools = ["set_brief", "hire_agent", "read_agent_memory", "remember_for_agent", "correct_agent_memory"];
+const supportTools = ["set_brief", "hire_agent", "fire_agent", "read_agent_memory", "remember_for_agent", "correct_agent_memory"];
 const handsOn = ["spawn_worker", "redirect_worker", "open_on_screen", "read", "enable_tools", "hire_subagent", "create_routine"];
 
 describe("tool sets by agent kind", () => {

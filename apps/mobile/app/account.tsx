@@ -15,6 +15,7 @@ const TITLES: Record<MenuPage, string> = {
   account: "Account",
   signup: "Sign in",
   providers: "AI Providers",
+  models: "Models",
   plugins: "Plugins",
   "plugin-custom": "Your MCP",
   appearance: "Appearance",
@@ -69,7 +70,7 @@ export default function AccountRoute() {
         onError={session.show}
         serverUrl={session.serverUrl}
         onChangeServer={session.changeServer}
-        onLoadUsage={(days) => core.usage(session.accountId.trim(), days)}
+        onLoadUsage={(period) => core.usage(session.accountId.trim(), period)}
         onPage={(page) => {
           session.setMenu(page);
           if (page === "plugins") void session.refreshPlugins().catch(session.show);
@@ -86,6 +87,8 @@ export default function AccountRoute() {
         onSaveProvider={session.saveProvider}
         defaultModel={session.defaultModel}
         onSaveDefaultModel={session.saveDefaultModel}
+        cheapModel={session.cheapModel}
+        onSaveCheapModel={session.saveCheapModel}
         onAddPlugin={(id) => void session.addPlugin(id).catch(session.show)}
         onRemovePlugin={session.removePlugin}
         onRefreshPlugins={() => void session.refreshPlugins().catch(session.show)}

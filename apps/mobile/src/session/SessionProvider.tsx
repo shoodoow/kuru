@@ -261,6 +261,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [threadLoading, setThreadLoading] = useState(false);
   const [autoReview, setAutoReview] = useState(true);
   const [defaultModel, setDefaultModel] = useState<DefaultModelSetting | null>(null);
+  const [cheapModel, setCheapModel] = useState<DefaultModelSetting | null>(null);
   // True for a signed-in account that has no default agent yet: the inbox shows the setup guide.
   const [setupNeeded, setSetupNeeded] = useState(false);
   const [autoTimeZone, setAutoTimeZone] = useState(true);
@@ -342,6 +343,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setProviders(configured);
     setAutoReview(settings.autoReview);
     setDefaultModel(settings.defaultModel ?? null);
+    setCheapModel(settings.cheapModel ?? null);
     setSetupNeeded(!roster.some((agent) => agent.kind === "support"));
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (zone) {
@@ -391,6 +393,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setRoutines([]);
     setPendingCount(0);
     setDefaultModel(null);
+    setCheapModel(null);
     setSetupNeeded(false);
     setContextRing(null);
     setDraft("");
@@ -1671,6 +1674,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     notify("Default model saved");
   }
 
+  /** Sets the cheaper model background work runs on, or clears it with a null model id. */
+  async function saveCheapModel(provider: ProviderSetting["provider"], modelId: string | null): Promise<void> {
+    setCheapModel(await core.setCheapModel(accountId, modelId ? { provider, modelId } : null));
+    notify(modelId ? "Cheap model saved" : "Cheap model removed");
+  }
+
   async function refreshPlugins(): Promise<void> {
     if (!accountId) return;
     setPlugins(await core.listPlugins(accountId));
@@ -1791,6 +1800,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     finishSetup,
     saveDefaultModel,
     defaultModel,
+    saveCheapModel,
+    cheapModel,
     setupNeeded,
     refreshPlugins,
     addPlugin,
@@ -1902,6 +1913,8 @@ type SessionValue = {
   finishSetup: (provider: ProviderSetting["provider"], secret: string, baseUrl: string | null, modelId: string) => Promise<void>;
   saveDefaultModel: (provider: ProviderSetting["provider"], modelId: string) => Promise<void>;
   defaultModel: DefaultModelSetting | null;
+  saveCheapModel: (provider: ProviderSetting["provider"], modelId: string | null) => Promise<void>;
+  cheapModel: DefaultModelSetting | null;
   setupNeeded: boolean;
   refreshPlugins: () => Promise<void>;
   addPlugin: (id: string) => Promise<void>;

@@ -168,7 +168,7 @@ describe("memory over a two-year history", () => {
     expect(digests.filter((item) => item.level === 2).length).toBeGreaterThanOrEqual(1);
 
     // The profile is written from current facts only.
-    await refreshProfile(db, account.id, async (_system, user) => `Profile built from ${user.length} chars. Budget 12,000.`, all[0]!.messageId);
+    await refreshProfile(db, account.id, async (_system, user) => `Profile built from ${user.length} chars. Budget 12,000.`, all[0]!.messageId!);
     expect(await profileFor(db, account.id)).toContain("12,000");
 
     // History doubled between the two measurements; the memory part of the prompt did not grow.

@@ -10,7 +10,7 @@
 import { generateText } from "ai";
 import { memoryKinds, summaryKeys, type MemoryKind } from "../db/schema.js";
 import { getModel } from "../model/get-model.js";
-import type { FoldFact, FoldItem, FoldOutput, FoldSummarizer, KnownFact, SliceMessage } from "./compaction.js";
+import type { FoldFact, FoldItem, FoldOutput, FoldSummarizer, KnownFact, OpenItem, SliceMessage } from "./compaction.js";
 import { prompt } from "../prompt/prompts.js";
 
 const KEY_SET = new Set<string>(summaryKeys);
@@ -41,8 +41,14 @@ export function renderKnown(known: KnownFact[]): string {
     .join("\n");
 }
 
+/** Open summary lines as `O1: body`, so the model can say which the slice settled. */
+export function renderOpen(open: OpenItem[]): string {
+  if (open.length === 0) return "(none)";
+  return open.map((item, index) => `O${index + 1}: ${item.body.replace(/\s+/g, " ").slice(0, 300)}`).join("\n");
+}
+
 export function llmFoldSummarizer(deps: ModelDeps): FoldSummarizer {
-  return async (slice, known) => {
+  return async (slice, known, open = []) => {
     try {
       const result = await generateText({
         model: getModel(deps.provider, deps.modelId, deps.apiKey, deps.baseUrl),
@@ -50,12 +56,16 @@ export function llmFoldSummarizer(deps: ModelDeps): FoldSummarizer {
         messages: [
           {
             role: "user",
-            content: prompt("memory", "fold-user", { known: renderKnown(known), transcript: renderSlice(slice) }),
+            content: prompt("memory", "fold-user", {
+              known: renderKnown(known),
+              open: renderOpen(open),
+              transcript: renderSlice(slice),
+            }),
           },
         ],
       });
-      const parsed = parseFold(result.text ?? "", slice, known);
-      if (parsed.items.length > 0 || (parsed.facts?.length ?? 0) > 0) return parsed;
+      const parsed = parseFold(result.text ?? "", slice, known, open);
+      if (parsed.items.length > 0 || (parsed.facts?.length ?? 0) > 0 || (parsed.closed?.length ?? 0) > 0) return parsed;
     } catch {
       // Fall through to the deterministic fallback below.
     }
@@ -68,17 +78,26 @@ export function llmFoldSummarizer(deps: ModelDeps): FoldSummarizer {
  *   decisions [4]: Ship the intro at 15 seconds.
  *   fact [7] person | Sara Ahmadi: Head of marketing at Acme.
  *   update M3 [9]: Sara moved to Globex as CMO.
+ *   done O2
  * `[n]` is the transcript line the statement came from; a missing or bad
  * number cites the newest message. Lines that fit no rule are ignored.
  */
-export function parseFold(text: string, slice: SliceMessage[], known: KnownFact[]): FoldOutput {
+export function parseFold(text: string, slice: SliceMessage[], known: KnownFact[], open: OpenItem[] = []): FoldOutput {
   const lastId = slice.at(-1)!.id;
   const idAt = (n: string | undefined): string => slice[Number(n) - 1]?.id ?? lastId;
   const items: FoldItem[] = [];
   const facts: FoldFact[] = [];
+  const closed: string[] = [];
   for (const raw of text.split("\n")) {
     const line = raw.replace(/^[-*\s]+/, "").trim();
     if (!line) continue;
+
+    const done = line.match(/^done\s+O(\d+)\b/i);
+    if (done) {
+      const item = open[Number(done[1]) - 1];
+      if (item && !closed.includes(item.id)) closed.push(item.id);
+      continue;
+    }
 
     const update = line.match(/^update\s+M(\d+)\s*(?:\[(\d+)\])?\s*:\s*(.+)$/i);
     if (update) {
@@ -114,7 +133,7 @@ export function parseFold(text: string, slice: SliceMessage[], known: KnownFact[
       items.push({ key: item[1]!.toLowerCase(), body: item[3]!.trim().slice(0, MAX_ITEM), messageId: idAt(item[2]) });
     }
   }
-  return { items, facts };
+  return { items, facts, closed };
 }
 
 function fallbackLine(slice: { agentId: string | null; body: string }[]): string {

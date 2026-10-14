@@ -123,6 +123,12 @@ export const ownProfileInputSchema = z.object({
 /** Another agent on this account, by the name listed under "Other agents" (or its id). */
 const otherAgentField = z.string().trim().min(1).max(120);
 
+export const fireAgentInputSchema = z.object({
+  agent: otherAgentField,
+  /** Why the person is letting it go, in their words; shown on the approval card. */
+  reason: z.string().trim().max(300).optional(),
+});
+
 export const agentMemoryReadInputSchema = z.object({
   agent: otherAgentField,
 });
@@ -130,7 +136,7 @@ export const agentMemoryReadInputSchema = z.object({
 export const agentMemoryAddInputSchema = z.object({
   agent: otherAgentField,
   body: z.string().trim().min(3).max(1000),
-  kind: z.enum(["fact", "person", "org", "project", "preference", "decision", "commitment"]).optional(),
+  kind: z.enum(["fact", "person", "org", "project", "preference", "decision", "commitment", "procedure"]).optional(),
   /** The person, company or project the fact is about. Leave out for facts about the person themself. */
   subject: z.string().trim().max(120).optional(),
 });
@@ -241,6 +247,8 @@ const memoryScopeSchema = z
 export const rememberFactToolInputSchema = z.object({
   scope: memoryScopeSchema,
   body: z.string().trim().min(3).max(1000),
+  /** `procedure` marks a rule for how a kind of work is done; every worker this agent starts receives it. */
+  kind: z.enum(["fact", "preference", "decision", "procedure"]).optional(),
   /** Source message. Optional: defaults to the message that opened this turn. */
   messageId: z.string().uuid().optional(),
 });
@@ -265,6 +273,10 @@ export const enableToolsInputSchema = z.object({
 
 export const readSkillToolInputSchema = z.object({
   name: z.string().min(1),
+});
+
+export const listSkillsToolInputSchema = z.object({
+  query: z.string().optional(),
 });
 
 export const workerKindNames = [
@@ -314,6 +326,14 @@ function refineCustomWorkerKind(
 
 export const spawnWorkerInputSchema = z.object(spawnWorkerFields).superRefine(refineCustomWorkerKind);
 
+/** A brief kept in a file on the agent's computer, read fresh at every run. */
+const briefFileField = z
+  .string()
+  .trim()
+  .regex(/^(\/shared\/|\/home\/[^/]+\/)[^\0]+$/, "A brief file is a path under /shared or your home.")
+  .refine((path) => !path.includes(".."), "A brief file path cannot go up with ..")
+  .optional();
+
 /**
  * Tool surface for spawn_worker. The model writes only the brief and the kind;
  * the worker's label and role are derived, and it always inherits the
@@ -325,6 +345,8 @@ export const spawnWorkerToolInputSchema = z
     kind: z.enum(workerKindNames).optional().default("executor"),
     /** Skill names loaded into the worker's prompt so it does not spend a step reading them. */
     skills: z.array(z.string().trim().min(1).max(100)).max(4).optional(),
+    /** A file holding the full brief; its text is given to the worker with `task`. */
+    briefFile: briefFileField,
     instructions: spawnWorkerFields.instructions,
     maxSteps: spawnWorkerFields.maxSteps,
   })
@@ -339,6 +361,11 @@ export const routineCreateInputSchema = z.object({
   cron: z.string().trim().min(1).max(100),
   timezone: z.string().trim().min(1).max(100).optional().default("UTC"),
   paused: z.boolean().optional().default(false),
+  /** `worker`: each run starts a worker with the brief. `agent`: you are woken to act yourself. */
+  runAs: z.enum(["worker", "agent"]).optional(),
+  kind: z.enum(workerKindNames).optional(),
+  skills: z.array(z.string().trim().min(1).max(100)).max(4).optional(),
+  briefFile: briefFileField,
 });
 
 export type RoutineCreateInput = z.infer<typeof routineCreateInputSchema>;
@@ -350,6 +377,11 @@ export const routineUpdateInputSchema = z.object({
   cron: z.string().trim().min(1).max(100).optional(),
   timezone: z.string().trim().min(1).max(100).optional(),
   paused: z.boolean().optional(),
+  runAs: z.enum(["worker", "agent"]).optional(),
+  kind: z.enum(workerKindNames).optional(),
+  skills: z.array(z.string().trim().min(1).max(100)).max(4).optional(),
+  /** An empty string stops using a brief file. */
+  briefFile: z.union([briefFileField, z.literal("")]).optional(),
 });
 
 export type RoutineUpdateInput = z.infer<typeof routineUpdateInputSchema>;
@@ -495,11 +527,14 @@ export const askAgentInputSchema = z.object({
 export const browserClickInputSchema = z.object({
   uid: z.string().min(1).max(40),
   double: z.boolean().optional(),
+  /** Keep the button pressed this long before letting go, for "press and hold" controls. */
+  holdMs: z.number().int().min(100).max(30000).optional(),
 });
 
 export const browserClickAtInputSchema = z.object({
   x: z.number().min(0).max(10000),
   y: z.number().min(0).max(10000),
+  holdMs: z.number().int().min(100).max(30000).optional(),
 });
 
 export const browserDragInputSchema = z.object({
@@ -550,8 +585,11 @@ export const browserSetValueInputSchema = z.object({
 });
 
 export const browserUploadInputSchema = z.object({
-  uid: z.string().min(1).max(40),
   path: z.string().min(1).max(1000),
+  /** The file field's ref, when the snapshot shows one. Usually left out: file fields are hidden. */
+  uid: z.string().min(1).max(40).optional(),
+  /** Which file field, by its number from a previous browser_upload answer, when the page has several. */
+  field: z.number().int().min(1).max(50).optional(),
 });
 
 export const browserScrollInputSchema = z.object({

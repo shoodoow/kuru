@@ -18,7 +18,9 @@ import { resolveGatewayContextWindow } from "../model/gateway-models.js";
 import { buildWorkerToolSet } from "../turn/tools/build-tools.js";
 import type { ToolContext } from "../turn/tools/context.js";
 import { appendEvent } from "./events.js";
-import { readSkillForAgent } from "../skills/agent-skills.js";
+import { readSkillForAgent, skillCatalogForAgent } from "../skills/agent-skills.js";
+import { budgetedCatalog, catalogBudgetTokens } from "../skills/catalog-budget.js";
+import { skillDirectoryOf, skillExcerpt } from "../skills/skill-excerpt.js";
 import { prompt } from "../prompt/prompts.js";
 import { publish } from "./stream.js";
 import { accountHome, createProfile, exec, execStdin } from "../linux/linux.js";
@@ -27,7 +29,7 @@ import { wrapToolExecute } from "../turn/tools/wrap-tool-execute.js";
 import { tracePreview } from "../turn/trace/sinks/jsonl.js";
 import { emitTurnBus } from "../turn/events/bus.js";
 import { askAgent, forgetWorkerQuestions } from "./worker-questions.js";
-import { agents, conversations, delegations, members, messages, runs, workerTranscripts } from "../db/schema.js";
+import { accounts, agents, conversations, delegations, members, messages, runs, workerTranscripts } from "../db/schema.js";
 import { repairToolInput } from "../turn/tools/repair-input.js";
 import {
   LOOK_ONLY_NUDGE_AFTER,
@@ -35,6 +37,7 @@ import {
   WORKER_STEP_CEILING,
   WORKER_WALL_MS,
   WRAP_UP_WARNING_STEPS,
+  collapseOldSteps,
   compactTranscript,
   dropStaleViews,
   compactionThreshold,
@@ -339,9 +342,11 @@ export async function addGroupMember(
 
 const WORKER_RESULT_MAX = 20_000;
 /** Cap per preloaded skill body so one long playbook cannot dominate every worker step. */
-const PRELOADED_SKILL_CHARS = 24_000;
+const PRELOADED_SKILL_CHARS = 16_000;
 // All preloaded skills together; every worker step resends them.
-const PRELOADED_SKILLS_TOTAL_CHARS = 60_000;
+const PRELOADED_SKILLS_TOTAL_CHARS = 40_000;
+/** The other installed skills, listed for a worker; smaller than the chat list since a worker resends it every step. */
+const WORKER_CATALOG_TOKENS = 1_200;
 /** One cheap text-only pass when a worker spent its budget on tools and wrote nothing. No tools attached. */
 const workerReportRetryInstructions = (): string => prompt("worker-rules", "report-retry");
 export const WORKER_STALE_MS = 4 * 60 * 60 * 1000;
@@ -980,6 +985,37 @@ export async function alreadyDelivered(
  * Input: db, ids, task, skills root, optional stub generate (tests).
  * Output: nothing (all outcomes recorded). Never rejects.
  */
+/**
+ * The model one worker run uses, with its key.
+ * Why: background work is where nearly all tokens go, so an account can name
+ * a cheaper model for it. A cheap model whose key was removed since falls back
+ * to the worker's own model instead of failing the job.
+ * Input: db, account id, the worker row. Output: provider, model id, context window and key.
+ */
+async function workerModelFor(
+  db: ReturnType<typeof getDb>,
+  accountId: string,
+  child: { provider: string; modelId: string; modelContextWindow: number | null },
+) {
+  const [row] = await db
+    .select({ provider: accounts.cheapProvider, modelId: accounts.cheapModelId })
+    .from(accounts)
+    .where(eq(accounts.id, accountId));
+  if (row?.provider && row.modelId) {
+    const credential = await keyFor(db, accountId, row.provider).catch(() => null);
+    if (credential) {
+      const contextWindow = await resolveGatewayContextWindow(row.provider, row.modelId).catch(() => null);
+      return { provider: row.provider, modelId: row.modelId, contextWindow, credential };
+    }
+  }
+  return {
+    provider: child.provider,
+    modelId: child.modelId,
+    contextWindow: child.modelContextWindow,
+    credential: await keyFor(db, accountId, child.provider),
+  };
+}
+
 export async function runWorker(
   db: ReturnType<typeof getDb>,
   input: {
@@ -1078,7 +1114,15 @@ export async function runWorker(
     // one-line role, and the task — nothing else. No parent identity, no
     // thread history: anything the worker needs must be in the brief. The
     // parent keeps all context and decides with the worker's reported proof.
-    const credential = await keyFor(db, input.accountId, child.provider);
+    // The account's cheap model, when set, runs all background work; otherwise the worker's own.
+    const runOn = await workerModelFor(db, input.accountId, child);
+    const credential = runOn.credential;
+    // Recorded for the usage page, which counts tokens per model.
+    await db
+      .update(delegations)
+      .set({ provider: runOn.provider, modelId: runOn.modelId })
+      .where(eq(delegations.id, input.delegationId))
+      .catch(noted("Saving a worker's model"));
     const review: ToolContext = {
       db,
       store: db,
@@ -1188,8 +1232,8 @@ export async function runWorker(
       conversationId: input.conversationId,
       agentId: input.childId,
       mode: "worker",
-      provider: child.provider,
-      modelId: child.modelId,
+      provider: runOn.provider,
+      modelId: runOn.modelId,
       delegationId: input.delegationId,
     });
     // Named skills ride in the prompt: the parent no longer reads them first,
@@ -1210,12 +1254,19 @@ export async function runWorker(
         );
         const limit = Math.min(PRELOADED_SKILL_CHARS, preloadBudget);
         // A skill cut short must say so. Cut silently, the worker believed it
-        // had the whole procedure and built from the first half of it.
+        // had the whole procedure and built from the first half of it. It is
+        // cut where a section starts, and the sections left out are named.
+        const excerpt = skillExcerpt(body, limit);
+        const directory = skillDirectoryOf(body);
         const clipped =
-          body.length > limit
-            ? `${body.slice(0, limit)}\n\n${prompt("worker-rules", "skill-cut", { name, shown: limit, total: body.length })}`
+          excerpt.omitted.length > 0 || excerpt.text.length < body.trimEnd().length
+            ? `${excerpt.text}\n\n${prompt("worker-rules", directory ? "skill-cut" : "skill-cut-no-file", {
+                name,
+                file: directory ? `${directory}/SKILL.md` : "",
+                sections: excerpt.omitted.length > 0 ? excerpt.omitted.map((title) => `"${title}"`).join(", ") : "the rest of the file",
+              })}`
             : body;
-        preloadBudget -= Math.min(body.length, limit);
+        preloadBudget -= excerpt.text.length;
         preloaded.push(prompt("worker-rules", "preloaded-skill", { name, body: clipped }));
       } catch {
         // Unknown skill name: the worker can still look it up with read_skill.
@@ -1223,6 +1274,23 @@ export async function runWorker(
     }
     if (notLoaded.length > 0) {
       preloaded.push(prompt("worker-rules", "skills-not-loaded", { names: notLoaded.map((name) => `\`${name}\``).join(", ") }));
+    }
+    // The rest of the installed skills, as names and short descriptions only.
+    // Why: a worker knew only the skills its lead named, so when the job turned
+    // out to need another (a press-and-hold check, a file type) it rebuilt the
+    // method by hand over dozens of steps. It loads one with read_skill when needed.
+    const named = new Set(meta.skills ?? []);
+    const others = (
+      await skillCatalogForAgent({ skillsRoot: input.skillsRoot, accountId: input.accountId, linuxProfile: profile }).catch(() => [])
+    ).filter((skill) => !named.has(skill.name));
+    if (others.length > 0) {
+      preloaded.push(
+        prompt("worker-rules", "skill-catalog", {
+          catalog: budgetedCatalog(others, {
+            budgetTokens: Math.min(WORKER_CATALOG_TOKENS, catalogBudgetTokens(runOn.contextWindow)),
+          }),
+        }),
+      );
     }
     // The task is sent once, as the user message; the system text is standing method only.
     const workerInstructions = [standing, roleLine, ...preloaded].join("\n\n");
@@ -1276,8 +1344,13 @@ export async function runWorker(
       isToolDigestFallback,
       resolveWorkerEnding,
     } = await import("../turn/worker-report.js");
-    const model = getModel(child.provider, child.modelId, credential.apiKey, credential.baseUrl);
-    const compactAt = compactionThreshold(child.modelContextWindow);
+    const model = getModel(runOn.provider, runOn.modelId, credential.apiKey, credential.baseUrl);
+    const compactAt = compactionThreshold(runOn.contextWindow);
+    // A continued job starts from its saved conversation, which can be far over the
+    // threshold; bring it down before the first step instead of after six of them.
+    if (prior.length > 0 && estimateTokens(transcript) > compactAt / 2) {
+      transcript = collapseOldSteps(compactTranscript(transcript));
+    }
     const startedAt = Date.now();
     const usage: Usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, modelSteps: 0 };
     /** Slim copies of finished steps: enough to write a report from, without holding every screenshot. */
@@ -1472,6 +1545,10 @@ export async function runWorker(
           transcript = compactTranscript(transcript);
           if (estimateTokens(transcript) > compactAt) {
             transcript = compactTranscript(transcript, { keepRecent: 6, toolChars: 300, inputChars: 200 });
+          }
+          // Shortened steps still add up over hundreds of steps: collapse the oldest.
+          if (lastInputTokens > compactAt || estimateTokens(transcript) > compactAt / 2) {
+            transcript = collapseOldSteps(transcript);
           }
           lastInputTokens = 0;
         }

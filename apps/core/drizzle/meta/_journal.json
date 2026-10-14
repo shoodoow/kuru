@@ -295,6 +295,41 @@
       "when": 1791240400000,
       "tag": "0041_social-plugins",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791326800000,
+      "tag": "0042_cheap-model",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791327800000,
+      "tag": "0043_fact-source-optional",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791327900000,
+      "tag": "0044_routine-workers",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791328000000,
+      "tag": "0045_procedure-facts",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791328100000,
+      "tag": "0046_job-model",
+      "breakpoints": true
     }
   ]
 }

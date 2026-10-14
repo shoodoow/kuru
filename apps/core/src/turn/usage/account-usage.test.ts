@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { getDb } from "../../db/client.js";
 import { conversations, delegations, members, runs } from "../../db/schema.js";
 import { createAccount, createAgent } from "../../roster/roster.js";
-import { accountUsage } from "./account-usage.js";
+import { accountUsage, usagePeriod } from "./account-usage.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
@@ -13,7 +13,7 @@ describe("account usage", () => {
     await db.$client.end();
   });
 
-  it("adds turns and background jobs by day and by agent, inside the period only", async () => {
+  it("adds turns and background jobs by day, by agent and by model, inside the period only", async () => {
     const account = await createAccount(db, { name: "Usage" });
     const make = async (name: string) => {
       const agent = await createAgent(db, account.id, { name, label: name, role: "Teammate", jobDescription: "Works.", provider: "openai", modelId: "gpt-5" });
@@ -31,37 +31,45 @@ describe("account usage", () => {
       // Outside a week, inside a month. A run with no usage recorded still counts as a turn.
       { accountId: account.id, conversationId: bea.room.id, status: "done", createdAt: daysAgo(20) },
     ]);
-    await db.insert(delegations).values({
-      accountId: account.id,
-      conversationId: ada.room.id,
-      parentAgentId: ada.agent.id,
-      childAgentId: ada.agent.id,
-      task: "build",
-      status: "done",
-      inputTokens: 9000,
-      outputTokens: 900,
-    });
-
-    const week = await accountUsage(db, account.id, 7);
-    expect(week.totals).toEqual({ inputTokens: 10_700, outputTokens: 1070, cacheReadTokens: 400, turns: 3, jobs: 1 });
-    expect(week.daily).toHaveLength(7);
-    expect(week.daily.at(-1)).toMatchObject({ inputTokens: 10_000, turns: 1, jobs: 1 });
-    expect(week.agents.map((row) => [row.name, row.inputTokens, row.turns, row.jobs])).toEqual([
-      ["Ada", 10_500, 2, 1],
-      ["Bea", 200, 1, 0],
+    await db.insert(delegations).values([
+      // A job from before the model was recorded counts against its worker's model.
+      { accountId: account.id, conversationId: ada.room.id, parentAgentId: ada.agent.id, childAgentId: ada.agent.id, task: "build", status: "done", inputTokens: 9000, outputTokens: 900 },
+      // A job on the background model counts against that model.
+      { accountId: account.id, conversationId: ada.room.id, parentAgentId: ada.agent.id, childAgentId: ada.agent.id, task: "render", status: "done", inputTokens: 3000, outputTokens: 300, provider: "anthropic", modelId: "claude-haiku-5-5" },
     ]);
 
-    const month = await accountUsage(db, account.id, 30);
-    expect(month.totals.turns).toBe(4);
-    // An unknown period falls back to a month.
-    expect((await accountUsage(db, account.id, 12)).days).toBe(30);
+    const week = await accountUsage(db, account.id, "week");
+    expect(week.bucket).toBe("day");
+    expect(week.totals).toEqual({ inputTokens: 13_700, outputTokens: 1370, cacheReadTokens: 400, turns: 3, jobs: 2 });
+    expect(week.series).toHaveLength(7);
+    expect(week.series.at(-1)).toMatchObject({ inputTokens: 13_000, turns: 1, jobs: 2, models: { "openai/gpt-5": 11_000, "anthropic/claude-haiku-5-5": 3300 } });
+    expect(week.agents.map((row) => [row.name, row.inputTokens, row.turns, row.jobs])).toEqual([
+      ["Ada", 13_500, 2, 2],
+      ["Bea", 200, 1, 0],
+    ]);
+    expect(week.models.map((row) => [row.key, row.inputTokens + row.outputTokens, row.jobs])).toEqual([
+      ["openai/gpt-5", 11_770, 1],
+      ["anthropic/claude-haiku-5-5", 3300, 1],
+    ]);
+
+    const today = await accountUsage(db, account.id, "today");
+    expect(today.bucket).toBe("hour");
+    expect(today.series.length).toBe(new Date().getUTCHours() + 1);
+    expect(today.totals.turns).toBe(1);
+
+    const month = await accountUsage(db, account.id, "month");
+    expect(month.series).toHaveLength(new Date().getUTCDate());
+    expect(month.totals.turns).toBe(1 + [2, 3, 20].filter((days) => daysAgo(days).getUTCMonth() === new Date().getUTCMonth()).length);
+    // An old client asking for days gets the nearest period.
+    expect([usagePeriod(undefined, 7), usagePeriod(undefined, 30), usagePeriod("today")]).toEqual(["week", "month", "today"]);
   });
 
   it("returns zeros for an account that has done nothing", async () => {
     const account = await createAccount(db, { name: "Quiet" });
-    const usage = await accountUsage(db, account.id, 7);
+    const usage = await accountUsage(db, account.id, "week");
     expect(usage.totals).toEqual({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, turns: 0, jobs: 0 });
     expect(usage.agents).toEqual([]);
-    expect(usage.daily).toHaveLength(7);
+    expect(usage.series).toHaveLength(7);
+    expect(usage.models).toEqual([]);
   });
 });

@@ -1,20 +1,26 @@
 import { chartValue } from "@kuru/shared";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, type ViewStyle } from "react-native";
-import type { AccountUsage, RosterAgent } from "../api";
-import { ChartWidget } from "../chat/ChartWidget";
+import type { AccountUsage, RosterAgent, UsagePeriod } from "../api";
+import { modelColor, modelName, UsageChart } from "./UsageChart";
+import { providerLabel } from "./ModelsPage";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { Avatar } from "../ui/Avatar";
 import { pressableStyle } from "../ui/pressableStyles";
 
-const PERIODS = [7, 30, 90] as const;
+const PERIODS: { id: UsagePeriod; label: string }[] = [
+  { id: "today", label: "Today" },
+  { id: "week", label: "Last 7 days" },
+  { id: "month", label: "This month" },
+];
 
 /**
- * What the account's agents used: tokens, turns and background jobs, by day
- * and by agent.
+ * What the account's agents used: tokens, turns and background jobs, by hour
+ * or day, by model and by agent.
  * Why: the ring in a chat covers one conversation. This is the whole account,
- * so the person can see how much is being spent and which agent spends it.
- * Money is not shown: prices differ by provider and model and are not known here.
+ * so the person can see how much is being spent, on which model and by which
+ * agent. Money is not shown: prices differ by provider and model and are not
+ * known here; the split by model is what lets them work it out.
  * Input: the roster (for faces) and a loader for one period. Output: the page.
  */
 export function UsagePage({
@@ -23,17 +29,17 @@ export function UsagePage({
   scrollStyle,
 }: {
   agents: RosterAgent[];
-  onLoad: (days: number) => Promise<AccountUsage>;
+  onLoad: (period: UsagePeriod) => Promise<AccountUsage>;
   scrollStyle: ViewStyle;
 }) {
-  const [days, setDays] = useState<number>(30);
+  const [period, setPeriod] = useState<UsagePeriod>("week");
   const [usage, setUsage] = useState<AccountUsage | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true;
     setError(null);
-    onLoad(days)
+    onLoad(period)
       .then((loaded) => {
         if (current) setUsage(loaded);
       })
@@ -45,24 +51,26 @@ export function UsagePage({
     };
     // The loader is recreated on every render of the menu; the period is what changes the data.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days]);
+  }, [period]);
 
-  const shown = usage?.days === days ? usage : null;
-  const bars = shown ? tokenBars(shown.daily) : { weekly: false, labels: [], values: [] };
+  const shown = usage?.period === period ? usage : null;
   const total = shown ? shown.totals.inputTokens + shown.totals.outputTokens : 0;
   const most = Math.max(1, ...(shown?.agents.map((row) => row.inputTokens + row.outputTokens) ?? []));
+  const label = PERIODS.find((entry) => entry.id === period)!.label.toLowerCase();
   return (
     <ScrollView style={scrollStyle} contentInsetAdjustmentBehavior="automatic" nestedScrollEnabled contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
       <View style={styles.periods}>
-        {PERIODS.map((period) => (
+        {PERIODS.map((entry) => (
           <Pressable
-            key={period}
+            key={entry.id}
             accessibilityRole="button"
-            accessibilityState={{ selected: days === period }}
-            onPress={() => setDays(period)}
-            style={({ pressed }) => pressableStyle([styles.period, days === period && styles.periodOn], { pressed })}
+            accessibilityState={{ selected: period === entry.id }}
+            onPress={() => setPeriod(entry.id)}
+            style={({ pressed }) => pressableStyle([styles.period, period === entry.id && styles.periodOn], { pressed })}
           >
-            <Text style={[styles.periodText, days === period && styles.periodTextOn]}>{period} days</Text>
+            <Text style={[styles.periodText, period === entry.id && styles.periodTextOn]} numberOfLines={1}>
+              {entry.label}
+            </Text>
           </Pressable>
         ))}
       </View>
@@ -80,18 +88,44 @@ export function UsagePage({
             <Tile label="Turns" value={chartValue(shown.totals.turns)} hint="replies in chats" />
             <Tile label="Jobs" value={chartValue(shown.totals.jobs)} hint="background work" />
           </View>
-          {total > 0 ? (
-            <ChartWidget
-              props={{
-                type: "bar",
-                title: bars.weekly ? "Tokens per week" : "Tokens per day",
-                labels: bars.labels,
-                values: bars.values,
-              }}
-            />
-          ) : (
-            <Text style={styles.empty}>Nothing used in the last {days} days.</Text>
-          )}
+          {total > 0 ? <UsageChart usage={shown} /> : <Text style={styles.empty}>Nothing used {period === "today" ? "today" : `in the ${label}`}.</Text>}
+          {shown.models.length > 0 ? <Text style={styles.section}>By model</Text> : null}
+          {shown.models.length > 0 ? (
+            <View style={styles.group}>
+              {shown.models.map((row, index) => {
+                const used = row.inputTokens + row.outputTokens;
+                return (
+                  <View key={row.key} style={styles.agentRow}>
+                    <View style={[styles.modelDot, { backgroundColor: modelColor(index) }]} />
+                    <View style={styles.agentBody}>
+                      <View style={styles.agentTop}>
+                        <Text style={styles.agentName} numberOfLines={1}>
+                          {modelName(row.key)}
+                        </Text>
+                        <Text style={styles.agentTokens}>
+                          {chartValue(used)} · {total > 0 ? Math.round((used / total) * 100) : 0}%
+                        </Text>
+                      </View>
+                      <View style={styles.track}>
+                        <View style={[styles.fill, { width: `${Math.max(2, Math.round((used / Math.max(1, total)) * 100))}%`, backgroundColor: modelColor(index) }]} />
+                      </View>
+                      <Text style={styles.hint} numberOfLines={1}>
+                        {[
+                          row.provider ? providerLabel(row.provider) : "",
+                          `${chartValue(row.inputTokens)} in · ${chartValue(row.outputTokens)} out`,
+                          row.inputTokens > 0 ? `${Math.round((row.cacheReadTokens / row.inputTokens) * 100)}% cached` : "",
+                          row.turns > 0 ? `${row.turns} ${row.turns === 1 ? "turn" : "turns"}` : "",
+                          row.jobs > 0 ? `${row.jobs} ${row.jobs === 1 ? "job" : "jobs"}` : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
           {shown.agents.length > 0 ? <Text style={styles.section}>By agent</Text> : null}
           {shown.agents.length > 0 ? (
             <View style={styles.group}>
@@ -121,7 +155,7 @@ export function UsagePage({
                         <View style={[styles.fill, { width: `${Math.max(2, Math.round((used / most) * 100))}%` }]} />
                       </View>
                       <Text style={styles.hint} numberOfLines={1}>
-                        {[row.modelId, `${row.turns} ${row.turns === 1 ? "turn" : "turns"}`, row.jobs > 0 ? `${row.jobs} ${row.jobs === 1 ? "job" : "jobs"}` : ""]
+                        {[`${row.turns} ${row.turns === 1 ? "turn" : "turns"}`, row.jobs > 0 ? `${row.jobs} ${row.jobs === 1 ? "job" : "jobs"}` : ""]
                           .filter(Boolean)
                           .join(" · ")}
                       </Text>
@@ -132,7 +166,7 @@ export function UsagePage({
             </View>
           ) : null}
           <Text style={styles.note}>
-            Counted in tokens, as your provider reports them. What that costs depends on the provider and model. Days are in {shown.timezone}.
+            Counted in tokens, as your provider reports them. What that costs depends on the provider and model; cached tokens usually cost much less. Hours and days are in {shown.timezone}.
           </Text>
         </>
       ) : null}
@@ -152,35 +186,12 @@ function Tile({ label, value, hint }: { label: string; value: string; hint: stri
   );
 }
 
-/**
- * The bars for the period: one per day, or one per week when there are too
- * many days to read (each week is labelled by the day it starts on).
- */
-function tokenBars(daily: AccountUsage["daily"]): { weekly: boolean; labels: string[]; values: number[] } {
-  const weekly = daily.length > 31;
-  const size = weekly ? 7 : 1;
-  const labels: string[] = [];
-  const values: number[] = [];
-  // Counted back from today, so the newest bar is always a whole week.
-  for (let end = daily.length; end > 0; end -= size) {
-    const chunk = daily.slice(Math.max(0, end - size), end);
-    labels.unshift(dayLabel(chunk[0]!.day));
-    values.unshift(chunk.reduce((sum, row) => sum + row.inputTokens + row.outputTokens, 0));
-  }
-  return { weekly, labels, values };
-}
-
-/** "2026-10-11" as "Oct 11". */
-function dayLabel(day: string): string {
-  const [, month, date] = day.split("-").map(Number);
-  return `${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][(month ?? 1) - 1]} ${date}`;
-}
-
 function createStyles(colors: ColorPalette) {
   return StyleSheet.create({
     scroll: { padding: 14, paddingBottom: 28, gap: 10 },
     periods: { flexDirection: "row", gap: 8 },
-    period: { flex: 1, height: 36, borderRadius: 12, backgroundColor: colors.card, alignItems: "center", justifyContent: "center" },
+    modelDot: { width: 12, height: 12, borderRadius: 4 },
+    period: { flex: 1, height: 36, paddingHorizontal: 6, borderRadius: 12, backgroundColor: colors.card, alignItems: "center", justifyContent: "center" },
     periodOn: { backgroundColor: colors.text },
     periodText: { color: colors.text, fontSize: 14, fontWeight: "600" },
     periodTextOn: { color: colors.bg },

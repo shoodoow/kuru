@@ -11,6 +11,7 @@ import { resumeParentAfterWorker } from "../parent-wake.js";
 import { noted } from "../../log/logger.js";
 import { prompt } from "../../prompt/prompts.js";
 import { publish } from "../../rooms/stream.js";
+import { settleRoutineRun } from "../../routines/routine-worker.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -121,6 +122,10 @@ export function registerWorkerLifecycle(
 
   subscribeTurnBus(async (event) => {
     if (event.type !== "worker.settled") return;
+    // A scheduled run's report becomes the run's result. A quiet run ("NOTHING
+    // NEW") ends there: waking the agent would cost a full turn to say nothing.
+    const run = await settleRoutineRun(getDbInstance(), event.delegationId, event.status, event.result).catch(() => null);
+    if (run?.quiet) return;
     // Every result goes privately through the parent. Hidden workers never
     // publish in the parent's voice; the parent reviews, summarizes, attaches
     // artifacts, retries, or stays quiet. Results are batched per parent+room.

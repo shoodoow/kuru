@@ -78,6 +78,55 @@ const SPECIAL_FIELDS = `(() => {
   }).join("\\n");
 })()`;
 
+/** How long to keep the mouse button down, or 0 for an ordinary click. */
+function holdMs(value: unknown): number {
+  const ms = Math.round(Number(value));
+  return Number.isFinite(ms) && ms > 0 ? Math.min(30_000, Math.max(100, ms)) : 0;
+}
+
+/** A file the browser may attach: under the agent's home or /shared, with no way back up. */
+function uploadPath(value: unknown): string {
+  const path = String(value ?? "");
+  if (!/^(\/home\/[^/]+\/|\/shared\/)/.test(path) || path.includes("..")) {
+    throw new Error("browser_upload takes a file path under your home or /shared.");
+  }
+  return path;
+}
+
+/** Marks the chosen file field so `upload` can find it by a selector. */
+const UPLOAD_MARK = "data-kuru-upload";
+
+/**
+ * Page script: finds the file field a file should go into and marks it.
+ * Why: sites hide the real file field behind an "Upload" button or a drop
+ * area, so the page tree never gave it a ref. The worker then opened the
+ * system file picker and clicked through folders for dozens of steps. The
+ * field is found here instead: the one that accepts this kind of file, or the
+ * one the worker picked by number when there are several.
+ * Output: "marked <description>", or a numbered list when it cannot choose, or "none".
+ */
+export function findFileFieldScript(fileName: string, pick: number | null): string {
+  return `(() => {
+  const NAME = ${JSON.stringify(fileName)}, PICK = ${JSON.stringify(pick)}, MARK = ${JSON.stringify(UPLOAD_MARK)};
+  const all = [];
+  const walk = (root) => { for (const el of root.querySelectorAll("*")) { if (el.tagName === "INPUT" && el.type === "file" && !el.disabled) all.push(el); if (el.shadowRoot) walk(el.shadowRoot); } };
+  walk(document);
+  document.querySelectorAll("[" + MARK + "]").forEach((el) => el.removeAttribute(MARK));
+  if (all.length === 0) return "none";
+  const ext = (NAME.split(".").pop() || "").toLowerCase();
+  const kind = { png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", svg: "image", mp4: "video", mov: "video", webm: "video", mp3: "audio", wav: "audio", m4a: "audio" }[ext] || "";
+  const takes = (el) => { const accept = (el.accept || "").toLowerCase(); return !accept || accept.split(",").map((part) => part.trim()).some((part) => part === "." + ext || part === "*/*" || (kind && part === kind + "/*") || part.endsWith("/" + ext) || (ext === "jpg" && part.endsWith("/jpeg"))); };
+  const near = (el) => { let node = el.parentElement; for (let i = 0; node && i < 6; i++, node = node.parentElement) { const text = (node.innerText || node.textContent || "").replace(/\\s+/g, " ").trim(); if (text) return text.slice(0, 80); } return ""; };
+  const describe = (el, i) => (i + 1) + ". accepts " + (el.accept || "any file") + (el.multiple ? ", several files" : "") + (near(el) ? ', near "' + near(el) + '"' : "");
+  let chosen = null;
+  if (PICK) chosen = all[PICK - 1] || null;
+  else { const fitting = all.filter(takes); if (fitting.length === 1) chosen = fitting[0]; else if (all.length === 1) chosen = all[0]; }
+  if (!chosen) return "several\\n" + all.map(describe).join("\\n");
+  chosen.setAttribute(MARK, "1");
+  return "marked " + describe(chosen, all.indexOf(chosen));
+})()`;
+}
+
 /** An element reference from a snapshot, with or without its "@": e12. */
 function ref(value: unknown): string {
   const text = String(value ?? "").trim().replace(/^@/, "");
@@ -116,14 +165,19 @@ export function browserCommands(name: string, args: Record<string, unknown>): st
       return [["snapshot", "-u", ...(args.interactive === true ? ["-i"] : [])]];
     case "browser_read":
       return [["get", "text", args.uid ? ref(args.uid) : "body"]];
-    case "browser_click":
+    case "browser_click": {
+      const hold = holdMs(args.holdMs);
+      // Press and hold: the pointer rests on the element, the button stays down, then lets go.
+      if (hold) return [["hover", ref(args.uid)], ["mouse", "down"], ["wait", String(hold)], ["mouse", "up"], ...where];
       return [[args.double === true ? "dblclick" : "click", ref(args.uid)], ...where];
+    }
     case "browser_click_at": {
       // For what has no ref: a canvas, a map, a picture. The pointer travels there first, as a hand would.
       const x = Math.round(Number(args.x));
       const y = Math.round(Number(args.y));
       if (!(x >= 0 && x <= 10_000 && y >= 0 && y <= 10_000)) throw new Error("x and y are pixel positions inside the page, as seen in browser_screenshot.");
-      return [["mouse", "move", String(x), String(y)], ["mouse", "down"], ["mouse", "up"], ...where];
+      const hold = holdMs(args.holdMs);
+      return [["mouse", "move", String(x), String(y)], ["mouse", "down"], ...(hold ? [["wait", String(hold)]] : []), ["mouse", "up"], ...where];
     }
     case "browser_hover":
       return [["hover", ref(args.uid)]];
@@ -144,11 +198,9 @@ export function browserCommands(name: string, args: Record<string, unknown>): st
     case "browser_set_value":
       return [["eval", setValueScript(String(args.field ?? ""), String(args.value ?? ""))]];
     case "browser_upload": {
-      const path = String(args.path ?? "");
-      if (!/^(\/home\/[^/]+\/|\/shared\/)/.test(path) || path.includes("..")) {
-        throw new Error("browser_upload takes a file path under your home or /shared.");
-      }
-      return [["upload", ref(args.uid), path]];
+      const path = uploadPath(args.path);
+      // With no ref, runBrowserTool finds the file field on the page first.
+      return args.uid ? [["upload", ref(args.uid), path]] : [];
     }
     case "browser_press_key":
       return [["press", String(args.key ?? "")], ...where];
@@ -302,6 +354,7 @@ export async function runBrowserTool(
   // The visible browser is started here when it is not running, so no tool
   // call depends on the model launching Chromium correctly first.
   const { cdpPort } = await ensureBrowser(accountId, profile);
+  if (name === "browser_upload" && commands.length === 0) return uploadToPage(accountId, profile, cdpPort, args);
   if (name === "browser_screenshot") {
     await exec(accountId, ["sh", "-c", 'mkdir -p "$(dirname "$1")"', "sh", String(args.path ?? "")], profile).catch(() => undefined);
   }
@@ -341,6 +394,30 @@ export async function runBrowserTool(
   if (/^✗ Could not locate element/m.test(text)) text += "\nThat element is gone or has changed (a button that turned into another one, a list that redrew). Take a fresh browser_snapshot and use a ref from it.";
   if (/^✗ Unknown ref/m.test(text)) text += "\nThe page changed since your last snapshot. Take a fresh browser_snapshot and use a ref from it.";
   return text.length > MAX_OUTPUT ? `${text.slice(0, MAX_OUTPUT)}\n[truncated: browser_snapshot with interactive true is shorter, and browser_read with a ref reads one part]` : text;
+}
+
+/**
+ * Attaches a file to the page's file field, found without a ref.
+ * Input: the file path and, when the page has several fields, the one picked by number.
+ * Output: what was attached where, the list of fields to pick from, or why it could not.
+ */
+async function uploadToPage(accountId: string, profile: string, cdpPort: number, args: Record<string, unknown>): Promise<string> {
+  const path = uploadPath(args.path);
+  const pick = Number.isInteger(args.field) ? Number(args.field) : null;
+  const browser = (command: string[], timeoutMs = 60_000) =>
+    exec(accountId, ["agent-browser", "--cdp", String(cdpPort), ...command], profile, undefined, { timeoutMs });
+  const found = unquote((await browser(["eval", findFileFieldScript(path.split("/").pop() ?? "", pick)], 15_000)).stdout.trim());
+  if (found === "none") {
+    return "This page has no file field yet. Some pages add it only after their upload area is clicked: click the upload button or drop area once with browser_click, close the file picker if one opens (browser_press_key Escape), then call browser_upload again.";
+  }
+  if (found.startsWith("several")) {
+    return `This page has several file fields. Call browser_upload again with \`field\` set to the right number:\n${found.slice("several".length).trim()}`;
+  }
+  if (!found.startsWith("marked ")) return `Could not look for the file field: ${found.slice(0, 300)}`;
+  const result = await browser(["upload", `[${UPLOAD_MARK}]`, path]);
+  const text = result.stdout.trim();
+  if (result.code !== 0 || text.startsWith("✗")) return `The file field was found (${found.slice(7)}) but the file did not attach: ${text.slice(0, 400)}`;
+  return `Attached ${path} to the file field (${found.slice(7)}). Take a browser_snapshot to check the page took it; many pages show a preview or a progress bar.`;
 }
 
 /** agent-browser prints a script's string result as a JSON string; this gives the text back. */

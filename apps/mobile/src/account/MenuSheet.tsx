@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type ViewStyle } from "react-native";
 import type { ProviderSetting } from "../api";
-import type { AccountUsage, PluginList, RosterAgent } from "../api";
+import type { AccountUsage, PluginList, RosterAgent, UsagePeriod } from "../api";
 import type { SavedAccount } from "../auth";
 import { UsagePage } from "./UsagePage";
+import { ModelsPage, providerLabel } from "./ModelsPage";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { useAppearance, useResolvedScheme, type AppearanceChoice } from "../theme/appearance";
 import { CustomPluginPage, PluginsPage } from "./PluginsPage";
@@ -25,7 +26,7 @@ export type SignedAccount = {
   image?: string | null;
 };
 
-export type MenuPage = "menu" | "account" | "signup" | "providers" | "plugins" | "plugin-custom" | "appearance" | "usage";
+export type MenuPage = "menu" | "account" | "signup" | "providers" | "models" | "plugins" | "plugin-custom" | "appearance" | "usage";
 
 /**
  * Shows the account menu, the account switcher, or signup.
@@ -55,6 +56,8 @@ export function MenuSheet({
   onSaveProvider,
   defaultModel,
   onSaveDefaultModel,
+  cheapModel,
+  onSaveCheapModel,
   onAddPlugin,
   onRemovePlugin,
   onRefreshPlugins,
@@ -69,6 +72,8 @@ export function MenuSheet({
 }: {
   defaultModel?: { provider: ProviderSetting["provider"]; modelId: string } | null;
   onSaveDefaultModel?: (provider: ProviderSetting["provider"], modelId: string) => void | Promise<unknown>;
+  cheapModel?: { provider: ProviderSetting["provider"]; modelId: string } | null;
+  onSaveCheapModel?: (provider: ProviderSetting["provider"], modelId: string | null) => void | Promise<unknown>;
   page: MenuPage;
   account: SignedAccount | null;
   notifications: boolean;
@@ -84,7 +89,7 @@ export function MenuSheet({
   onChangeServer: (typed: string) => Promise<void>;
   /** The roster, for the faces on the usage page. */
   agents: RosterAgent[];
-  onLoadUsage: (days: number) => Promise<AccountUsage>;
+  onLoadUsage: (period: UsagePeriod) => Promise<AccountUsage>;
   onPage: (page: MenuPage) => void;
   onNotifications: (value: boolean) => void;
   onAutoReview: (value: boolean) => void;
@@ -125,6 +130,8 @@ export function MenuSheet({
           onComputer={onComputer}
           onUsage={() => onPage("usage")}
           onProviders={() => onPage("providers")}
+          onModels={() => onPage("models")}
+          modelsSummary={modelsSummary(defaultModel ?? null, cheapModel ?? null)}
           onPlugins={() => onPage("plugins")}
           onAppearance={() => onPage("appearance")}
           scrollStyle={scrollStyle}
@@ -168,11 +175,16 @@ export function MenuSheet({
       {page === "appearance" ? <AppearancePage scrollStyle={scrollStyle} /> : null}
       {page === "usage" ? <UsagePage agents={agents} onLoad={onLoadUsage} scrollStyle={scrollStyle} /> : null}
       {page === "providers" ? (
-        <ProviderPage
+        <ProviderPage providers={providers} onSave={onSaveProvider} onModels={() => onPage("models")} onError={onError} scrollStyle={scrollStyle} />
+      ) : null}
+      {page === "models" && onSaveDefaultModel && onSaveCheapModel ? (
+        <ModelsPage
           providers={providers}
-          defaultModel={defaultModel}
-          onSaveDefaultModel={onSaveDefaultModel}
-          onSave={onSaveProvider}
+          mainModel={defaultModel ?? null}
+          backgroundModel={cheapModel ?? null}
+          onSaveMain={onSaveDefaultModel}
+          onSaveBackground={onSaveCheapModel}
+          onProviders={() => onPage("providers")}
           onError={onError}
           scrollStyle={scrollStyle}
         />
@@ -195,6 +207,8 @@ function MenuPageView({
   onComputer,
   onUsage,
   onProviders,
+  onModels,
+  modelsSummary,
   onPlugins,
   onAppearance,
   scrollStyle,
@@ -212,6 +226,8 @@ function MenuPageView({
   onComputer: () => void;
   onUsage: () => void;
   onProviders: () => void;
+  onModels: () => void;
+  modelsSummary: string;
   onPlugins: () => void;
   onAppearance: () => void;
   scrollStyle: ViewStyle;
@@ -238,6 +254,13 @@ function MenuPageView({
         <View style={styles.cardBody}>
           <Text style={styles.rowLabel}>AI Providers</Text>
           <Text style={styles.hint}>API keys and local OpenAI-compatible models</Text>
+        </View>
+        <IconChevron />
+      </CardButton>
+      <CardButton onPress={onModels}>
+        <View style={styles.cardBody}>
+          <Text style={styles.rowLabel}>Models</Text>
+          <Text style={styles.hint}>{modelsSummary}</Text>
         </View>
         <IconChevron />
       </CardButton>
@@ -335,27 +358,25 @@ const providerNames: ProviderSetting["provider"][] = ["openai", "anthropic", "xa
  */
 function ProviderPage({
   providers,
-  defaultModel,
-  onSaveDefaultModel,
   onSave,
+  onModels,
   onError,
   scrollStyle,
 }: {
   /** Shows a failure in the banner at the top of the sheet. */
   onError: (error: unknown) => void;
-  defaultModel?: { provider: ProviderSetting["provider"]; modelId: string } | null;
-  onSaveDefaultModel?: (provider: ProviderSetting["provider"], modelId: string) => void | Promise<unknown>;
   providers: ProviderSetting[];
   onSave: (provider: ProviderSetting["provider"], secret: string, baseUrl: string | null) => void | Promise<unknown>;
+  /** Opens the page where the main and background models are chosen. */
+  onModels: () => void;
   scrollStyle: ViewStyle;
 }) {
   const [provider, setProvider] = useState<ProviderSetting["provider"]>("openai");
   const [secret, setSecret] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const configured = providers.find((row) => row.provider === provider);
-  const [modelId, setModelId] = useState("");
-  // Why the last save was refused, and which button it belongs under.
-  const [failure, setFailure] = useState<{ from: "key" | "model"; text: string } | null>(null);
+  // Why the last save was refused; it stays under the button.
+  const [failure, setFailure] = useState<string | null>(null);
 
   useEffect(() => {
     setSecret("");
@@ -368,27 +389,24 @@ function ProviderPage({
    * Why: a wrong key used to answer only with a banner that left after a few
    * seconds. The sentence says what to fix, so it stays under the button.
    */
-  function run(from: "key" | "model", action: () => void | Promise<unknown>): Promise<unknown> {
+  function run(action: () => void | Promise<unknown>): Promise<unknown> {
     setFailure(null);
     return Promise.resolve()
       .then(action)
       .catch((error: unknown) => {
         onError(error);
-        setFailure({ from, text: error instanceof Error ? error.message : "Could not save." });
+        setFailure(error instanceof Error ? error.message : "Could not save.");
       });
   }
-  useEffect(() => {
-    setModelId(defaultModel?.provider === provider ? defaultModel.modelId : "");
-  }, [defaultModel?.provider, defaultModel?.modelId, provider]);
 
   const ready = provider === "local" ? baseUrl.trim().length > 0 : secret.trim().length > 0 || configured?.configured;
   return (
     <FormScroll style={scrollStyle} contentInsetAdjustmentBehavior="automatic" nestedScrollEnabled contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-      <Text style={styles.hint}>Keys are encrypted on the server and never returned to this phone.</Text>
+      <Text style={styles.hint}>Keys are encrypted on the server and never returned to this phone. Add a key for every provider you want to use; you choose which models run where under Models.</Text>
       <View style={styles.group}>
         {providerNames.map((name) => (
           <SettingsRow key={name} onPress={() => setProvider(name)}>
-            <Text style={styles.rowLabel}>{name === "xai" ? "xAI" : name[0]?.toUpperCase() + name.slice(1)}</Text>
+            <Text style={styles.rowLabel}>{providerLabel(name)}</Text>
             {providers.some((row) => row.provider === name && row.configured) ? <Text style={styles.configured}>Configured</Text> : null}
             {provider === name ? <IconCheck /> : null}
           </SettingsRow>
@@ -418,36 +436,22 @@ function ProviderPage({
       <PrimaryButton
         label="Save provider"
         disabled={!ready}
-        onPress={() => run("key", () => onSave(provider, secret, provider === "local" ? baseUrl.trim() : null))}
+        onPress={() => run(() => onSave(provider, secret, provider === "local" ? baseUrl.trim() : null))}
       />
-      {failure?.from === "key" ? <Text style={styles.error}>{failure.text}</Text> : null}
-      {onSaveDefaultModel && configured?.configured ? (
-        <>
-          <Text style={styles.hint}>
-            {defaultModel
-              ? `New agents start on ${defaultModel.provider} · ${defaultModel.modelId}. To change it, enter a model for the provider selected above.`
-              : "Choose the model new agents start on."}
-          </Text>
-          <TextInput
-            value={modelId}
-            onChangeText={setModelId}
-            autoCapitalize="none"
-            autoCorrect={false}
-            placeholder="Default model id"
-            placeholderTextColor={colors.muted}
-            style={styles.input}
-          />
-          <PrimaryButton
-            label="Use as default model"
-            variant="secondary"
-            disabled={modelId.trim().length === 0}
-            onPress={() => run("model", () => onSaveDefaultModel(provider, modelId.trim()))}
-          />
-          {failure?.from === "model" ? <Text style={styles.error}>{failure.text}</Text> : null}
-        </>
-      ) : null}
+      {failure ? <Text style={styles.error}>{failure}</Text> : null}
+      {providers.some((row) => row.configured) ? <PrimaryButton label="Choose models" variant="secondary" onPress={onModels} /> : null}
     </FormScroll>
   );
+}
+
+/** One line under "Models" in the menu: what the account runs on now. */
+function modelsSummary(
+  main: { provider: string; modelId: string } | null,
+  background: { provider: string; modelId: string } | null,
+): string {
+  if (!main) return "Choose the models your agents run on";
+  const mainText = `Main: ${providerLabel(main.provider)} · ${main.modelId}`;
+  return background ? `${mainText}\nBackground: ${providerLabel(background.provider)} · ${background.modelId}` : `${mainText}\nBackground: same as each agent`;
 }
 
 /**

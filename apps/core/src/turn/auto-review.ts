@@ -148,6 +148,10 @@ export function classifyRisk(name: string, input: Record<string, unknown>, home?
   if (name === "delete_group" && input.confirmed === true) {
     return `Delete group ${String(input.conversationId ?? "")}`.trim();
   }
+  if (name === "fire_agent") {
+    const why = typeof input.reason === "string" && input.reason.trim() ? ` (${input.reason.trim()})` : "";
+    return `Remove the agent ${String(input.agent ?? "")} for good, with its chat and what it kept for itself${why}`.slice(0, 180);
+  }
   if (name === "delete_routine") {
     return `Delete routine ${String(input.routineId ?? "")}`.trim();
   }
@@ -168,6 +172,9 @@ export function classifyRisk(name: string, input: Record<string, unknown>, home?
   return null;
 }
 
+/** Calls that wait for the person whether or not Auto-review is on. */
+const ALWAYS_ASK = new Set(["fire_agent"]);
+
 /**
  * Runs Auto-review for one tool call.
  * Input: tool context, name, args. Output: allow, or a blocked payload for the model.
@@ -185,7 +192,8 @@ export async function reviewToolCall(
     .select({ autoReview: accounts.autoReview })
     .from(accounts)
     .where(eq(accounts.id, ctx.accountId));
-  if (!account?.autoReview) return { allow: true };
+  // Removing an agent cannot be undone, so it is asked even with Auto-review off.
+  if (!account?.autoReview && !ALWAYS_ASK.has(name)) return { allow: true };
 
   const hash = hashToolInput(name, input);
   const approvalId = typeof input.approvalId === "string" ? input.approvalId : "";

@@ -13,6 +13,8 @@ import {
   MissingProviderKeyError,
   ProtectedAgentError,
   setDefaultModel,
+  cheapModelFor,
+  setCheapModel,
   updateAgentFlags,
   AgentNameError,
 } from "./roster.js";
@@ -225,5 +227,18 @@ describe("checking a default model before saving it", () => {
     expect(await setDefaultModel(db, account.id, { provider: "openai", modelId: "MiMo-V2.6-Flash" }, listed, never)).toMatchObject({ modelId: "MiMo-V2.6-Flash" });
     // Not on the list at all, but the provider answers to it.
     expect(await setDefaultModel(db, account.id, { provider: "openai", modelId: "my-alias" }, listed, async () => null)).toMatchObject({ modelId: "my-alias" });
+  });
+});
+
+describe("cheap model", () => {
+  it("is optional, needs a key for its provider, and clears with an empty choice", async () => {
+    const account = await createAccount(db, { name: "Cheap" });
+    expect(await cheapModelFor(db, account.id)).toBeNull();
+    await expect(setCheapModel(db, account.id, { provider: "openai", modelId: "deepseek-v4-flash" })).rejects.toThrow(MissingProviderKeyError);
+    await saveProviderKey(db, account.id, { provider: "openai", secret: "sk-cheap" });
+    await setCheapModel(db, account.id, { provider: "openai", modelId: "deepseek-v4-flash" });
+    expect(await cheapModelFor(db, account.id)).toEqual({ provider: "openai", modelId: "deepseek-v4-flash" });
+    expect(await setCheapModel(db, account.id, {})).toBeNull();
+    expect(await cheapModelFor(db, account.id)).toBeNull();
   });
 });

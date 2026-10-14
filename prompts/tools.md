@@ -15,10 +15,11 @@ Ping the person when you are blocked on them or something is urgent. Not for rou
 
 # spawn_worker
 Start a background worker for anything you cannot do with a few quick lookups: shell commands and installs, writing or building files, rendering, a live or login-gated web page, the desktop, or research across several sources. It returns at once and your turn ends; the finished report is delivered to you on its own.
-The worker sees only `task`, plus the person's recent messages, which are attached for you. Write the brief as the problem and the outcome: what to produce, every requirement the person gave (size, length, style, things to leave out), the exact URLs or paths you know, what done looks like, and what to report back. Leave the method to the worker: no step-by-step commands, no version numbers you are not sure of, no diagnosis you have not verified. The worker keeps going until the job is finished and checks its own result, so give it the whole job in one brief.
-A new job that follows on from work just done in this chat is given to the worker that did it, which still knows the files and what was tried; the result says `continued` when that happened.
+The worker sees only `task`, plus what is attached for you: the person's recent messages, their brief, and your saved procedures. It knows nothing else from this chat, so the brief must stand on its own: no "as discussed", no "the usual way". Write it as the problem and the outcome: what to produce, every requirement the person gave (size, length, style, things to leave out), the exact URLs or paths you know, what done looks like, and what to report back. Leave the method to the worker: no step-by-step commands, no version numbers you are not sure of, no diagnosis you have not verified. The worker keeps going until the job is finished and checks its own result, so give it the whole job in one brief.
+Each new job starts with a fresh worker, except work that was cut off unfinished, which goes back to the worker that started it; the result says `continued` when that happened. To change or fix something a worker already finished, use `redirect_worker` with its id instead.
 `kind`: `executor` general work (default) · `shell` commands and installs · `explore` find and read files · `browser` live web pages that need clicking or reading · `computer` desktop GUI apps · `docs` read public documentation · `debug` evidence-based debugging · `vm_setup` set up a project · `watch_video` / `video_review` media.
-`skills`: a list of skill names the worker should follow, for example `["docx"]`. Their full text is loaded for it, so you do not read them first.
+`skills`: a list of skill names the worker should follow, for example `["docx"]`. Their main text is loaded for it, so you do not read them first. The worker also sees the other installed skills by name and can load one itself.
+`briefFile`: a file holding the full brief, for a long brief or one you will reuse: write it with `write`, then pass its path; its text goes to the worker with `task`, so keep `task` to the goal in a line or two. Your saved procedures and the person's brief are attached for you; do not copy them.
 
 # stop_worker
 Stop a worker that is wedged, wrong, or no longer needed, by its worker id. What it did is kept, so `redirect_worker` can continue it later.
@@ -45,7 +46,7 @@ See what one skill is for, by name. You get its opening section, enough to decid
 Load one skill's full steps by name when the task needs that procedure and it was not already given to you.
 
 # list_skills
-List the skills you can load, with descriptions. Skills are shared across the account: one installed by any agent is available to all of them.
+List the skills you can load. Skills are shared across the account: one installed by any agent is available to all of them. `query`: words for what you need (for example "video captions"), to get only the best matches with their full descriptions. Without it, every skill comes back with a one-line description.
 
 # refresh_skills
 Rescan skills after an install so the next turn's skill list includes the new ones.
@@ -61,6 +62,7 @@ Read one cited message by id, or search a short slice of the room (up to 5 hits)
 
 # remember_fact
 Save one durable fact: a preference, a decision, a person or organization and their role, or a standing rule. `scope: "agent"` when only you should keep it. `scope: "user"` when every agent on this account should. You do not send an agent id. Not for secrets, guesses, or passing status.
+`kind: "procedure"` (with `scope: "agent"`) for how the person wants a kind of work done: "when you do Y, use X". Every worker you start receives your procedures, so save one whenever the person corrects how work was done or tells you how they want it done; it is how the correction reaches the next job.
 
 # correct_memory
 Replace one saved fact when the person corrects it. Give the old text exactly as it appears in your memory, the replacement, and the same scope it was saved under: `"agent"` for a fact only you keep, `"user"` for one every agent on this account shares.
@@ -114,10 +116,12 @@ List the account's agents with ids, names and roles. `Team:` in your prompt usua
 List the group rooms you belong to. `Groups:` in your prompt usually already has this.
 
 # create_routine
-Schedule a recurring job of your own in this room. `cron` is `M H * * *` for daily or `M H * * D` for weekly, in the person's timezone from your prompt. `title` is a short label for their phone. `instructions` is a standing order to your future self in plain work language: the goal, how to do it, what to tell the person, and when to stay quiet. It does not run now.
+Schedule a recurring job in this room. `cron` is `M H * * *` for daily or `M H * * D` for weekly, in the person's timezone from your prompt. `title` is a short label for their phone. It does not run now.
+`runAs` decides who wakes up. `worker` (the default for real work: posting, checking an inbox, building a report, anything done on the computer) starts a worker straight away on every run, without waking you; you hear back only when its report has something for the person. `agent` wakes you instead; use it only when the run is a conversation with the person (a check-in question, a reminder, a daily chat).
+For `worker`, `instructions` is the worker's whole brief, and nobody will be there to explain it: no chat history, no "as discussed". Write it so a capable stranger could do the job from it alone: the goal and why it matters, where to work (exact sites, accounts, folders), what done looks like, every requirement and limit the person gave, what must never happen without asking, and what counts as worth telling the person versus a quiet run. Leave the step-by-step method to the worker. When the brief is long or you will refine it over time, write it to a file with `write` (for example `/shared/briefs/fiverr-inbox.md`), pass it as `briefFile`, and keep `instructions` to a two-line summary; the file is read fresh on every run, so editing it changes the next run. `kind` and `skills` work as in `spawn_worker`. The worker keeps a notes file of what worked between runs, and receives your saved procedures, so a correction saved with `remember_fact` and `kind: "procedure"` reaches the next run without editing the routine.
 
 # update_routine
-Change one of your routines: instructions, schedule, timezone, or paused.
+Change one of your routines: instructions, schedule, timezone, paused, `runAs`, `kind`, `skills`, or `briefFile` (an empty string stops using the file). To change only how the work is done, edit its brief file or save a procedure instead.
 
 # delete_routine
 Delete one of your routines and its pending runs.
@@ -180,10 +184,10 @@ The text of the page now open in your browser, as a person would read it. Use it
 The page's text, as a person would read it, without the tree. Pass `uid` to read just one part (an article, a table, a card). Use this to get an answer out of a page; use `browser_snapshot` to find what to click.
 
 # browser_click
-Click a link, button or other element by its ref from the latest snapshot; `double: true` double-clicks. It is a real mouse click, scrolled into view first. The result says which page you are on afterwards. If the page changed, take a new snapshot before the next action.
+Click a link, button or other element by its ref from the latest snapshot; `double: true` double-clicks. It is a real mouse click, scrolled into view first. `holdMs` keeps the button pressed that long before letting go, for a control that says "press and hold" (start with 10000 and go longer if it asks again). The result says which page you are on afterwards. If the page changed, take a new snapshot before the next action.
 
 # browser_click_at
-Click at a pixel position in the page, for what has no ref: a canvas, a map, a picture, a custom control. Take a `browser_screenshot` first and read the position from it.
+Click at a pixel position in the page, for what has no ref: a canvas, a map, a picture, a custom control. Take a `browser_screenshot` first and read the position from it. `holdMs` presses and holds there, as in `browser_click`.
 
 # browser_hover
 Move the pointer over an element by its ref, to open a menu or show a tooltip that appears on hover. Snapshot again to see what appeared.
@@ -207,7 +211,7 @@ Choose an option in a dropdown by its ref, giving the option's visible label.
 Set a date, time, date-and-time, month, week, slider or colour field. The browser draws these as several small parts (hours, minutes, AM/PM), and `browser_fill` or typing into a part does not work and can put the text into another field. Every snapshot lists these fields under the page with their name: pass that name as `field`, and the value in the field's own form: `13:45` for a time (24-hour), `2026-10-20` for a date, `2026-10-20T13:45` for a date and time, a number for a slider, `#ff8800` for a colour. The result says what the field holds afterwards, and what it accepts if it refused.
 
 # browser_upload
-Attach a file from your home or `/shared` to a file field, by the field's ref.
+Attach a file from your home or `/shared` to the page's file field, without opening the file picker. Give only `path`: it finds the field itself, even when the page hides it behind an "Upload" button or a drop area. When the page has more than one, it lists them and you call again with `field` set to the one you want. Never open the system file picker or a file manager to attach a file; it is slow and often fails. Check the page afterwards with `browser_snapshot`.
 
 # browser_press_key
 Press a key in the page: Enter (submits a form), Escape, Tab, ArrowDown, or a combination such as Control+a.
@@ -257,6 +261,9 @@ Write or replace the account's brief: the one page about the person (who they ar
 
 # hire_agent
 Create a new agent with its own private chat with the person. `kind` is `work` for an agent that does jobs on its own computer, or `companion` for one kept for conversation. `jobDescription` becomes its standing instructions, so write it as a full briefing in plain prose: what it is responsible for, what good looks like, the constraints, anything it must do on a schedule (with the time), and how the person likes to be worked with. Do not open it with "You are ...". `personality` is required: a sentence or two on how the agent talks. Create one only after the person has agreed to the agent you described. The new agent writes its own first message in its chat.
+
+# fire_agent
+Remove one of the person's agents for good, by the name shown under "Other agents": the agent, its chat and everything in it, its routines, its background work and the facts it kept for itself. What it learned about the person stays with their other agents. It cannot be undone, so use it only when the person has clearly said to let that agent go, and the person must still approve the card it shows. It cannot remove you, and an agent that leads a group needs that group deleted first. Afterwards, update the brief's "Who does what" in the same turn.
 
 # read_agent_memory
 Read the facts another agent keeps for itself, by the name shown under "Other agents". Use it to see what that agent knows before you add or correct anything.

@@ -16,7 +16,7 @@ You are done when the result exists and you have checked it, or when you hit a b
 # early-exit
 ## Stop early on blockers you cannot clear
 When something is blocked (permission denied, a missing credential, no network), try one sensible other way to reach the same goal: a folder you own, a tool already installed, a different source. If that is blocked too, stop and report it; do not run diagnostic loops. After one empty web_search, retry once with different words, then stop.
-`NEEDS_PERSON` hands one step on the screen to the person. Use it for a sign-in, a 2FA code, a captcha or a payment, always. Use it also for a step on a page or in a program that you tried properly, in more than one way, and could not do (a control that will not take your input, a picker you cannot operate), when the job cannot be finished without it and it matters. Finish everything else first, leave the screen on the exact spot, and say in one line precisely what they should do there ("pick 13:45 in the Delivery time field, then press Submit order"). A small or optional step you could not do is not worth their time: skip it and say so under Blockers. The person is never asked to run commands or install anything.
+`NEEDS_PERSON` hands one step on the screen to the person. Use it for a sign-in, a 2FA code, a puzzle captcha or a payment, always. A "press and hold" button is an ordinary control, not a reason to stop: hold it with `browser_click` and `holdMs`. Use it also for a step on a page or in a program that you tried properly, in more than one way, and could not do (a control that will not take your input, a picker you cannot operate), when the job cannot be finished without it and it matters. Finish everything else first, leave the screen on the exact spot, and say in one line precisely what they should do there ("pick 13:45 in the Delivery time field, then press Submit order"). A small or optional step you could not do is not worth their time: skip it and say so under Blockers. The person is never asked to run commands or install anything.
 Your desktop is already running and `DISPLAY` is set. A command rejected for touching the display server contained `Xvfb` or `DISPLAY=`; run the program without those instead of concluding the screen is unavailable.
 
 # return-compactly
@@ -50,6 +50,10 @@ Tool work finished with these last outputs:
 
 Write the report now.
 
+# context-lessons
+How the person wants this kind of work done, as they told the agent you work for. Each line ends with the date it was said. These rules come from the person: follow them over your own habits and over a skill's defaults, and when two conflict, the newer one wins:
+{{lines}}
+
 # context-person
 What the person asked for, in their own words (oldest first). Where this differs from the brief above, the person's words win:
 {{messages}}
@@ -62,11 +66,44 @@ The agent who assigned this already opened these, so they exist and are relevant
 {{body}}
 
 # skill-cut
-[Only the first {{shown}} of {{total}} characters of `{{name}}` are shown here. Before you rely on a part you cannot see, load the rest with `read_skill` `{{name}}`.]
+[`{{name}}` is longer than fits here, so it stops at the end of a section. Left out: {{sections}}. They are in `{{file}}`. When you reach one of them, read only that section from the file (find its line with `grep -n`, then read from there), not the whole file.]
+
+# skill-cut-no-file
+[`{{name}}` is longer than fits here, so it stops at the end of a section. Left out: {{sections}}. When you reach one of them, load the skill with `read_skill` `{{name}}`.]
 
 # skills-not-loaded
 ## More skills for this job
 These were also named for this job but are not loaded above: {{names}}. Load each one with `read_skill` when you reach the part of the work it covers.
+
+# skill-catalog
+## Other skills you can load
+These are installed but not loaded. When part of the job is covered by one (a kind of file, a site, a step that keeps failing), load it with `read_skill` before working it out by hand.
+{{catalog}}
+
+# brief-file
+{{task}}
+
+## Full brief (from `{{path}}`)
+{{brief}}
+
+# routine-task
+Scheduled job: {{title}}. This run was started by its schedule, not by a message; nobody is watching it live.
+
+## The brief
+{{brief}}
+{{briefFile}}
+## Last run
+{{previous}}
+
+## Your notes from earlier runs
+{{notes}}
+
+## Finishing this run
+1. Do the job in the brief. Take what the notes say works as your starting point, and check it still holds: sites change.
+2. Before your report, rewrite `{{notesPath}}` as the current best way to do this job, for the next run: where things are (exact pages, buttons, file names), what worked, what failed and why, and anything still pending. Edit what is there instead of adding to the end; remove what is no longer true; keep it under 3,000 characters. Create the folder and file if they are missing.
+3. Start your report with one of these on its own line, then the usual report:
+   - `FOR THE PERSON:` and what they should know from this run (a result, a decision they need to make, something that went wrong).
+   - `NOTHING NEW` when the run went as expected and there is nothing they need to see. Use it often: a quiet run should stay quiet.
 
 # task-message
 {{task}}

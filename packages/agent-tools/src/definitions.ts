@@ -5,6 +5,7 @@ import {
   enableToolsInputSchema,
   delegateSchema,
   emptyToolInputSchema,
+  listSkillsToolInputSchema,
   globInputSchema,
   grepInputSchema,
   groupConversationInputSchema,
@@ -14,6 +15,7 @@ import {
   accountBriefInputSchema,
   hireAgentInputSchema,
   agentMemoryReadInputSchema,
+  fireAgentInputSchema,
   agentMemoryAddInputSchema,
   agentMemoryCorrectInputSchema,
   messageAgentInputSchema,
@@ -142,6 +144,12 @@ export const allToolDefinitions: ToolDefinition[] = [
     inputSchema: hireAgentInputSchema,
   },
   {
+    name: "fire_agent",
+    set: "support",
+    surfaces: ["dispatcher"],
+    inputSchema: fireAgentInputSchema,
+  },
+  {
     name: "read_agent_memory",
     set: "support",
     surfaces: ["dispatcher"],
@@ -258,7 +266,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     name: "list_skills",
     set: "admin",
     surfaces: ["dispatcher", "worker"],
-    inputSchema: emptyToolInputSchema,
+    inputSchema: listSkillsToolInputSchema,
   },
   {
     name: "refresh_skills",

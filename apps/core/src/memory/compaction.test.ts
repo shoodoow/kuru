@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { asc, eq } from "drizzle-orm";
 import { getDb } from "../db/client.js";
-import { conversations, messages, summaryItems } from "../db/schema.js";
+import { conversations, memories, messages, summaryItems } from "../db/schema.js";
 import { createAccount, createAgent } from "../roster/roster.js";
 import { foldAged } from "./compaction.js";
 import type { FoldSummarizer } from "./compaction.js";
@@ -55,6 +55,33 @@ describe("foldAged", () => {
       .orderBy(asc(summaryItems.createdAt));
     expect(items).toHaveLength(2);
   });
+
+  it("removes open items the fold settled, and keeps an agent's working facts to itself", async () => {
+    const room = await openRoom("fold-open");
+    for (let i = 0; i < 4; i++) await saveMessage(room, `a${i}`);
+    const opener: FoldSummarizer = async (slice) => ({
+      items: [{ key: "open", body: "Waiting for the logins.", messageId: slice.at(-1)!.id }],
+      facts: [
+        { kind: "project", subject: "Run the Numbers", body: "Renders every night at 2:30.", messageId: slice[0]!.id },
+        { kind: "preference", subject: null, body: "Wants short replies.", messageId: slice[0]!.id },
+      ],
+    });
+    await foldAged(db, room.accountId, room.conversationId, 1, 2, opener);
+    for (let i = 0; i < 4; i++) await saveMessage(room, `b${i}`);
+    let seenOpen: string[] = [];
+    const closer: FoldSummarizer = async (slice, _known, open = []) => {
+      seenOpen = open.map((item) => item.body);
+      return { items: [{ key: "actions", body: "Logins arrived.", messageId: slice.at(-1)!.id }], closed: open.map((item) => item.id) };
+    };
+    await foldAged(db, room.accountId, room.conversationId, 1, 2, closer);
+    expect(seenOpen).toEqual(["Waiting for the logins."]);
+    const keys = (await db.select().from(summaryItems).where(eq(summaryItems.conversationId, room.conversationId))).map((item) => item.key);
+    expect(keys).not.toContain("open");
+    expect(keys).toContain("actions");
+    const facts = await db.select().from(memories).where(eq(memories.accountId, room.accountId));
+    expect(facts.find((fact) => fact.subject === "Run the Numbers")).toMatchObject({ scope: "agent", agentId: room.ownerAgentId });
+    expect(facts.find((fact) => fact.body === "Wants short replies.")).toMatchObject({ scope: "user", agentId: null });
+  });
 });
 
 async function openRoom(name: string) {
@@ -71,7 +98,7 @@ async function openRoom(name: string) {
     .insert(conversations)
     .values({ accountId: account.id, kind: "direct", ownerAgentId: owner.id, title: name })
     .returning();
-  return { accountId: account.id, conversationId: conversation!.id };
+  return { accountId: account.id, conversationId: conversation!.id, ownerAgentId: owner.id };
 }
 
 async function saveMessage(room: { accountId: string; conversationId: string }, body: string) {

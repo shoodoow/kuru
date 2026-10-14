@@ -33,16 +33,33 @@ export async function decideToolApprovalHttp(
   if (isApprovalAwaited(updated.id)) return;
   const room = await findRoom(ctx.db, accountId, updated.conversationId);
   if (!room) return;
-  await startCueTurn(ctx, {
+  const cue = approvalDecisionCue(updated, decision);
+  const started = await startCueTurn(ctx, {
     accountId,
     conversationId: updated.conversationId,
-    cue: approvalDecisionCue(updated, decision),
+    cue,
     speakerId: room.ownerAgentId,
     label: "approval",
   }).catch((error: unknown) => {
     logger.error({ err: error, conversationId: updated.conversationId }, "approval wake acquire failed");
+    return true;
+  });
+  if (started) return;
+  // The agent was busy. Dropping the wake lost the decision: two approved
+  // uploads were never retried, because an approval made mid-turn woke nobody.
+  // Wait for the chat to be free instead, as a relayed reply does.
+  void runTurn(ctx.db, accountId, updated.conversationId, cue, ctx.generate, config.skillsDir(), {
+    cue,
+    speakerId: room.ownerAgentId,
+    acquireTimeoutMs: APPROVAL_WAKE_WAIT_MS,
+    onEvent: (event: StreamEvent) => publish(accountId, updated.conversationId, event),
+  }).catch((error: unknown) => {
+    logger.error({ err: error, conversationId: updated.conversationId }, "approval turn failed");
   });
 }
+
+/** How long an approval waits for a busy agent to finish its turn before it gives up. */
+const APPROVAL_WAKE_WAIT_MS = 30 * 60 * 1000;
 
 /**
  * Wakes one agent with a private note, in the background, when the room is free.

@@ -17,6 +17,15 @@ describe("renderSlice / renderKnown", () => {
 });
 
 describe("parseFold", () => {
+  it("closes the open items the slice settled, and only real ones", () => {
+    const open = [
+      { id: "open-1", body: "Waiting for the logins." },
+      { id: "open-2", body: "Waiting on the logo." },
+    ];
+    const out = parseFold(["done O1", "done O9", "done O1"].join("\n"), slice, known, open);
+    expect(out.closed).toEqual(["open-1"]);
+  });
+
   it("reads summary lines, facts and updates, each citing its own message", () => {
     const out = parseFold(
       [

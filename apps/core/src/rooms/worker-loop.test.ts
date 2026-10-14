@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage } from "ai";
 import {
+  collapseOldSteps,
   compactTranscript,
   compactionThreshold,
   dropStaleViews,
@@ -108,6 +109,56 @@ describe("compactTranscript", () => {
     expect(text).toContain("no longer in view");
     const tight = transcriptForStorage(transcript, 3_000);
     expect(JSON.stringify(tight).length).toBeLessThan(8_000);
+  });
+});
+
+describe("collapseOldSteps", () => {
+  const steps = (from: number, count: number): ModelMessage[] =>
+    Array.from({ length: count }, (_, index) => [
+      call(String(from + index), "bash", { command: `npm run step-${from + index}` }),
+      answer(String(from + index), "bash", "y".repeat(2_000)),
+    ]).flat();
+
+  it("replaces old steps with one note, keeping the brief, every instruction and the newest steps", () => {
+    const transcript: ModelMessage[] = [
+      { role: "user", content: "the brief" },
+      ...steps(1, 10),
+      { role: "user", content: "Note from the agent: use pauses in the voice-over." },
+      ...steps(11, 10),
+    ];
+    const out = collapseOldSteps(transcript, 6);
+    expect(out[0]).toBe(transcript[0]);
+    expect(out).toHaveLength(2 + 6);
+    const note = String(out[1]!.content);
+    expect(note).toContain("use pauses in the voice-over");
+    expect(note).toContain("- bash: npm run step-1");
+    expect(note).not.toContain("yyyy");
+    expect(out.slice(2)).toEqual(transcript.slice(-6));
+    expect(JSON.stringify(out).length).toBeLessThan(JSON.stringify(transcript).length / 3);
+  });
+
+  it("never leaves a tool result without its call", () => {
+    const transcript: ModelMessage[] = [{ role: "user", content: "brief" }, ...steps(1, 10)];
+    // Seven kept messages would start on a tool result; the cut moves past it.
+    const out = collapseOldSteps(transcript, 7);
+    expect(out[2]!.role).toBe("assistant");
+  });
+
+  it("carries an earlier collapse forward instead of nesting it, and stays bounded", () => {
+    let transcript: ModelMessage[] = [{ role: "user", content: "brief" }, { role: "user", content: "Keep the logo small." }];
+    for (let round = 0; round < 30; round += 1) {
+      transcript = collapseOldSteps([...transcript, ...steps(round * 10, 10)], 6);
+    }
+    const note = String(transcript[1]!.content);
+    expect(note.match(/Earlier steps of this job/g)).toHaveLength(1);
+    expect(note).toContain("Keep the logo small.");
+    expect(note).toMatch(/\(\d+ earlier tool calls not listed\)/);
+    expect(JSON.stringify(transcript).length).toBeLessThan(25_000);
+  });
+
+  it("leaves a short conversation alone", () => {
+    const transcript: ModelMessage[] = [{ role: "user", content: "brief" }, ...steps(1, 2)];
+    expect(collapseOldSteps(transcript, 16)).toBe(transcript);
   });
 });
 

@@ -22,7 +22,10 @@ export const FOLD_SLICE_MAX = 60;
 export type SliceMessage = { id: string; agentId: string | null; body: string; createdAt?: Date };
 
 /** A fact already in memory, shown to the summarizer so it can update instead of duplicating. */
-export type KnownFact = { id: string; subject: string | null; body: string };
+export type KnownFact = { id: string; subject: string | null; body: string; scope?: string; agentId?: string | null };
+
+/** A summary line still marked open, shown to the summarizer so it can say the slice settled it. */
+export type OpenItem = { id: string; body: string };
 
 export type FoldItem = { key: string; body: string; messageId: string };
 
@@ -35,10 +38,26 @@ export type FoldFact = {
   replaces?: string;
 };
 
-export type FoldOutput = { items: FoldItem[]; facts?: FoldFact[] };
+export type FoldOutput = { items: FoldItem[]; facts?: FoldFact[]; /** Ids of open items the slice resolved. */ closed?: string[] };
 
 /** A summarizer turns an aged-out slice into cited summary items and, optionally, durable facts. */
-export type FoldSummarizer = (slice: SliceMessage[], known: KnownFact[]) => Promise<FoldOutput | FoldItem[]>;
+export type FoldSummarizer = (slice: SliceMessage[], known: KnownFact[], open?: OpenItem[]) => Promise<FoldOutput | FoldItem[]>;
+
+/** Kinds of fact that describe the person and their world, which every one of their agents should know. */
+const SHARED_KINDS = new Set(["preference", "person", "org"]);
+
+/**
+ * Whether a folded fact goes to every agent or stays with the chat's agent.
+ * Why: every fact used to be shared, so one agent's working details (episode
+ * numbers, render schedules, gig drafts) filled every other agent's memory
+ * and pushed out what mattered to them. Facts about the person themself, the
+ * people and organizations around them, and their preferences stay shared.
+ */
+export function sharedFact(fact: { kind: string; subject: string | null }): boolean {
+  // How this agent was told to do its work stays with it, and reaches its workers.
+  if (fact.kind === "procedure") return false;
+  return SHARED_KINDS.has(fact.kind) || !fact.subject?.trim();
+}
 
 export type FoldResult = { key: string; body: string }[] & { factsSaved?: number; lastMessageId?: string };
 
@@ -87,8 +106,15 @@ export async function foldAged(
   }));
   if (slice.length < minBatch) return [];
 
-  const known = await knownFactsFor(db, accountId, conversationId, slice);
-  const raw = await summarize(slice, known);
+  const [room] = await db
+    .select({ ownerAgentId: conversations.ownerAgentId })
+    .from(conversations)
+    .where(and(eq(conversations.id, conversationId), eq(conversations.accountId, accountId)))
+    .limit(1);
+  const ownerAgentId = room?.ownerAgentId ?? null;
+  const known = await knownFactsFor(db, accountId, ownerAgentId, slice);
+  const open = await openItemsFor(db, accountId, conversationId);
+  const raw = await summarize(slice, known, open);
   const output: FoldOutput = Array.isArray(raw) ? { items: raw } : raw;
   const sliceIds = new Set(slice.map((message) => message.id));
   const lastId = slice.at(-1)!.id;
@@ -112,21 +138,34 @@ export async function foldAged(
       );
   }
 
+  // An open line the slice settled ("waiting for the logins" after they came)
+  // is removed; left in, it told the agent for days to wait for something done.
+  const openIds = new Set(open.map((item) => item.id));
+  const closed = (output.closed ?? []).filter((id) => openIds.has(id));
+  if (closed.length > 0) {
+    await db
+      .delete(summaryItems)
+      .where(and(eq(summaryItems.accountId, accountId), eq(summaryItems.conversationId, conversationId), inArray(summaryItems.id, closed)));
+  }
+
   let factsSaved = 0;
-  const knownIds = new Set(known.map((fact) => fact.id));
+  const knownById = new Map(known.map((fact) => [fact.id, fact]));
   for (const fact of output.facts ?? []) {
     const body = fact.body.trim();
     if (!body) continue;
+    // An update keeps the place of the fact it replaces; a new fact is placed by what it is about.
+    const replaced = fact.replaces ? knownById.get(fact.replaces) : undefined;
+    const shared = replaced ? replaced.scope !== "agent" : sharedFact(fact) || !ownerAgentId;
     const row = await remember(db, accountId, {
-      scope: "user",
-      agentId: null,
+      scope: shared ? "user" : "agent",
+      agentId: shared ? null : (replaced?.agentId ?? ownerAgentId),
       body,
       messageId: cite(fact.messageId),
       kind: (memoryKinds as readonly string[]).includes(fact.kind) && fact.kind !== "profile" ? fact.kind : "fact",
       subject: fact.subject,
     });
-    if (fact.replaces && knownIds.has(fact.replaces) && fact.replaces !== row.id) {
-      await supersede(db, accountId, fact.replaces, row.id);
+    if (replaced && replaced.id !== row.id) {
+      await supersede(db, accountId, replaced.id, row.id);
     }
     factsSaved += 1;
   }
@@ -152,32 +191,44 @@ export async function foldAged(
 async function knownFactsFor(
   db: Db,
   accountId: string,
-  conversationId: string,
+  ownerAgentId: string | null,
   slice: SliceMessage[],
 ): Promise<KnownFact[]> {
   const text = slice.map((message) => message.body).join("\n");
-  const [room] = await db
-    .select({ ownerAgentId: conversations.ownerAgentId })
-    .from(conversations)
-    .where(and(eq(conversations.id, conversationId), eq(conversations.accountId, accountId)))
-    .limit(1);
-  const mentioned = room ? await factsAboutMentioned(db, accountId, room.ownerAgentId, text).catch(() => []) : [];
+  const mentioned = ownerAgentId ? await factsAboutMentioned(db, accountId, ownerAgentId, text).catch(() => []) : [];
+  // Shared facts and this chat's agent's own: the ones a fold may write over.
+  const visible = ownerAgentId
+    ? sql`(${memories.scope} = 'user' or (${memories.scope} = 'agent' and ${memories.agentId} = ${ownerAgentId}))`
+    : eq(memories.scope, "user");
   const newest = await db
-    .select({ id: memories.id, subject: memories.subject, body: memories.body })
+    .select({ id: memories.id, subject: memories.subject, body: memories.body, scope: memories.scope, agentId: memories.agentId })
     .from(memories)
+    .where(and(eq(memories.accountId, accountId), visible, isNull(memories.supersededBy), sql`${memories.kind} <> 'profile'`))
+    .orderBy(desc(memories.createdAt))
+    .limit(16);
+  const seen = new Set<string>();
+  return [...mentioned, ...newest]
+    .filter((fact) => (seen.has(fact.id) ? false : (seen.add(fact.id), true)))
+    .slice(0, 24)
+    .map((fact) => ({ id: fact.id, subject: fact.subject, body: fact.body, scope: fact.scope, agentId: fact.agentId }));
+}
+
+/** Most open lines shown to one fold. */
+const OPEN_ITEMS_SHOWN = 12;
+
+/** The chat's summary lines still marked open, newest first. */
+async function openItemsFor(db: Db, accountId: string, conversationId: string): Promise<OpenItem[]> {
+  return db
+    .select({ id: summaryItems.id, body: summaryItems.body })
+    .from(summaryItems)
     .where(
       and(
-        eq(memories.accountId, accountId),
-        eq(memories.scope, "user"),
-        isNull(memories.supersededBy),
-        sql`${memories.kind} <> 'profile'`,
+        eq(summaryItems.accountId, accountId),
+        eq(summaryItems.conversationId, conversationId),
+        eq(summaryItems.key, "open"),
+        eq(summaryItems.level, 0),
       ),
     )
-    .orderBy(desc(memories.createdAt))
-    .limit(12);
-  const seen = new Set<string>();
-  return [...mentioned.filter((fact) => fact.scope === "user"), ...newest]
-    .filter((fact) => (seen.has(fact.id) ? false : (seen.add(fact.id), true)))
-    .slice(0, 20)
-    .map((fact) => ({ id: fact.id, subject: fact.subject, body: fact.body }));
+    .orderBy(desc(summaryItems.createdAt))
+    .limit(OPEN_ITEMS_SHOWN);
 }

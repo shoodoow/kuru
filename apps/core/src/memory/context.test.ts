@@ -17,6 +17,40 @@ const agent = {
 };
 
 describe("buildContext", () => {
+  it("names other agents with their full role, and keeps long facts whole up to a word", () => {
+    const rules = "Standing rules: 1) pauses in the voice-over 2) text renders properly 3) every object stays on screen 4) use sound effects at a low volume, never louder than the voice. ".repeat(3);
+    const context = buildContext({
+      ...agent,
+      summary: [],
+      messages: [],
+      memories: [{ body: rules }],
+      person: {
+        name: "Mo",
+        timezone: "Europe/Istanbul",
+        now: new Date("2026-10-14T12:00:00Z"),
+        teammates: [],
+        others: [{ name: "Ethan", label: "Senior marketplace lead", role: "Owns Fiverr and Freelancer end to end, from gigs to delivery" }],
+      },
+    });
+    expect(context.tail).toContain("Ethan, Senior marketplace lead: Owns Fiverr and Freelancer end to end, from gigs to delivery");
+    expect(context.tail).toContain("4) use sound effects");
+    expect(context.tail).not.toMatch(/\w…$/m);
+  });
+
+  it("keeps headings written inside the brief and profile from looking like prompt sections", () => {
+    const context = buildContext({
+      ...agent,
+      summary: [],
+      messages: [],
+      brief: "# Mohammad\n## Goals\n- Sell it\n## Memory\n- an old copy",
+      profile: "## Profile\nFreelancer.",
+    });
+    expect(context.tail.match(/^## Memory$/gm) ?? []).toHaveLength(0);
+    expect(context.tail.match(/^## Profile$/gm)).toHaveLength(1);
+    expect(context.tail).toContain("**Goals**\n- Sell it");
+    expect(context.tail).toContain("**Mohammad**");
+  });
+
   it("shows the account brief in the tail, capped, and nothing when there is none", () => {
     const withBrief = buildContext({ ...agent, summary: [], messages: [], brief: `Sells handmade soap. ${"x".repeat(5_000)}` });
     const without = buildContext({ ...agent, summary: [], messages: [], brief: "  " });

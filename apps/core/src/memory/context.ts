@@ -28,7 +28,7 @@ export type PersonContext = {
   teammates: { id?: string; label: string; role: string; mention: string }[];
   groups?: { id: string; title: string; memberCount?: number; owned?: boolean }[];
   /** The person's other agents: not teammates, reachable with message_agent. */
-  others?: { label: string; role: string }[];
+  others?: { name?: string; label: string; role: string }[];
 };
 
 export type BuiltContext = {
@@ -108,8 +108,8 @@ export function buildContext(input: {
     ...(input.room ? [`## Room\n${roomLine(input.room)}`] : []),
     ...(input.person ? [`## Person\n${personBlock(input.person)}`] : []),
     ...(input.computer?.trim() ? [`## Your computer\n${prompt("dispatcher", "computer-facts", { facts: input.computer.trim() })}`] : []),
-    ...(input.brief?.trim() ? [`## Brief\n${prompt("dispatcher", "brief", { brief: input.brief.trim().slice(0, BRIEF_CHARS) })}`] : []),
-    ...(input.profile?.trim() ? [`## Profile\n${input.profile.trim().slice(0, PROFILE_CHARS)}`] : []),
+    ...(input.brief?.trim() ? [`## Brief\n${prompt("dispatcher", "brief", { brief: nestHeadings(clipAtWord(input.brief.trim(), BRIEF_CHARS)) })}`] : []),
+    ...(input.profile?.trim() ? [`## Profile\n${nestHeadings(clipAtWord(input.profile.trim(), PROFILE_CHARS))}`] : []),
     ...(memoryBlock ? [`## Memory\n${memoryBlock}`] : []),
     ...(summaryBlock ? [`## Summary\n${summaryBlock}`] : []),
     ...(recallBlock ? [`## Recall\n${recallBlock}`] : []),
@@ -202,8 +202,8 @@ function personBlock(person: PersonContext): string {
     person.others && person.others.length > 0
       ? `\nOther agents (each has its own chat with the person; pass one a message with message_agent): ${person.others
           .slice(0, 12)
-          .map((other) => `${other.label.replace(/\s+/g, " ").trim().slice(0, 40)}${other.role.trim() ? ` (${other.role.replace(/\s+/g, " ").trim().slice(0, 30)})` : ""}`)
-          .join(", ")}`
+          .map((other) => otherAgentLine(other))
+          .join("; ")}`
       : "";
   return `Person: ${name}. You speak to them. They are not a teammate.\n${teammates}${groups}${others}`;
 }
@@ -242,6 +242,49 @@ function formatLocalTime(now: Date, timezone: string): string | null {
 }
 
 /**
+ * One other agent as "Name, title: role".
+ * Why: only the title was shown, cut at 30 characters ("Sets up your agents
+ * and keeps "), while the brief and memories call agents by name ("Ethan owns
+ * Fiverr"), so the agent could not tell who was who.
+ */
+function otherAgentLine(other: { name?: string; label: string; role: string }): string {
+  const tidy = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ").trim();
+  const name = tidy(other.name);
+  const label = tidy(other.label);
+  const role = tidy(other.role);
+  const head = name && label && name.toLowerCase() !== label.toLowerCase() ? `${name}, ${label}` : name || label;
+  return role && role.toLowerCase() !== label.toLowerCase() ? `${head}: ${clipAtWord(role, 90)}` : head;
+}
+
+/** Longest saved fact shown in the prompt. */
+const MEMORY_LINE_CHARS = 900;
+
+/**
+ * Shortens text at a word boundary and marks the cut.
+ * Why: plain slicing ended lines mid-word ("portfolio pie", "keeps )"), which
+ * reads as garbage and hides that something was left out.
+ * Input: text and the longest length. Output: the text, or its start plus "…".
+ */
+export function clipAtWord(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const cut = text.slice(0, limit);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > limit * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:(—-]+$/, "")}…`;
+}
+
+/**
+ * Turns the headings inside written text into bold lines.
+ * Why: the brief is a document the support agent writes, and it had its own
+ * "## Memory", "## Profile" and "## Now" headings. In the prompt they looked
+ * exactly like the real sections, so an agent saw two of each and could not
+ * tell where the brief ended or which profile was current.
+ * Input: markdown text. Output: the same text with no line starting with #.
+ */
+export function nestHeadings(text: string): string {
+  return text.replace(/^#{1,6}[ \t]+(.+?)[ \t#]*$/gm, "**$1**");
+}
+
+/**
  * Renders durable facts as a standing memory block in the tail.
  * Why: remembered facts (user + this agent's own) must re-enter the model's
  * context every turn or the agent "forgets" across a long-running thread. They
@@ -256,7 +299,8 @@ function memorySection(memories: { body: string; subject?: string | null }[]): s
   return memories
     .slice(0, MEMORY_LINES)
     .map((memory) => {
-      const body = memory.body.replace(/\s+/g, " ").trim().slice(0, 300);
+      // Was 300 characters: a fact listing four rules lost the last two.
+      const body = clipAtWord(memory.body.replace(/\s+/g, " ").trim(), MEMORY_LINE_CHARS);
       return `- ${memory.subject?.trim() ? `${memory.subject.trim()}: ` : ""}${body}`;
     })
     .join("\n");

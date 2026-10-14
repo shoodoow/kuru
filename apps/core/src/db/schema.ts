@@ -20,6 +20,10 @@ export const accounts = pgTable("accounts", {
   // default agent is created once this is set.
   defaultProvider: text("default_provider"),
   defaultModelId: text("default_model_id"),
+  // Optional cheaper model for background workers, where most tokens are
+  // spent. Chat agents keep their own model. Null: unused.
+  cheapProvider: text("cheap_provider"),
+  cheapModelId: text("cheap_model_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -209,6 +213,9 @@ export const delegations = pgTable(
     // Billable usage for the worker's own generateText (up to 10 steps with
     // screenshots — the dominant cost; the dispatcher run row never sees it).
     // Null until the worker settles; stub-generate test workers stay null.
+    /** The model this job ran on; null for jobs from before it was recorded. */
+    provider: text("provider"),
+    modelId: text("model_id"),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     cacheReadTokens: integer("cache_read_tokens"),
@@ -228,7 +235,7 @@ export const delegations = pgTable(
   ],
 );
 
-export const memoryKinds = ["fact", "person", "org", "project", "preference", "decision", "commitment", "profile"] as const;
+export const memoryKinds = ["fact", "person", "org", "project", "preference", "decision", "commitment", "procedure", "profile"] as const;
 export type MemoryKind = (typeof memoryKinds)[number];
 
 export const summaryKeys = ["decisions", "actions", "open", "entities", "corrections", "topics"] as const;
@@ -276,9 +283,8 @@ export const memories = pgTable(
     scope: text("scope").notNull(),
     agentId: uuid("agent_id").references(() => agents.id),
     body: text("body").notNull(),
-    messageId: uuid("message_id")
-      .notNull()
-      .references(() => messages.id),
+    // Where the fact was learned. Null once that chat is gone (its agent was removed).
+    messageId: uuid("message_id").references(() => messages.id),
     // Semantic recall over durable facts (see summary_items.embedding).
     embedding: vector("embedding", { dimensions: EMBEDDING_DIMS }),
     // What the fact is about. `subject` names the person, organization or
@@ -378,9 +384,20 @@ export const routines = pgTable(
     // Last finished fire (done/failed). Pending/running jobs do not write here.
     lastRunAt: timestamp("last_run_at", { withTimezone: true }),
     lastRunStatus: text("last_run_status"),
+    // 'worker': each run starts a worker with the instructions as its brief, and
+    // the agent is woken only when the report has something for the person.
+    // 'agent': the agent itself is woken (check-ins, conversation).
+    runsAs: text("runs_as").notNull().default("agent"),
+    workerKind: text("worker_kind"),
+    workerSkills: jsonb("worker_skills").$type<string[]>().notNull().default([]),
+    /** The notes file the worker keeps between runs: what worked, what to avoid. */
+    notesPath: text("notes_path"),
+    /** A file that holds the full brief, read fresh at every run; `instructions` then sums it up. */
+    briefPath: text("brief_path"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    check("routines_runs_as_check", sql`${table.runsAs} in ('agent', 'worker')`),
     check(
       "routines_last_run_status_check",
       sql`${table.lastRunStatus} is null or ${table.lastRunStatus} in ('done', 'failed')`,
@@ -403,6 +420,8 @@ export const jobs = pgTable(
     // Concise outcome from this fire. The next fire receives it as continuity
     // context, while the full room transcript remains the audit source.
     result: text("result"),
+    /** The worker this run started; its report becomes `result` when it finishes. */
+    delegationId: uuid("delegation_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

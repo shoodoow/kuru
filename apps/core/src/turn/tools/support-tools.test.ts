@@ -182,3 +182,11 @@ describe("support tools", () => {
     expect(String(foreign.error)).toContain("No agent called");
   });
 });
+
+describe("copiedContextSections", () => {
+  it("finds sections of the agent's own context copied into a brief", async () => {
+    const { copiedContextSections } = await import("./executors.js");
+    expect(copiedContextSections("# Mo\n## Goals\n- Sell\n## Now\nTime\n## Memory\n- x\n### Profile\nold")).toEqual(["Now", "Memory", "Profile"]);
+    expect(copiedContextSections("# Mo\n## Who does what\n- Ethan: Fiverr")).toEqual([]);
+  });
+});
