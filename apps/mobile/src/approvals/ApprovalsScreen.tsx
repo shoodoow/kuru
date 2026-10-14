@@ -1,12 +1,14 @@
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import type { Proposal, ToolApproval } from "../api";
+import type { Proposal, ToolAllowance, ToolApproval } from "../api";
 import { darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { pressableStyle } from "../ui/pressableStyles";
 import { useNavBarPad } from "../ui/nav-bar-pad";
 
 /**
- * Lists pending skill proposals and Auto-review tool rows.
- * Input: the pending lists and the decision handlers.
+ * Lists pending skill proposals and Auto-review tool rows, and the actions
+ * agents may take without asking ("Always allow"), each of which can be taken back.
+ * Input: the pending lists, the decision handlers, and the allowance loaders.
  * Output: the approvals screen.
  */
 export function ApprovalsScreen({
@@ -16,17 +18,30 @@ export function ApprovalsScreen({
   onReject,
   onApproveTool,
   onDenyTool,
+  onLoadAllowances,
+  onRemoveAllowance,
   onBack: _onBack,
 }: {
   proposals: Proposal[];
   toolApprovals: ToolApproval[];
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
-  onApproveTool: (id: string) => void;
+  /** `always`: that agent may take this action from now on without asking. */
+  onApproveTool: (id: string, always?: boolean) => void;
   onDenyTool: (id: string) => void;
+  onLoadAllowances: () => Promise<ToolAllowance[]>;
+  onRemoveAllowance: (id: string) => Promise<ToolAllowance[]>;
   onBack: () => void;
 }) {
-  const empty = proposals.length === 0 && toolApprovals.length === 0;
+  const [allowances, setAllowances] = useState<ToolAllowance[]>([]);
+  // Reloaded when a decision changes the pending list, since "Always allow" adds one.
+  useEffect(() => {
+    void onLoadAllowances()
+      .then(setAllowances)
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toolApprovals.length]);
+  const empty = proposals.length === 0 && toolApprovals.length === 0 && allowances.length === 0;
   const navBarPad = useNavBarPad();
   return (
     <View style={[styles.screen, navBarPad]}>
@@ -51,7 +66,33 @@ export function ApprovalsScreen({
               >
                 <Text style={styles.rejectText}>Deny</Text>
               </Pressable>
+              {row.canAlwaysAllow ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => onApproveTool(row.id, true)}
+                  style={(state) => pressableStyle(styles.action, state)}
+                >
+                  <Text style={styles.actionText}>Always allow</Text>
+                </Pressable>
+              ) : null}
             </View>
+          </View>
+        ))}
+        {allowances.length > 0 ? <Text style={styles.section}>Allowed without asking</Text> : null}
+        {allowances.map((row) => (
+          <View key={row.id} style={styles.allowRow}>
+            <View style={styles.allowBody}>
+              <Text style={styles.body}>{row.label}</Text>
+              <Text style={styles.kind}>{row.agentName}</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Ask again before ${row.agentName}: ${row.label}`}
+              onPress={() => void onRemoveAllowance(row.id).then(setAllowances).catch(() => {})}
+              style={(state) => pressableStyle(styles.action, state)}
+            >
+              <Text style={styles.rejectText}>Ask again</Text>
+            </Pressable>
           </View>
         ))}
         {proposals.map((proposal) => (
@@ -96,6 +137,9 @@ function createStyles(colors: ColorPalette) {
   action: { minHeight: 44, justifyContent: "center", paddingHorizontal: 4 },
   actionText: { color: colors.link, fontSize: 16, fontWeight: "600" },
   rejectText: { color: colors.danger, fontSize: 16, fontWeight: "600" },
+  section: { color: colors.muted, fontSize: 13, marginTop: 8, marginLeft: 6 },
+  allowRow: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.bubble, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 10 },
+  allowBody: { flex: 1, gap: 2 },
 });
 }
 

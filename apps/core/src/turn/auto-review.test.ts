@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { getDb } from "../db/client.js";
 import { accounts, agents, conversations, members, runs } from "../db/schema.js";
-import { classifyRisk, decideToolApproval, hashToolInput, reviewToolCall, setAutoReview } from "./auto-review.js";
+import { allowForGood, canAlwaysAllow, classifyRisk, decideToolApproval, hashToolInput, listAllowances, removeAllowance, reviewToolCall, setAutoReview } from "./auto-review.js";
 import { executeSendMessage } from "./tools/executors.js";
 import type { ToolContext } from "./tools/context.js";
 
@@ -98,6 +98,57 @@ describe("reviewToolCall and send_message guards", () => {
       approvalId: blocked.approvalId,
     });
     expect(reused.allow).toBe(false);
+  });
+
+  it("stops asking one agent for one action after Always allow, and asks again once it is taken back", async () => {
+    const [account] = await db.insert(accounts).values({ name: "Always allow" }).returning();
+    const make = async (name: string) => {
+      const [row] = await db
+        .insert(agents)
+        .values({ accountId: account!.id, name, label: name, role: "Social", jobDescription: "Posts.", provider: "openai", modelId: "gpt-5" })
+        .returning();
+      return row!;
+    };
+    const nora = await make("Nora");
+    const ethan = await make("Ethan");
+    const [worker] = await db
+      .insert(agents)
+      .values({ accountId: account!.id, name: "w", label: "w", role: "worker", jobDescription: "Posts.", provider: "openai", modelId: "gpt-5", hidden: true, parentId: nora.id })
+      .returning();
+    const [room] = await db.insert(conversations).values({ accountId: account!.id, kind: "direct", ownerAgentId: nora.id, title: "Nora" }).returning();
+    const [run] = await db.insert(runs).values({ accountId: account!.id, conversationId: room!.id, kind: "turn", status: "running" }).returning();
+    const ctx = (agentId: string): ToolContext => ({
+      db,
+      store: db,
+      accountId: account!.id,
+      conversationId: room!.id,
+      agentId,
+      runId: run!.id,
+      nextTime: () => new Date(),
+      emittedMessages: [],
+      emit: async () => {},
+    });
+    await setAutoReview(db, account!.id, true);
+    const reel = { path: "/shared/out/reel.mp4", caption: "Episode 3" };
+    const first = await reviewToolCall(ctx(worker!.id), "instagram_publish_reel", reel);
+    expect(first.allow).toBe(false);
+
+    // Said once for Nora: her workers publish reels without asking; Ethan and other actions still ask.
+    await allowForGood(db, account!.id, { agentId: worker!.id, tool: "instagram_publish_reel" });
+    expect(await reviewToolCall(ctx(worker!.id), "instagram_publish_reel", { ...reel, caption: "Episode 4" })).toEqual({ allow: true });
+    expect(await reviewToolCall(ctx(nora.id), "instagram_publish_reel", reel)).toEqual({ allow: true });
+    expect((await reviewToolCall(ctx(ethan.id), "instagram_publish_reel", reel)).allow).toBe(false);
+    expect((await reviewToolCall(ctx(nora.id), "youtube_upload_video", { path: "/shared/a.mp4" })).allow).toBe(false);
+
+    // Never for a shell command or removing an agent.
+    expect([canAlwaysAllow("bash"), canAlwaysAllow("fire_agent")]).toEqual([false, false]);
+    await allowForGood(db, account!.id, { agentId: nora.id, tool: "bash" });
+    expect((await reviewToolCall(ctx(nora.id), "bash", { command: "rm -rf /etc" })).allow).toBe(false);
+
+    const [allowed] = await listAllowances(db, account!.id);
+    expect(allowed).toMatchObject({ agentName: "Nora", tool: "instagram_publish_reel" });
+    expect(await removeAllowance(db, account!.id, allowed!.id)).toBe(true);
+    expect((await reviewToolCall(ctx(nora.id), "instagram_publish_reel", { ...reel, caption: "Episode 5" })).allow).toBe(false);
   });
 
   it("delivers a long text bubble and ends the turn on a secret widget", async () => {

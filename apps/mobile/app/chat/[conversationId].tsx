@@ -133,8 +133,8 @@ export default function ChatRoute() {
       onLoadTeamChat={session.loadTeamChat}
       onLoadOlder={() => void session.loadOlderMessages().catch(session.show)}
       onReact={(bubble, emoji) => void session.toggleReaction(chat.conversationId, bubble, emoji).catch(session.show)}
-      onApprove={(approvalId) => {
-        if (approvalId) void session.decideToolRow(approvalId, true).catch(session.show);
+      onApprove={(approvalId, always) => {
+        if (approvalId) void session.decideToolRow(approvalId, true, always).catch(session.show);
         else void session.refreshProposals().catch(session.show);
       }}
       onDeny={(approvalId) => {

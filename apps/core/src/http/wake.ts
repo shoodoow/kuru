@@ -4,7 +4,7 @@ import { findRoom } from "../rooms/rooms.js";
 import { acquireRun, RoomBusyError } from "../rooms/runs.js";
 import { publish, type StreamEvent } from "../rooms/stream.js";
 import { runTurn } from "../rooms/turn.js";
-import { approvalDecisionCue, decideToolApproval, isApprovalAwaited, markApprovalWidget } from "../turn/auto-review.js";
+import { allowForGood, approvalDecisionCue, decideToolApproval, isApprovalAwaited, markApprovalWidget } from "../turn/auto-review.js";
 import { logger, type AppContext } from "./context.js";
 
 /**
@@ -17,12 +17,15 @@ export async function decideToolApprovalHttp(
   approvalId: string,
   decision: "approved" | "denied",
   res: Response,
+  /** "Always allow": this agent may take this action from now on without asking. */
+  always = false,
 ): Promise<void> {
   const updated = await decideToolApproval(ctx.db, accountId, approvalId, decision);
   if (!updated) {
     res.status(404).json({ error: "Approval not found." });
     return;
   }
+  if (always && decision === "approved") await allowForGood(ctx.db, accountId, updated);
   const marked = await markApprovalWidget(ctx.db, accountId, updated.conversationId, updated.id, decision);
   if (marked) {
     publish(accountId, updated.conversationId, { type: "message", message: marked });

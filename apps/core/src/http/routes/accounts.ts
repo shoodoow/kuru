@@ -25,7 +25,7 @@ import {
   setDefaultModel,
 } from "../../roster/roster.js";
 import { listProposals } from "../../skills/proposals.js";
-import { getAccountSettings, isTimeZone, listToolApprovals, rememberTimezone, setAutoReview } from "../../turn/auto-review.js";
+import { getAccountSettings, isTimeZone, listAllowances, listToolApprovals, rememberTimezone, removeAllowance, setAutoReview } from "../../turn/auto-review.js";
 import { logger, pathParam, type AppContext, type Database, type Guard } from "../context.js";
 import { novncClientPage } from "../screen-client.js";
 import { screenTokenKey } from "../screen-proxy.js";
@@ -217,7 +217,19 @@ export function accountsRoutes(ctx: AppContext, guard: Guard): Router {
     res.json(await listToolApprovals(ctx.db, pathParam(req, "accountId")));
   });
   accounts.post("/:accountId/tool-approvals/:approvalId/approve", guard, async (req, res) => {
-    await decideToolApprovalHttp(ctx, pathParam(req, "accountId"), pathParam(req, "approvalId"), "approved", res);
+    await decideToolApprovalHttp(ctx, pathParam(req, "accountId"), pathParam(req, "approvalId"), "approved", res, req.query.always === "1");
+  });
+  // "Always allow" choices: listed on the Approvals page, where each can be taken back.
+  accounts.get("/:accountId/tool-allowances", guard, async (req, res) => {
+    res.json(await listAllowances(ctx.db, pathParam(req, "accountId")));
+  });
+  accounts.delete("/:accountId/tool-allowances/:allowanceId", guard, async (req, res) => {
+    const removed = await removeAllowance(ctx.db, pathParam(req, "accountId"), pathParam(req, "allowanceId"));
+    if (!removed) {
+      res.status(404).json({ error: "That allowance is already gone." });
+      return;
+    }
+    res.json(await listAllowances(ctx.db, pathParam(req, "accountId")));
   });
   accounts.post("/:accountId/tool-approvals/:approvalId/deny", guard, async (req, res) => {
     await decideToolApprovalHttp(ctx, pathParam(req, "accountId"), pathParam(req, "approvalId"), "denied", res);

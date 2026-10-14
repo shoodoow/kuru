@@ -25,14 +25,14 @@ describe("account usage", () => {
     const bea = await make("Bea");
     const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000);
     await db.insert(runs).values([
-      { accountId: account.id, conversationId: ada.room.id, status: "done", inputTokens: 1000, outputTokens: 100, cacheReadTokens: 400 },
+      { accountId: account.id, conversationId: ada.room.id, status: "done", inputTokens: 1000, outputTokens: 100, cacheReadTokens: 400, provider: "openai", modelId: "gpt-5" },
       { accountId: account.id, conversationId: ada.room.id, status: "done", inputTokens: 500, outputTokens: 50, createdAt: daysAgo(2) },
       { accountId: account.id, conversationId: bea.room.id, status: "done", inputTokens: 200, outputTokens: 20, createdAt: daysAgo(3) },
       // Outside a week, inside a month. A run with no usage recorded still counts as a turn.
       { accountId: account.id, conversationId: bea.room.id, status: "done", createdAt: daysAgo(20) },
     ]);
     await db.insert(delegations).values([
-      // A job from before the model was recorded counts against its worker's model.
+      // A job from before the model was recorded is not guessed: it counts as unknown.
       { accountId: account.id, conversationId: ada.room.id, parentAgentId: ada.agent.id, childAgentId: ada.agent.id, task: "build", status: "done", inputTokens: 9000, outputTokens: 900 },
       // A job on the background model counts against that model.
       { accountId: account.id, conversationId: ada.room.id, parentAgentId: ada.agent.id, childAgentId: ada.agent.id, task: "render", status: "done", inputTokens: 3000, outputTokens: 300, provider: "anthropic", modelId: "claude-haiku-5-5" },
@@ -42,14 +42,16 @@ describe("account usage", () => {
     expect(week.bucket).toBe("day");
     expect(week.totals).toEqual({ inputTokens: 13_700, outputTokens: 1370, cacheReadTokens: 400, turns: 3, jobs: 2 });
     expect(week.series).toHaveLength(7);
-    expect(week.series.at(-1)).toMatchObject({ inputTokens: 13_000, turns: 1, jobs: 2, models: { "openai/gpt-5": 11_000, "anthropic/claude-haiku-5-5": 3300 } });
+    expect(week.series.at(-1)).toMatchObject({ inputTokens: 13_000, turns: 1, jobs: 2, models: { "openai/gpt-5": 1100, unknown: 9900, "anthropic/claude-haiku-5-5": 3300 } });
     expect(week.agents.map((row) => [row.name, row.inputTokens, row.turns, row.jobs])).toEqual([
       ["Ada", 13_500, 2, 2],
       ["Bea", 200, 1, 0],
     ]);
+    // Turns from before models were recorded are unknown too, never the agent's current model.
     expect(week.models.map((row) => [row.key, row.inputTokens + row.outputTokens, row.jobs])).toEqual([
-      ["openai/gpt-5", 11_770, 1],
+      ["unknown", 10_670, 1],
       ["anthropic/claude-haiku-5-5", 3300, 1],
+      ["openai/gpt-5", 1100, 0],
     ]);
 
     const today = await accountUsage(db, account.id, "today");

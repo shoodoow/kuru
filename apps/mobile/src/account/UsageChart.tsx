@@ -30,7 +30,8 @@ export function bucketTitle(key: string, bucket: AccountUsage["bucket"]): string
 
 /** A model key "provider/model" as people read it: the model id. */
 export function modelName(key: string): string {
-  return key === "unknown" ? "Unknown model" : key.slice(key.indexOf("/") + 1);
+  // Usage from before each turn and job recorded its model: not guessed from today's settings.
+  return key === "unknown" ? "Earlier usage (model not recorded)" : key.slice(key.indexOf("/") + 1);
 }
 
 /**

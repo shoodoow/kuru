@@ -78,9 +78,10 @@ export function usagePeriod(period: unknown, days?: unknown): UsagePeriod {
  * Output: totals, a series of bars (hours for today, days otherwise), and
  * breakdowns by agent and by model.
  * Why per model: with a background model, one agent spends on two models,
- * and the bill differs per model. A turn counts against the model of the
- * agent that owns the chat; a background job against the model it ran on,
- * or the worker's model for jobs from before that was recorded.
+ * and the bill differs per model. Each turn and job counts against the model
+ * it ran on, as recorded when it ran. Usage from before models were recorded
+ * is shown as "unknown": guessing from the agent's current model counted a
+ * day of old work against a model the agent was switched to afterwards.
  */
 export async function accountUsage(db: Db, accountId: string, period: UsagePeriod): Promise<AccountUsage> {
   const [account] = await db.select({ timezone: accounts.timezone }).from(accounts).where(eq(accounts.id, accountId));
@@ -94,13 +95,13 @@ export async function accountUsage(db: Db, accountId: string, period: UsagePerio
   const rows = await db.execute(sql`
     with spent as (
       select c.owner_agent_id as agent_id, r.created_at, r.input_tokens, r.output_tokens, r.cache_read_tokens, 1 as turns, 0 as jobs,
-        coalesce(a.provider, '') as provider, coalesce(a.model_id, '') as model_id
-      from runs r join conversations c on c.id = r.conversation_id left join agents a on a.id = c.owner_agent_id
+        coalesce(r.provider, '') as provider, coalesce(r.model_id, '') as model_id
+      from runs r join conversations c on c.id = r.conversation_id
       where r.account_id = ${accountId}
       union all
       select d.parent_agent_id, d.created_at, d.input_tokens, d.output_tokens, d.cache_read_tokens, 0, 1,
-        coalesce(d.provider, w.provider, ''), coalesce(d.model_id, w.model_id, '')
-      from delegations d left join agents w on w.id = d.child_agent_id
+        coalesce(d.provider, ''), coalesce(d.model_id, '')
+      from delegations d
       where d.account_id = ${accountId}
     )
     select

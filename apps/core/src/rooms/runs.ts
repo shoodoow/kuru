@@ -83,6 +83,9 @@ export async function heartbeatRun(store: Store, runId: string): Promise<void> {
  * Input: store, run id. Output: nothing.
  */
 export type RunUsage = {
+  /** The model the turn ran on, for usage by model. */
+  provider?: string;
+  modelId?: string;
   inputTokens?: number;
   outputTokens?: number;
   cacheReadTokens?: number | null;
@@ -97,6 +100,7 @@ export async function finishRun(store: Store, runId: string, usage?: RunUsage): 
     .set({
       status: "done",
       heartbeatAt: new Date(),
+      ...(usage?.provider && usage.modelId ? { provider: usage.provider, modelId: usage.modelId } : {}),
       ...(usage?.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
       ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
       ...(usage?.cacheReadTokens !== undefined && usage.cacheReadTokens !== null

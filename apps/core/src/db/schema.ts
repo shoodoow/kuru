@@ -307,6 +307,28 @@ export const memories = pgTable(
   ],
 );
 
+/**
+ * "Always allow": an action one agent may take without asking again.
+ * Why: Nora asked five times to publish to Instagram. The person can now say
+ * yes once for good, for that agent and that action only; everything else
+ * still asks. Shell commands and removing an agent are never allowed this way.
+ */
+export const toolAllowances = pgTable(
+  "tool_allowances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    tool: text("tool").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique("tool_allowances_agent_tool_unique").on(table.accountId, table.agentId, table.tool)],
+);
+
 export const toolApprovals = pgTable(
   "tool_approvals",
   {
@@ -450,6 +472,9 @@ export const runs = pgTable(
     // Accurate billable usage for the whole run (sum of all model steps across
     // all speakers — AI SDK result.usage is already step-accumulated).
     // Null until the run lands; stub-generate test turns stay null.
+    /** The model the turn ran on; null for turns from before it was recorded. */
+    provider: text("provider"),
+    modelId: text("model_id"),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     cacheReadTokens: integer("cache_read_tokens"),
@@ -560,6 +585,8 @@ export const devices = pgTable(
       .references(() => accounts.id),
     expoPushToken: text("expo_push_token").notNull(),
     platform: text("platform"),
+    /** One id per install of the app; null for rows from before it was sent (Expo Go among them). */
+    installId: text("install_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [unique("devices_expo_push_token_unique").on(table.expoPushToken)],

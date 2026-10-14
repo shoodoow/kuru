@@ -608,6 +608,8 @@ export const urgencySchema = z.enum(["info", "action-needed"]);
 export const deviceSchema = z.object({
   expoPushToken: z.string().trim().min(1).max(500),
   platform: z.enum(["ios", "android", "web"]).nullable().optional(),
+  /** One id per install of the app, so a reinstall or a new token replaces the old row. */
+  installId: z.string().trim().min(8).max(100).optional(),
 });
 
 export type DeviceInput = z.infer<typeof deviceSchema>;

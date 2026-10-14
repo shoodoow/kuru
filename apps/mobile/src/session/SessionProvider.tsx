@@ -366,7 +366,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try {
       const push = await getPushToken();
       if (push) {
-        await core.registerDevice(accountIdFromSession, { expoPushToken: push.token, platform: push.platform });
+        await core.registerDevice(accountIdFromSession, { expoPushToken: push.token, platform: push.platform, installId: push.installId });
       }
       const pending = await core.listNotifications(accountIdFromSession).catch(() => []);
       setPendingCount(pending.length);
@@ -620,11 +620,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       for (const note of pending) {
         if (shown.has(note.id)) continue;
         shown.add(note.id);
-        // The app is open, so this is an in-app note, never a system banner, and
-        // nothing at all for the chat the person is already reading.
-        if (notifications && !pathnameRef.current.includes(note.conversationId)) {
-          setNote(`${note.title}: ${note.body}`.slice(0, 180));
-        }
+        // The app is open: the chat list's unread counts already show it, so
+        // nothing else appears. The red error line used to carry these.
         await core.ackNotification(id, note.id).catch(() => {});
       }
     };
@@ -667,17 +664,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [accountId]);
 
-  // A push that lands while the app is open shows no system banner; it becomes
-  // the app's own note, unless it is about the chat being read.
-  useEffect(
-    () =>
-      onPushWhileOpen((content) => {
-        const room = typeof content.data.conversationId === "string" ? content.data.conversationId : "";
-        if (room && pathnameRef.current.includes(room)) return;
-        setNote(`${content.title}: ${content.body}`.slice(0, 180));
-      }),
-    [],
-  );
+  // A push that lands while the app is open shows nothing: the chat list's
+  // unread counts already say a reply came, so the list is refreshed instead.
+  useEffect(() => onPushWhileOpen(() => refreshInboxRef.current()), []);
 
   useEffect(() => {
     configureForegroundBanners();
@@ -978,7 +967,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           .listNotifications(account)
           .then((pending) => setPendingCount(pending.length))
           .catch(() => {});
-        setNote(`${event.notification.title}: ${event.notification.body}`.slice(0, 160));
+        // No note: the open chat already shows what arrived.
       }
     });
     return () => {
@@ -1496,7 +1485,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setNote("");
   }
 
-  async function decideToolRow(approvalId: string, accept: boolean): Promise<void> {
+  async function decideToolRow(approvalId: string, accept: boolean, always = false): Promise<void> {
     const status = accept ? "approved" : "denied";
     setMessages((current) =>
       current.map((bubble) => {
@@ -1511,7 +1500,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }),
     );
     const next = accept
-      ? await core.approveTool(accountId.trim(), approvalId)
+      ? await core.approveTool(accountId.trim(), approvalId, always)
       : await core.denyTool(accountId.trim(), approvalId);
     setToolApprovals(next);
   }
@@ -1921,7 +1910,7 @@ type SessionValue = {
   loadTeamChat: (conversationId: string) => Promise<{ id: string; author: string; time: string; body: string }[]>;
   persistAutoReview: (value: boolean) => Promise<void>;
   refreshProposals: (proposalId?: string, accept?: boolean) => Promise<void>;
-  decideToolRow: (approvalId: string, accept: boolean) => Promise<void>;
+  decideToolRow: (approvalId: string, accept: boolean, always?: boolean) => Promise<void>;
   openProfile: (agent: RosterAgent) => void;
   openGroupInfo: () => Promise<void>;
   saveProfile: (draft?: RosterAgent) => Promise<void>;

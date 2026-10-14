@@ -1,11 +1,34 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
+import * as SecureStore from "expo-secure-store";
 
 export const ANDROID_NOTIFICATION_CHANNEL = "default";
 
 type NotificationsModule = typeof import("expo-notifications");
 
 /** Importing expo-notifications on Android Expo Go throws at load time (SDK 53+). */
+/** True inside the Expo Go app, which is for development and must never receive the account's pushes. */
+export function isExpoGo(): boolean {
+  return Constants.appOwnership === "expo" || Constants.executionEnvironment === "storeClient";
+}
+
+const INSTALL_ID_KEY = "kuru.install-id";
+
+/**
+ * A random id for this install of the app, kept on the phone.
+ * Why: the server kept every token it was ever given, so a token from Expo Go
+ * stayed next to the installed app's, and tapping its push opened Expo Go.
+ * The install id lets the server keep one row per install and drop old ones.
+ */
+export function installId(): string {
+  let id = SecureStore.getItem(INSTALL_ID_KEY);
+  if (!id) {
+    id = Array.from({ length: 4 }, () => Math.random().toString(36).slice(2, 10)).join("-");
+    SecureStore.setItem(INSTALL_ID_KEY, id);
+  }
+  return id;
+}
+
 export function isAndroidExpoGo(): boolean {
   return Platform.OS === "android" && Constants.appOwnership === "expo";
 }
@@ -26,7 +49,8 @@ async function loadNotifications(): Promise<NotificationsModule | null> {
 
 /** Expo Go on Android cannot use remote push (SDK 53+). */
 export function canUseRemotePush(): boolean {
-  if (Platform.OS === "web" || isAndroidExpoGo()) return false;
+  // Expo Go registered its own token, and a push to it opened Expo Go instead of the app.
+  if (Platform.OS === "web" || isExpoGo()) return false;
   const projectId = (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas
     ?.projectId;
   return Boolean(projectId);
@@ -82,7 +106,7 @@ export async function scheduleLocalNotification(input: {
   });
 }
 
-export async function getPushToken(): Promise<{ token: string; platform: string } | null> {
+export async function getPushToken(): Promise<{ token: string; platform: string; installId: string } | null> {
   try {
     if (!canUseRemotePush()) return null;
     const Notifications = await loadNotifications();
@@ -96,7 +120,7 @@ export async function getPushToken(): Promise<{ token: string; platform: string 
     if (status !== "granted") return null;
     await ensureAndroidNotificationChannel(Notifications);
     const token = await Notifications.getExpoPushTokenAsync({ projectId });
-    return { token: token.data, platform: Platform.OS };
+    return { token: token.data, platform: Platform.OS, installId: installId() };
   } catch {
     return null;
   }

@@ -8,7 +8,7 @@ import { accountHome } from "../linux/linux.js";
 import { createHash } from "node:crypto";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { getDb } from "../db/client.js";
-import { accounts, messages, toolApprovals } from "../db/schema.js";
+import { accounts, agents, messages, toolAllowances, toolApprovals } from "../db/schema.js";
 import { saveNotification } from "../notify/notify.js";
 import { saveSendMessage, withWidgetProps } from "../rooms/send-message.js";
 import type { ToolContext } from "./tools/context.js";
@@ -176,6 +176,73 @@ export function classifyRisk(name: string, input: Record<string, unknown>, home?
 const ALWAYS_ASK = new Set(["fire_agent"]);
 
 /**
+ * Tools that can never be allowed for good: a shell allowance would cover any
+ * destructive command, and removing an agent cannot be undone.
+ */
+const NEVER_ALWAYS = new Set(["bash", ...ALWAYS_ASK]);
+
+/** True when an approval for this tool may offer "Always allow". */
+export function canAlwaysAllow(tool: string): boolean {
+  return !NEVER_ALWAYS.has(tool);
+}
+
+/**
+ * The agent an allowance belongs to: a worker acts for the agent that started it.
+ * Input: db, account and agent ids. Output: the lasting agent's id.
+ */
+export async function allowanceOwner(db: Db, accountId: string, agentId: string): Promise<string> {
+  const [row] = await db
+    .select({ parentId: agents.parentId, hidden: agents.hidden })
+    .from(agents)
+    .where(and(eq(agents.id, agentId), eq(agents.accountId, accountId)));
+  return row?.hidden && row.parentId ? row.parentId : agentId;
+}
+
+/** True when the person said "Always allow" for this agent and tool. */
+async function alwaysAllowed(db: Db, accountId: string, agentId: string, tool: string): Promise<boolean> {
+  if (!canAlwaysAllow(tool)) return false;
+  const owner = await allowanceOwner(db, accountId, agentId);
+  const [row] = await db
+    .select({ id: toolAllowances.id })
+    .from(toolAllowances)
+    .where(and(eq(toolAllowances.accountId, accountId), eq(toolAllowances.agentId, owner), eq(toolAllowances.tool, tool)))
+    .limit(1);
+  return Boolean(row);
+}
+
+/** Saves "Always allow" for the agent behind an approval, for that approval's tool. */
+export async function allowForGood(db: Db, accountId: string, approval: { agentId: string; tool: string }): Promise<void> {
+  if (!canAlwaysAllow(approval.tool)) return;
+  const owner = await allowanceOwner(db, accountId, approval.agentId);
+  await db.insert(toolAllowances).values({ accountId, agentId: owner, tool: approval.tool }).onConflictDoNothing();
+}
+
+/** An action as the person reads it: "Publish a reel on Instagram" rather than the tool's name. */
+export function actionLabel(tool: string): string {
+  return SOCIAL_ACTIONS[tool] ?? (tool === "gmail_send" ? "Send email" : tool.replace(/_/g, " "));
+}
+
+/** The account's allowances, newest first, with the agent's name and the action in words. */
+export async function listAllowances(db: Db, accountId: string) {
+  const rows = await db
+    .select({ id: toolAllowances.id, tool: toolAllowances.tool, agentId: toolAllowances.agentId, agentName: agents.name, createdAt: toolAllowances.createdAt })
+    .from(toolAllowances)
+    .innerJoin(agents, eq(agents.id, toolAllowances.agentId))
+    .where(eq(toolAllowances.accountId, accountId))
+    .orderBy(desc(toolAllowances.createdAt));
+  return rows.map((row) => ({ ...row, label: actionLabel(row.tool) }));
+}
+
+/** Takes an allowance back, so that agent asks again. */
+export async function removeAllowance(db: Db, accountId: string, id: string): Promise<boolean> {
+  const removed = await db
+    .delete(toolAllowances)
+    .where(and(eq(toolAllowances.id, id), eq(toolAllowances.accountId, accountId)))
+    .returning({ id: toolAllowances.id });
+  return removed.length > 0;
+}
+
+/**
  * Runs Auto-review for one tool call.
  * Input: tool context, name, args. Output: allow, or a blocked payload for the model.
  */
@@ -194,6 +261,8 @@ export async function reviewToolCall(
     .where(eq(accounts.id, ctx.accountId));
   // Removing an agent cannot be undone, so it is asked even with Auto-review off.
   if (!account?.autoReview && !ALWAYS_ASK.has(name)) return { allow: true };
+  // The person said "Always allow" for this agent and this action.
+  if (await alwaysAllowed(ctx.db, ctx.accountId, ctx.voiceAgentId ?? ctx.agentId, name)) return { allow: true };
 
   const hash = hashToolInput(name, input);
   const approvalId = typeof input.approvalId === "string" ? input.approvalId : "";
@@ -296,6 +365,8 @@ export async function reviewToolCall(
           detail: reason,
           approvalId: created.id,
           tool: name,
+          // The card offers "Always allow" only where one yes may cover every later call.
+          canAlwaysAllow: canAlwaysAllow(name),
         },
       },
     ],
@@ -428,10 +499,11 @@ export async function setAutoReview(db: Db, accountId: string, autoReview: boole
 }
 
 export async function listToolApprovals(db: Db, accountId: string) {
-  return db
+  const rows = await db
     .select()
     .from(toolApprovals)
     .where(and(eq(toolApprovals.accountId, accountId), eq(toolApprovals.status, "pending")));
+  return rows.map((row) => ({ ...row, canAlwaysAllow: canAlwaysAllow(row.tool) }));
 }
 
 export async function decideToolApproval(

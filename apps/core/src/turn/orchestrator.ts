@@ -155,11 +155,19 @@ export async function runTurn(
       }
     }
     await compactConversation(db, accountId, conversationId);
+    // The chat's own agent answered on its model; in a group, teammates' turns are counted against the lead's.
+    const [ranOn] = room.ownerAgentId
+      ? await db
+          .select({ provider: agents.provider, modelId: agents.modelId })
+          .from(agents)
+          .where(and(eq(agents.id, room.ownerAgentId), eq(agents.accountId, accountId)))
+      : [];
     await finishRun(
       db,
       runId,
       usage.steps > 0
         ? {
+            ...(ranOn ? { provider: ranOn.provider, modelId: ranOn.modelId } : {}),
             inputTokens: usage.input,
             outputTokens: usage.output,
             cacheReadTokens: usage.cacheRead,

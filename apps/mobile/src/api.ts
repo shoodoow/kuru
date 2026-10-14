@@ -83,7 +83,12 @@ export type ToolApproval = {
   tool: string;
   summary: string;
   status: string;
+  /** False for a shell command or removing an agent, which always ask. */
+  canAlwaysAllow?: boolean;
 };
+
+/** "Always allow": an action one agent may take without asking again. */
+export type ToolAllowance = { id: string; tool: string; label: string; agentId: string; agentName: string; createdAt: string };
 
 export type AccountSettings = {
   autoReview: boolean;
@@ -312,7 +317,7 @@ export type CoreClient = {
     onEvent: (event: StreamEvent) => void,
     opts?: { cursor?: number },
   ) => () => void;
-  registerDevice: (accountId: string, input: { expoPushToken: string; platform?: string | null }) => Promise<{ id: string }>;
+  registerDevice: (accountId: string, input: { expoPushToken: string; platform?: string | null; installId?: string }) => Promise<{ id: string }>;
   listNotifications: (accountId: string) => Promise<PendingNotification[]>;
   /** Deletes the account and everything it owns on the server, for good. */
   deleteAccount: (accountId: string) => Promise<void>;
@@ -336,7 +341,10 @@ export type CoreClient = {
   sayHello: (accountId: string, conversationId: string) => Promise<unknown>;
   rememberTimezone: (accountId: string, timezone: string) => Promise<AccountSettings>;
   listToolApprovals: (accountId: string) => Promise<ToolApproval[]>;
-  approveTool: (accountId: string, approvalId: string) => Promise<ToolApproval[]>;
+  /** `always`: this agent may take this action from now on without asking. */
+  approveTool: (accountId: string, approvalId: string, always?: boolean) => Promise<ToolApproval[]>;
+  listAllowances: (accountId: string) => Promise<ToolAllowance[]>;
+  removeAllowance: (accountId: string, allowanceId: string) => Promise<ToolAllowance[]>;
   denyTool: (accountId: string, approvalId: string) => Promise<ToolApproval[]>;
   saveProfile: (accountId: string, agentId: string, profile: AgentProfile) => Promise<RosterAgent>;
   saveSecret: (accountId: string, input: { name: string; secret: string }) => Promise<{ name: string; configured: boolean }>;
@@ -450,7 +458,10 @@ function buildCore(baseUrl: string, fetchImpl: typeof fetch): CoreClient {
       }),
     rememberTimezone: (accountId, timezone) => rememberTimezone(baseUrl, accountId, timezone, fetchImpl),
     listToolApprovals: (accountId) => listToolApprovals(baseUrl, accountId, fetchImpl),
-    approveTool: (accountId, approvalId) => decideTool(baseUrl, accountId, approvalId, "approve", fetchImpl),
+    approveTool: (accountId, approvalId, always) => decideTool(baseUrl, accountId, approvalId, always ? "approve?always=1" : "approve", fetchImpl),
+    listAllowances: (accountId) => readJson<ToolAllowance[]>(fetchImpl, `${baseUrl}/accounts/${accountId}/tool-allowances`),
+    removeAllowance: (accountId, allowanceId) =>
+      readJson<ToolAllowance[]>(fetchImpl, `${baseUrl}/accounts/${accountId}/tool-allowances/${allowanceId}`, { method: "DELETE" }),
     denyTool: (accountId, approvalId) => decideTool(baseUrl, accountId, approvalId, "deny", fetchImpl),
     saveProfile: (accountId, agentId, profile) => saveProfile(baseUrl, accountId, agentId, profile, fetchImpl),
     saveSecret: (accountId, input) => saveSecret(baseUrl, accountId, input, fetchImpl),
@@ -928,7 +939,7 @@ function subscribeMessages(
 async function registerDevice(
   baseUrl: string,
   accountId: string,
-  input: { expoPushToken: string; platform?: string | null },
+  input: { expoPushToken: string; platform?: string | null; installId?: string },
   fetchImpl: typeof fetch,
 ): Promise<{ id: string }> {
   return readJson(fetchImpl, `${baseUrl}/devices?accountId=${accountId}`, {
@@ -1025,7 +1036,7 @@ async function decideTool(
   baseUrl: string,
   accountId: string,
   approvalId: string,
-  action: "approve" | "deny",
+  action: "approve" | "approve?always=1" | "deny",
   fetchImpl: typeof fetch,
 ): Promise<ToolApproval[]> {
   await readJson<unknown>(

@@ -47,7 +47,8 @@ export default function InboxRoute() {
       ),
       headerRight: () => (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          {sessionRef.current.pendingCount > 0 ? (
+          {/* The red "unread pings" count is off: each chat shows its own unread count. */}
+          {false && sessionRef.current.pendingCount > 0 ? (
             <View
               accessibilityLabel={`${sessionRef.current.pendingCount} unread pings`}
               style={{

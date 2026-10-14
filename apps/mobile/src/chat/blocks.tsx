@@ -15,7 +15,7 @@ export { openFileBlock };
 
 export type BlockHandlers = {
   messageId?: string;
-  onApprove?: (approvalId?: string) => void;
+  onApprove?: (approvalId?: string, always?: boolean) => void;
   onDeny?: (approvalId?: string) => void;
   onSubmitPoll?: (text: string) => void;
   onQuestionPick?: (messageId: string, pick: { value: string; label: string }) => void;
@@ -215,7 +215,7 @@ function WidgetBody({
   widget: string;
   props: Record<string, unknown>;
   messageId?: string;
-  onApprove?: (approvalId?: string) => void;
+  onApprove?: (approvalId?: string, always?: boolean) => void;
   onDeny?: (approvalId?: string) => void;
   onSubmitPoll?: (text: string) => void;
   onQuestionPick?: (messageId: string, pick: { value: string; label: string }) => void;
@@ -249,14 +249,27 @@ function WidgetBody({
         {status ? (
           <Text style={styles.approvalStatus}>{status === "approved" ? "Approved" : "Denied"}</Text>
         ) : (
-          <View style={styles.approvalRow}>
-            <Pressable style={[styles.choice, styles.allow]} onPress={() => onApprove?.(approvalId)}>
-              <Text style={styles.choiceText}>Approve</Text>
-            </Pressable>
-            <Pressable style={[styles.choice, styles.deny]} onPress={() => onDeny?.(approvalId)}>
-              <Text style={styles.choiceText}>Deny</Text>
-            </Pressable>
-          </View>
+          <>
+            <View style={styles.approvalRow}>
+              <Pressable style={[styles.choice, styles.allow]} onPress={() => onApprove?.(approvalId)}>
+                <Text style={styles.choiceText}>Approve</Text>
+              </Pressable>
+              <Pressable style={[styles.choice, styles.deny]} onPress={() => onDeny?.(approvalId)}>
+                <Text style={styles.choiceText}>Deny</Text>
+              </Pressable>
+            </View>
+            {/* Yes for good, for this agent and this action only; shell commands and removing an agent always ask. */}
+            {props.canAlwaysAllow === true ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityHint="This agent will do this kind of action from now on without asking. You can take it back under Approvals."
+                style={styles.alwaysAllow}
+                onPress={() => onApprove?.(approvalId, true)}
+              >
+                <Text style={styles.alwaysAllowText}>Always allow</Text>
+              </Pressable>
+            ) : null}
+          </>
         )}
       </View>
     );
@@ -878,6 +891,8 @@ function createStyles(colors: ColorPalette) {
   handoverBtnDisabled: { opacity: 0.45 },
   handoverBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   approvalRow: { flexDirection: "row", gap: 8, marginTop: 4 },
+  alwaysAllow: { alignSelf: "flex-start", paddingVertical: 8, paddingHorizontal: 2 },
+  alwaysAllowText: { color: colors.link, fontSize: 15, fontWeight: "600" },
   approvalStatus: { color: colors.muted, fontSize: 14, fontWeight: "600", marginTop: 2 },
   choice: { flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center" },
   allow: { backgroundColor: "#1d5c2e" },

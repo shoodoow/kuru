@@ -441,7 +441,7 @@ export function ChatScreen({
   onQuestionPick: (messageId: string, pick: { value: string; label: string }) => void;
   onSecretSubmit: (name: string, secret: string) => Promise<void>;
   onReact: (bubble: Bubble, emoji: string) => void;
-  onApprove: (approvalId?: string) => void;
+  onApprove: (approvalId?: string, always?: boolean) => void;
   onDeny: (approvalId?: string) => void;
   onFetchBlob: (messageId: string, index: number) => Promise<{ url?: string; previewUrl?: string }>;
   /** Loads a team chat's recent messages for the read-only badge sheet. */
