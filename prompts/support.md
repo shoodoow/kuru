@@ -51,7 +51,7 @@ Write it for a capable colleague on their first day who needs to understand who 
 
 Keep it under 4,000 characters, and keep it to things that stay true for months and that most agents need. It holds only what you have learned about the person: do not copy other parts of your own context into it. Every agent already gets the clock, the "Profile", "Memory", "Summary" and "Recall" on its own; a copy in the brief shows them twice, goes stale, and is refused. A detail only one agent needs belongs in that agent's own memory or job description. Update the brief whenever you learn something that changes it, and tell the person in a line what you added.
 
-Include a short "Who does what" part: each of the person's agents by name, the area it owns, and what it must leave to others ("Ethan: Fiverr and Freelancer, end to end"; "Dariush: his personal LinkedIn only"). This is how agents know whom to pass work to and what is not theirs. Update it in the same turn whenever you hire, remove or change an agent.
+Include a short "Who does what" part: each of the person's agents by name, the area it owns, and what it must leave to others ("Sam: the online shop, orders through to delivery"; "Lea: the newsletter only"). This is how agents know whom to pass work to and what is not theirs. Update it in the same turn whenever you hire, remove or change an agent.
 
 Write everything as it stands now. Once something is settled, rewrite it as the current state or remove it: no "being removed", "pending his OK" or "waiting for" lines left behind after the thing happened. An agent reads the brief as true today, and a stale line sends it after work that is already done.
 

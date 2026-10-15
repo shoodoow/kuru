@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { Proposal, ToolAllowance, ToolApproval } from "../api";
 import { darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { pressableStyle } from "../ui/pressableStyles";
@@ -18,6 +18,7 @@ export function ApprovalsScreen({
   onReject,
   onApproveTool,
   onDenyTool,
+  onReload,
   onLoadAllowances,
   onRemoveAllowance,
   onBack: _onBack,
@@ -29,11 +30,27 @@ export function ApprovalsScreen({
   /** `always`: that agent may take this action from now on without asking. */
   onApproveTool: (id: string, always?: boolean) => void;
   onDenyTool: (id: string) => void;
+  /** Reloads what is waiting; throws when it cannot. */
+  onReload: () => Promise<void>;
   onLoadAllowances: () => Promise<ToolAllowance[]>;
   onRemoveAllowance: (id: string) => Promise<ToolAllowance[]>;
   onBack: () => void;
 }) {
   const [allowances, setAllowances] = useState<ToolAllowance[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState<string | null>(null);
+  // Everything on the page loads here, after it opened, and a failure is said on the page.
+  const load = (): Promise<void> => {
+    setFailed(null);
+    return Promise.all([onReload(), onLoadAllowances().then(setAllowances)])
+      .then(() => undefined)
+      .catch((error: unknown) => setFailed(error instanceof Error ? error.message : "Approvals did not load."))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Reloaded when a decision changes the pending list, since "Always allow" adds one.
   useEffect(() => {
     void onLoadAllowances()
@@ -45,9 +62,15 @@ export function ApprovalsScreen({
   const navBarPad = useNavBarPad();
   return (
     <View style={[styles.screen, navBarPad]}>
-      <ScrollView contentContainerStyle={styles.list} contentInsetAdjustmentBehavior="automatic">
+      <ScrollView
+        contentContainerStyle={styles.list}
+        contentInsetAdjustmentBehavior="automatic"
+        refreshControl={<RefreshControl refreshing={false} onRefresh={() => void load()} />}
+      >
+        {failed ? <Text style={styles.failed}>{failed} Pull down to try again.</Text> : null}
+        {loading ? <ActivityIndicator style={styles.loading} /> : null}
         <Text style={styles.section}>Waiting for you</Text>
-        {nothingWaiting ? <Text style={styles.quiet}>Nothing is waiting for your approval.</Text> : null}
+        {nothingWaiting && !loading ? <Text style={styles.quiet}>Nothing is waiting for your approval.</Text> : null}
         {toolApprovals.map((row) => (
           <View key={row.id} style={styles.card}>
             <Text style={styles.kind}>{row.tool}</Text>
@@ -144,6 +167,8 @@ function createStyles(colors: ColorPalette) {
   rejectText: { color: colors.danger, fontSize: 16, fontWeight: "600" },
   section: { color: colors.text, fontSize: 15, fontWeight: "600", marginTop: 8, marginLeft: 4 },
   quiet: { color: colors.muted, fontSize: 14, lineHeight: 20, marginHorizontal: 4 },
+  failed: { color: colors.danger, fontSize: 14, lineHeight: 20, marginHorizontal: 4 },
+  loading: { marginVertical: 12 },
   allowRow: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.bubble, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 10 },
   allowBody: { flex: 1, gap: 2 },
 });

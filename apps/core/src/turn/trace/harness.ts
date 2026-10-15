@@ -19,6 +19,12 @@ import { randomUUID } from "node:crypto";
 type Db = ReturnType<typeof getDb>;
 
 export type RunModelInput = TurnInput & {
+  /**
+   * Called with the text the model wrote in a response that also calls tools,
+   * after the response is parsed and before any tool runs. The chat agent
+   * posts it at once, so the person hears back before the work, not after it.
+   */
+  onLeadIn?: (text: string) => Promise<void>;
   db: Db;
   conversationId: string;
   runId: string;
@@ -157,6 +163,18 @@ export async function runModelHarness(
       },
       providerOptions: usesOfficialOpenAiEndpoint(input.provider, credential.baseUrl)
         ? { openai: { promptCacheKey: input.promptCacheKey, promptCacheRetention: "24h" } }
+        : undefined,
+      onLanguageModelCallEnd: input.onLeadIn
+        ? async (call) => {
+            const parts = call.content as ReadonlyArray<{ type: string; text?: string }>;
+            if (!parts.some((part) => part.type === "tool-call")) return;
+            const text = parts
+              .filter((part) => part.type === "text")
+              .map((part) => part.text ?? "")
+              .join("")
+              .trim();
+            if (text) await input.onLeadIn?.(text).catch(() => undefined);
+          }
         : undefined,
       onStepEnd: async (step) => {
         stepIndex += 1;

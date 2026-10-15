@@ -42,6 +42,7 @@ import {
   dropStaleViews,
   compactionThreshold,
   estimateTokens,
+  StuckWatch,
   isLookOnlyStep,
   resumableTranscript,
   transcriptForStorage,
@@ -1362,6 +1363,9 @@ export async function runWorker(
     let duplicateCallCount = 0;
     let loopStrikes = 0;
     let loopFlag = false;
+    // Trying the same thing again and again without getting anywhere: told once to change course, then the run ends.
+    const stuckWatch = new StuckWatch();
+    let stuckReason: string | null = null;
     let narrationNudges = 0;
     let challengedPaths = false;
     let warnedWrapUp = false;
@@ -1439,6 +1443,11 @@ export async function runWorker(
             review.stepCalls = 0;
             const results = (step as { toolResults?: unknown[] }).toolResults ?? [];
             if (results.length > 0) recentToolResults = [...recentToolResults, ...results].slice(-5);
+            const stuck = stuckWatch.record(currentCalls, results);
+            if (stuck && !stuckReason) {
+              stuckReason = stuck;
+              loopFlag = true;
+            }
             const toolNames = currentCalls.map((call) => call.name).filter(Boolean).join(", ");
             // What it said it is doing, beside the tools it used: that is what the agent reads in check_worker.
             const saying = (step.text ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
@@ -1529,7 +1538,14 @@ export async function runWorker(
           loopStrikes += 1;
           duplicateCallCount = 0;
           lastToolCallSignature = "";
-          say(prompt("worker-rules", "repeat-loop"));
+          if (stuckReason) {
+            // Once: try one different way or ask. A second time ends the run with a report (loopStrikes >= 2).
+            say(prompt("worker-rules", loopStrikes >= 2 ? "stuck-stop" : "stuck", { why: stuckReason }));
+            stuckReason = null;
+            stuckWatch.reset();
+          } else {
+            say(prompt("worker-rules", "repeat-loop"));
+          }
         }
         if (lookOnlyStreak >= LOOK_ONLY_NUDGE_AFTER) {
           say(prompt("worker-rules", "start-doing", { steps: lookOnlyStreak }));

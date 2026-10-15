@@ -118,7 +118,7 @@ List the group rooms you belong to. `Groups:` in your prompt usually already has
 # create_routine
 Schedule a recurring job in this room. `cron` is `M H * * *` for daily or `M H * * D` for weekly, in the person's timezone from your prompt. `title` is a short label for their phone. It does not run now.
 `runAs` decides who wakes up. `worker` (the default for real work: posting, checking an inbox, building a report, anything done on the computer) starts a worker straight away on every run, without waking you; you hear back only when its report has something for the person. `agent` wakes you instead; use it only when the run is a conversation with the person (a check-in question, a reminder, a daily chat).
-For `worker`, `instructions` is the worker's whole brief, and nobody will be there to explain it: no chat history, no "as discussed". Write it so a capable stranger could do the job from it alone: the goal and why it matters, where to work (exact sites, accounts, folders), what done looks like, every requirement and limit the person gave, what must never happen without asking, and what counts as worth telling the person versus a quiet run. Leave the step-by-step method to the worker. When the brief is long or you will refine it over time, write it to a file with `write` (for example `/shared/briefs/fiverr-inbox.md`), pass it as `briefFile`, and keep `instructions` to a two-line summary; the file is read fresh on every run, so editing it changes the next run. `kind` and `skills` work as in `spawn_worker`. The worker keeps a notes file of what worked between runs, and receives your saved procedures, so a correction saved with `remember_fact` and `kind: "procedure"` reaches the next run without editing the routine.
+For `worker`, `instructions` is the worker's whole brief, and nobody will be there to explain it: no chat history, no "as discussed". Write it so a capable stranger could do the job from it alone: the goal and why it matters, where to work (exact sites, accounts, folders), what done looks like, every requirement and limit the person gave, what must never happen without asking, and what counts as worth telling the person versus a quiet run. Leave the step-by-step method to the worker. When the brief is long or you will refine it over time, write it to a file with `write` (for example `/shared/briefs/inbox-sweep.md`), pass it as `briefFile`, and keep `instructions` to a two-line summary; the file is read fresh on every run, so editing it changes the next run. `kind` and `skills` work as in `spawn_worker`. The worker keeps a notes file of what worked between runs, and receives your saved procedures, so a correction saved with `remember_fact` and `kind: "procedure"` reaches the next run without editing the routine.
 
 # update_routine
 Change one of your routines: instructions, schedule, timezone, paused, `runAs`, `kind`, `skills`, or `briefFile` (an empty string stops using the file). To change only how the work is done, edit its brief file or save a procedure instead.
@@ -175,13 +175,13 @@ Open an http(s) URL in the current tab of your browser and wait for it to load. 
 The page now open in your browser, as a tree of its headings, text and links. For looking only: to act on the page, hand the job to a `browser` worker.
 
 # browser_snapshot.worker
-The current page as a tree: headings, text, links (with their addresses), buttons and fields, each with a ref such as `e12` that the other browser tools take. Take one after anything that changes the page; refs from an older snapshot may be gone. `interactive: true` leaves out plain text and is much shorter: use it on a long page when you only need to find a control. An ad or cookie overlay with a close button is something to dismiss, not a captcha.
+The current page as a tree: headings, text, links (with their addresses), buttons and fields, each with a ref such as `e12` that the other browser tools take. The first snapshot shows the whole page; after that you get only what changed since your last one (a menu that opened, a field that appeared, what went away), and the rest of the page is as you last saw it. Pass `full: true` when you need the whole page again, for example after your earlier steps were collapsed. `scope` is a CSS selector for one part ("form", "[role=dialog]"); `interactive: true` leaves out plain text. An ad or cookie overlay with a close button is something to dismiss, not a captcha.
 
 # browser_read
 The text of the page now open in your browser, as a person would read it. Use it to get an answer out of a page you opened.
 
 # browser_read.worker
-The page's text, as a person would read it, without the tree. Pass `uid` to read just one part (an article, a table, a card). Use this to get an answer out of a page; use `browser_snapshot` to find what to click.
+The page as clean readable text (markdown), without the tree. `outline: true` gives just its headings, to see what it covers first; `filter` keeps only the sections that mention a word; `uid` reads one part (an article, a table, a card). Use this to get an answer out of a page; use `browser_snapshot` to find what to click.
 
 # browser_click
 Click a link, button or other element by its ref from the latest snapshot; `double: true` double-clicks. It is a real mouse click, scrolled into view first. `holdMs` keeps the button pressed that long before letting go, for a control that says "press and hold" (start with 10000 and go longer if it asks again). The result says which page you are on afterwards. If the page changed, take a new snapshot before the next action.
@@ -229,19 +229,22 @@ Load the current page again.
 Click a download link or button by its ref and keep the file. `name` is the file name to save it under; it lands in `~/Downloads` and the result gives the path.
 
 # browser_eval
-Run a line of JavaScript in the page and get its result, for what the other tools cannot reach: reading a value the page does not show, a count of rows, a field in a frame. It is a last resort, and it never replaces clicking for anything a site would treat as a person's action.
+Run a line of JavaScript in the page and get its result, for what the other tools cannot reach: reading a value the page does not show, a count of rows, a field in a frame. It is a last resort, and it never replaces clicking for anything a site would treat as a person's action: an `element.click()` from a script does not open menus, dropdowns or pickers, because sites listen for a real pointer. Use `browser_click` for those; when it says the element is covered, it clicks there with the mouse for you.
 
 # browser_tabs
 `list` the open tabs, open a `new` one at a `url`, `switch` to one or `close` one by its id (such as `t2`). A link that opens a new tab leaves you on the old one until you switch.
 
 # browser_wait_for
-Wait until the page shows a short piece of text, or time out. Use it after an action that loads something slowly.
+Wait for what an action should cause, instead of looking again and again: `text` until the page shows it, `gone` until a text such as "Loading" or "Saving" is no longer there, `url` until the address matches (after a submit), or `load` ("networkidle" until the page stops fetching). It times out by itself.
 
 # browser_handle_dialog
 Accept or dismiss a JavaScript alert, confirm or prompt.
 
 # browser_screenshot
-Look at the page as a picture. Use it only when the tree does not tell you what you need: a chart, an image, a layout that looks wrong, a canvas. It costs far more than a snapshot.
+Look at the page as a picture. Use it only when the tree does not tell you what you need: a chart, an image, a layout that looks wrong, a canvas. It costs far more than a snapshot. `annotate: true` numbers every control on the picture with its ref ([12] is `e12`), so you can click what you see by ref instead of guessing a position.
+
+# browser_batch
+Several page actions in one call, run in order, stopping at the first that fails: fill a whole form and submit it, or open a dropdown and pick an option. Each step is `{ action, ... }` with the same fields as the single tool: `click` (uid), `fill` (uid, value), `type` (uid, text, enter), `select` (uid, value), `check` (uid, checked), `set_value` (field, value), `press_key` (key), `scroll` (direction, pixels), `hover` (uid), `wait_for` (text or gone). Use refs from your latest snapshot; take a snapshot afterwards to check the result. One batch saves the steps that one call per field would cost.
 
 # set_team_brief
 Write or replace your team's brief: the goal, each teammate's part, the order work moves in (and who sends it back to whom), where files are kept, what "done" means. Every teammate sees it on every turn, so this is how the whole team stays on the same page.

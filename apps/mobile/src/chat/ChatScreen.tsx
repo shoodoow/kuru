@@ -475,17 +475,14 @@ export function ChatScreen({
   const [relaySheet, setRelaySheet] = useState<Bubble | null>(null);
   const [relayOpen, setRelayOpen] = useState(false);
   const [selectText, setSelectText] = useState<string | null>(null);
-  const [teamChat, setTeamChat] = useState<TeamChatLine[] | null>(null);
-  /** Opens the badge sheet and loads the team chat it came from, read-only. */
+  /**
+   * Opens the badge sheet on that one message.
+   * Why only it: the sheet used to load the whole team chat under the message,
+   * and the one line the person tapped was lost among forty.
+   */
   const openRelaySheet = useEvent((bubble: Bubble) => {
     setRelaySheet(bubble);
     setRelayOpen(true);
-    setTeamChat(null);
-    const source = bubble.relay?.sourceConversationId;
-    if (!source || !onLoadTeamChat) return;
-    void onLoadTeamChat(source)
-      .then((lines) => setTeamChat(lines))
-      .catch(() => setTeamChat([]));
   });
   // Newest-first + inverted FlatList opens on the latest message with no
   // top→bottom scroll animation (scrollToEnd on layout was the jump).
@@ -725,25 +722,6 @@ export function ChatScreen({
                     onOpenAgent={onOpenAgent}
                     fetchBlob={onFetchBlob}
                   />
-                  {relaySheet.relay?.sourceConversationId && onLoadTeamChat ? (
-                    <View style={styles.teamChat}>
-                      <Text style={styles.teamChatTitle}>Where this came from · read only</Text>
-                      {teamChat === null ? (
-                        <Text style={styles.teamChatMuted}>Loading…</Text>
-                      ) : teamChat.length === 0 ? (
-                        <Text style={styles.teamChatMuted}>Nothing to show yet.</Text>
-                      ) : (
-                        teamChat.map((line) => (
-                          <View key={line.id} style={styles.teamChatLine}>
-                            <Text style={styles.teamChatAuthor}>
-                              {line.author} <Text style={styles.teamChatMuted}>{line.time}</Text>
-                            </Text>
-                            <Text style={styles.teamChatBody}>{line.body}</Text>
-                          </View>
-                        ))
-                      )}
-                    </View>
-                  ) : null}
                 </ScrollView>
                 <PillButton label="Close" onPress={() => setRelayOpen(false)} />
               </View>

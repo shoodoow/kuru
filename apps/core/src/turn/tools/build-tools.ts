@@ -196,14 +196,14 @@ export function buildWorkerToolSet(workerCtx: WorkerToolBuildContext): ToolSet {
 
 /** A picture read from disk reaches the model as pixels; everything else stays text. */
 function readToModelOutput(output: unknown) {
-  const image = output as { path?: string; jpegBase64?: string } | null;
+  const image = output as { path?: string; jpegBase64?: string; note?: string } | null;
   if (!image || typeof image !== "object" || !image.jpegBase64) {
     return { type: "text" as const, value: typeof output === "string" ? output : JSON.stringify(output) };
   }
   return {
     type: "content" as const,
     value: [
-      { type: "text" as const, text: `Image ${image.path}. Look at it and say what is actually in the picture.` },
+      { type: "text" as const, text: `Image ${image.path}. Look at it and say what is actually in the picture.${image.note ? `\n${image.note}` : ""}` },
       { type: "file" as const, mediaType: "image/jpeg", data: { type: "data" as const, data: image.jpegBase64 } },
     ],
   };

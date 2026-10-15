@@ -309,7 +309,7 @@ export const memories = pgTable(
 
 /**
  * "Always allow": an action one agent may take without asking again.
- * Why: Nora asked five times to publish to Instagram. The person can now say
+ * Why: an agent asked five times in a row to publish the same kind of post. The person can now say
  * yes once for good, for that agent and that action only; everything else
  * still asks. Shell commands and removing an agent are never allowed this way.
  */

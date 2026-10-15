@@ -244,8 +244,8 @@ function formatLocalTime(now: Date, timezone: string): string | null {
 /**
  * One other agent as "Name, title: role".
  * Why: only the title was shown, cut at 30 characters ("Sets up your agents
- * and keeps "), while the brief and memories call agents by name ("Ethan owns
- * Fiverr"), so the agent could not tell who was who.
+ * and keeps "), while the brief and memories call agents by name ("Sam owns
+ * the shop"), so the agent could not tell who was who.
  */
 function otherAgentLine(other: { name?: string; label: string; role: string }): string {
   const tidy = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ").trim();

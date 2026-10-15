@@ -149,6 +149,12 @@ Your report names paths that do not exist on this computer: {{paths}}. Check wit
 # missing-paths-note
 [Checked after the run: these paths named in the report do not exist: {{paths}}. Everything else in the report stands.]
 
+# stuck
+You look stuck: {{why}}. More tries of the same kind will not work. Stop and think about why it fails, then make ONE clearly different attempt, for example: type into the field and press Enter instead of clicking, use the keyboard (Tab, arrows, Enter), click the visible label or box instead of the hidden input, take a `browser_screenshot` with `annotate: true` to see what is really there, or reach the same result another way (a different page, a direct URL). If that attempt fails too, do not keep trying: ask the agent you work for with `ask_agent`, or finish with your report and name the blocker exactly under **Blockers**, saying where you stopped.
+
+# stuck-stop
+You are stuck again: {{why}}. Stop trying now. Write your final report: what is done, exactly where the job stopped, and under **Blockers** what failed and what you tried. The job can be continued from there.
+
 # repeat-loop
 You made the same call several times and got the same result each time. Repeating it will not change anything. Try a different approach, or report what is blocking you.
 

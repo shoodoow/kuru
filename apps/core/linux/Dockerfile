@@ -45,6 +45,6 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 # Chromium comes from Debian, so agent-browser's own browser download is not run.
 # The version is fixed, the same one as AGENT_BROWSER_VERSION in src/linux/linux.ts: left open, npm picks a
 # much older release on this Node, and that one misses clicks on a scrolled page.
-RUN npm install -g agent-browser@0.38.1 && agent-browser --version
+RUN npm install -g agent-browser@0.39.1 && agent-browser --version
 
 CMD ["sleep", "infinity"]

@@ -1485,6 +1485,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setNote("");
   }
 
+  /**
+   * Opens the Approvals page at once; the page loads what is waiting itself.
+   * Why: the page used to open only after two requests answered, and when one
+   * failed, the error went to the chat list behind the sheet, so tapping
+   * Approvals seemed to do nothing.
+   */
+  function openApprovals(): void {
+    setMenu(null);
+    if (pathnameRef.current !== "/approvals") {
+      closeSheet();
+      router.push("/approvals");
+    }
+  }
+
+  /** Reloads what is waiting for approval. Throws, so the Approvals page can say what failed. */
+  async function reloadApprovals(): Promise<void> {
+    const [proposalRows, toolRows] = await Promise.all([core.listProposals(accountId.trim()), core.listToolApprovals(accountId.trim())]);
+    setProposals(proposalRows);
+    setToolApprovals(toolRows);
+  }
+
   async function decideToolRow(approvalId: string, accept: boolean, always = false): Promise<void> {
     const status = accept ? "approved" : "denied";
     setMessages((current) =>
@@ -1798,6 +1819,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     persistAutoReview,
     refreshProposals,
     decideToolRow,
+    openApprovals,
+    reloadApprovals,
     openProfile,
     openGroupInfo,
     saveProfile,
@@ -1911,6 +1934,8 @@ type SessionValue = {
   persistAutoReview: (value: boolean) => Promise<void>;
   refreshProposals: (proposalId?: string, accept?: boolean) => Promise<void>;
   decideToolRow: (approvalId: string, accept: boolean, always?: boolean) => Promise<void>;
+  openApprovals: () => void;
+  reloadApprovals: () => Promise<void>;
   openProfile: (agent: RosterAgent) => void;
   openGroupInfo: () => Promise<void>;
   saveProfile: (draft?: RosterAgent) => Promise<void>;

@@ -63,6 +63,8 @@ import {
   browserSelectInputSchema,
   browserSetValueInputSchema,
   browserUploadInputSchema,
+  browserScreenshotInputSchema,
+  browserBatchInputSchema,
   browserScrollInputSchema,
   browserTabsInputSchema,
   browserFillInputSchema,
@@ -523,7 +525,13 @@ export const allToolDefinitions: ToolDefinition[] = [
     name: "browser_screenshot",
     surfaces: ["worker"],
     requiresLinux: true,
-    inputSchema: emptyToolInputSchema,
+    inputSchema: browserScreenshotInputSchema,
+  },
+  {
+    name: "browser_batch",
+    surfaces: ["worker"],
+    requiresLinux: true,
+    inputSchema: browserBatchInputSchema,
   },
   {
     name: "browser_click",

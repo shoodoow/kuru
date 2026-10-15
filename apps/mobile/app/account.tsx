@@ -78,7 +78,7 @@ export default function AccountRoute() {
         onNotifications={session.setNotifications}
         onAutoReview={(value) => void session.persistAutoReview(value).catch(session.show)}
         onAutoTimeZone={session.setAutoTimeZone}
-        onApprovals={() => void session.refreshProposals().catch(session.show)}
+        onApprovals={session.openApprovals}
         onComputer={() => {
           const agent = session.agents.find((row) => row.linuxProfile) ?? session.agents[0];
           if (agent) session.openDesktop(agent);

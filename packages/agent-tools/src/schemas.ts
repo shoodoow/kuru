@@ -566,11 +566,19 @@ export const browserEvalInputSchema = z.object({
 export const browserSnapshotInputSchema = z.object({
   /** Only links, buttons and fields: shorter, for a long page you only need to act on. */
   interactive: z.boolean().optional(),
+  /** The whole page again, not only what changed since the last snapshot. */
+  full: z.boolean().optional(),
+  /** A CSS selector for one part of the page, such as "form" or "[role=dialog]". */
+  scope: z.string().trim().min(1).max(200).optional(),
 });
 
 export const browserReadInputSchema = z.object({
-  /** A ref from the snapshot to read one part; left out, the whole page's text. */
+  /** A ref from the snapshot to read one part; left out, the whole page. */
   uid: z.string().max(40).optional(),
+  /** Only the page's headings, to see what it covers before reading. */
+  outline: z.boolean().optional(),
+  /** Only the sections that mention this text. */
+  filter: z.string().trim().min(1).max(200).optional(),
 });
 
 export const browserSelectInputSchema = z.object({
@@ -617,6 +625,45 @@ export const browserDialogInputSchema = z.object({
   promptText: z.string().max(500).optional(),
 });
 
-export const browserWaitInputSchema = z.object({
-  text: z.string().min(1).max(200),
+export const browserWaitInputSchema = z
+  .object({
+    /** Until the page shows this text. */
+    text: z.string().min(1).max(200).optional(),
+    /** Until the address matches this pattern, such as "**\/checkout*". */
+    url: z.string().min(1).max(500).optional(),
+    /** Until the page has loaded this far; "networkidle" waits for it to stop fetching. */
+    load: z.enum(["load", "domcontentloaded", "networkidle"]).optional(),
+    /** Until this text is no longer on the page, such as "Loading" or "Saving". */
+    gone: z.string().min(1).max(200).optional(),
+  })
+  .refine((input) => Boolean(input.text || input.url || input.load || input.gone), "Say what to wait for: text, url, load or gone.");
+
+export const browserScreenshotInputSchema = z.object({
+  /** Numbers each control on the picture with its ref, so it can be clicked by ref. */
+  annotate: z.boolean().optional(),
+});
+
+/** The browser actions one batch step may take. */
+export const browserBatchActions = ["click", "fill", "type", "select", "check", "set_value", "press_key", "scroll", "hover", "wait_for"] as const;
+
+export const browserBatchInputSchema = z.object({
+  /** Up to twelve actions, run in order; the batch stops at the first that fails. */
+  steps: z
+    .array(
+      z.object({
+        action: z.enum(browserBatchActions),
+        uid: z.string().max(40).optional(),
+        value: z.string().max(4000).optional(),
+        text: z.string().max(4000).optional(),
+        field: z.string().max(200).optional(),
+        key: z.string().max(60).optional(),
+        enter: z.boolean().optional(),
+        checked: z.boolean().optional(),
+        direction: z.enum(["up", "down", "left", "right"]).optional(),
+        pixels: z.number().int().min(50).max(20000).optional(),
+        gone: z.string().max(200).optional(),
+      }),
+    )
+    .min(1)
+    .max(12),
 });

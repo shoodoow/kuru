@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { JSDOM } from "jsdom";
-import { browserCommands, findFileFieldScript, siteNotePath } from "./browser-bridge.js";
+import { browserCommands, findFileFieldScript, siteNotePath, snapshotText } from "./browser-bridge.js";
 import { accountContainerHostConfig, containerName, sharesGpu } from "../linux/linux.js";
 
 describe("browser bridge", () => {
@@ -14,7 +14,7 @@ describe("browser bridge", () => {
     expect(() => browserCommands("browser_click", { uid: "body; rm -rf ~" })).toThrow(/not an element reference/);
     expect(() => browserCommands("browser_upload", { uid: "e3", path: "/etc/shadow" })).toThrow(/home or \/shared/);
     expect(() => browserCommands("browser_upload", { uid: "e3", path: "/shared/../etc/shadow" })).toThrow(/home or \/shared/);
-    expect(browserCommands("browser_read", {})).toEqual([["get", "text", "body"]]);
+    expect(browserCommands("browser_read", {})).toEqual([["read"]]);
     expect(browserCommands("browser_tabs", { action: "switch", tab: "t2" })[0]).toEqual(["tab", "t2"]);
   });
 
@@ -44,6 +44,30 @@ describe("browser bridge", () => {
     expect(run("notes.txt", null)).toMatch(/^several\n1\. accepts image/);
     expect(run("notes.txt", 2)).toMatch(/^marked 2\./);
     expect(new JSDOM("<p>none</p>", { runScripts: "outside-only" }).window.eval(findFileFieldScript("a.png", null))).toBe("none");
+  });
+
+  it("sends the whole page once, then only what changed, in the tree's own form", () => {
+    expect(browserCommands("browser_snapshot", { full: true })[0]).toEqual(["snapshot", "-u", "--delta", "--full", "--json"]);
+    expect(browserCommands("browser_snapshot", { scope: "form", interactive: true })[0]).toEqual(["snapshot", "-u", "--delta", "-i", "-s", "form", "--json"]);
+    const answer = (snapshot: unknown) => JSON.stringify({ success: true, data: { snapshot }, error: null });
+    expect(snapshotText(answer({ kind: "full", tree: '- button "Publish" [ref=e2]' }))).toBe('- button "Publish" [ref=e2]');
+    expect(snapshotText(answer({ kind: "unchanged" }))).toMatch(/Nothing changed/);
+    const delta = snapshotText(
+      answer({
+        kind: "delta",
+        changes: [{ op: "add", ref: "@e4", node: { role: "option", name: "AI Agents" } }, { op: "remove", ref: "@e9", node: { role: "dialog", name: "Cookies" } }],
+        treeChange: { startLine: 13, deleteCount: 0, lines: ['- listbox [ref=e3]', '  - option "AI Agents" [ref=e4]'] },
+      }),
+    )!;
+    expect(delta).toContain('option "AI Agents" [ref=e4]');
+    expect(delta).toContain('Gone:\n- dialog "Cookies" [ref=e9]');
+    expect(snapshotText("not json")).toBeNull();
+  });
+
+  it("reads a page as markdown, by its outline or one section", () => {
+    expect(browserCommands("browser_read", {})).toEqual([["read"]]);
+    expect(browserCommands("browser_read", { outline: true, filter: "pricing" })).toEqual([["read", "--outline", "--filter", "pricing"]]);
+    expect(browserCommands("browser_read", { uid: "e5" })).toEqual([["get", "text", "@e5"]]);
   });
 
   it("keeps one note per website, named by its host", () => {

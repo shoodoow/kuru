@@ -425,3 +425,72 @@ export function resumableTranscript(messages: unknown[]): ModelMessage[] {
   }
   return list.slice(0, end);
 }
+
+/** Steps the stuck watch looks back over. */
+const STUCK_WINDOW = 12;
+/** Tries on one target within the window that count as stuck. */
+const STUCK_TARGET_TRIES = 5;
+/** Steps in a row where every call failed that count as stuck. */
+const STUCK_FAIL_STREAK = 4;
+
+/** What a step's calls act on: element refs, CSS selectors in scripts, form fields, addresses. */
+export function callTargets(calls: { name: string; input: unknown }[]): string[] {
+  const targets = new Set<string>();
+  for (const call of calls) {
+    const input = (call.input ?? {}) as Record<string, unknown>;
+    for (const key of ["uid", "to", "field", "url"]) {
+      const value = input[key];
+      if (typeof value === "string" && value.trim()) targets.add(`${key}:${value.trim().replace(/^@/, "").toLowerCase()}`);
+    }
+    for (const key of ["script", "command"]) {
+      const text = input[key];
+      if (typeof text !== "string") continue;
+      // A selector is the same target however the script around it is worded.
+      for (const match of text.matchAll(/querySelector(?:All)?\(\s*(['"`])(.+?)\1/g)) targets.add(`css:${match[2]!.trim().toLowerCase()}`);
+    }
+  }
+  return [...targets];
+}
+
+/** True when every result in a step reports a failure. */
+export function stepFailed(results: unknown[]): boolean {
+  if (results.length === 0) return false;
+  return results.every((result) => {
+    const raw = (result as { output?: unknown }).output ?? result;
+    const value = raw && typeof raw === "object" && "value" in (raw as Record<string, unknown>) ? (raw as { value: unknown }).value : raw;
+    const text = (typeof value === "string" ? value : JSON.stringify(value ?? "")).slice(0, 400);
+    return /^\s*(✗|error\b|failed\b)|\b(is covered by|could not|did not take|not found|timed out|timeout|no such|unknown ref)\b/i.test(text);
+  });
+}
+
+/**
+ * Notices a worker that keeps trying the same thing without getting anywhere.
+ * Why: a worker spent 150 steps on one dropdown, alternating a click that was
+ * refused with scripts worded a little differently each time. No two calls in
+ * a row were the same, so the repeat check never fired. This watches what is
+ * being acted on and whether it works: the same target tried again and again
+ * within a few steps, or a run of steps where every call failed.
+ */
+export class StuckWatch {
+  private history: string[][] = [];
+  private failStreak = 0;
+
+  /** Records one step. Output: why the worker looks stuck, or null. */
+  record(calls: { name: string; input: unknown }[], results: unknown[]): string | null {
+    if (calls.length === 0) return null;
+    this.history = [...this.history, callTargets(calls)].slice(-STUCK_WINDOW);
+    this.failStreak = stepFailed(results) ? this.failStreak + 1 : 0;
+    if (this.failStreak >= STUCK_FAIL_STREAK) return `the last ${this.failStreak} steps all failed`;
+    const tries = new Map<string, number>();
+    for (const step of this.history) for (const target of step) tries.set(target, (tries.get(target) ?? 0) + 1);
+    const worst = [...tries.entries()].sort((left, right) => right[1] - left[1])[0];
+    if (worst && worst[1] >= STUCK_TARGET_TRIES) return `${worst[1]} tries on ${worst[0].replace(/^\w+:/, "")} in the last ${this.history.length} steps`;
+    return null;
+  }
+
+  /** Starts counting again after the worker was told to change course. */
+  reset(): void {
+    this.history = [];
+    this.failStreak = 0;
+  }
+}

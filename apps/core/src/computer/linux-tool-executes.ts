@@ -45,6 +45,8 @@ export function linuxToolExecutes(
     skillFilesNote?: (path: string) => string;
   },
 ): Record<string, LinuxToolExecute> {
+  // Whether this job has seen the page whole yet; later snapshots are only changes.
+  let snapshotted = false;
   /** Pictures this run has looked at. Each one is resent on every later step. */
   let imagesViewed = 0;
   const IMAGE_BUDGET = 8;
@@ -56,7 +58,7 @@ export function linuxToolExecutes(
    */
   const seenQueries = new Map<string, number>();
   let consecutiveEmpty = 0;
-  return {
+  const actions: Record<string, LinuxToolExecute> = {
     computer_memory: async (input) => {
       if (input.action === "release") return releaseMemory(accountId);
       if (input.action === "status") return memoryStatus(accountId);
@@ -165,8 +167,16 @@ export function linuxToolExecutes(
     },
     open_on_screen: (input) => openOnScreen(accountId, profile, String(input.url)),
     browser_list_pages: () => runBrowserTool(accountId, profile, "browser_list_pages", {}),
-    browser_navigate: (input) => runBrowserTool(accountId, profile, "browser_navigate", input),
-    browser_snapshot: (input) => runBrowserTool(accountId, profile, "browser_snapshot", input),
+    browser_navigate: (input) => {
+      snapshotted = true;
+      return runBrowserTool(accountId, profile, "browser_navigate", input);
+    },
+    // The first snapshot this agent takes is whole: another job's last snapshot is no baseline for this one.
+    browser_snapshot: (input) => {
+      const full = input.full === true || !snapshotted;
+      snapshotted = true;
+      return runBrowserTool(accountId, profile, "browser_snapshot", { ...input, full });
+    },
     browser_read: (input) => runBrowserTool(accountId, profile, "browser_read", input),
     browser_select: (input) => runBrowserTool(accountId, profile, "browser_select", input),
     browser_set_value: (input) => runBrowserTool(accountId, profile, "browser_set_value", input),
@@ -183,20 +193,55 @@ export function linuxToolExecutes(
     browser_eval: (input) => runBrowserTool(accountId, profile, "browser_eval", input),
     browser_tabs: (input) => runBrowserTool(accountId, profile, "browser_tabs", input),
     // The picture of the page, shown to the model the way `read` shows an image file.
-    browser_screenshot: async () => {
+    browser_screenshot: async (input) => {
       // In the agent's own home: the shared screenshots folder belongs to whichever agent made it first, and the others cannot write there.
       const path = expandHome(accountId, profile, `~/.cache/kuru/page-${Date.now()}.png`);
-      const shot = await runBrowserTool(accountId, profile, "browser_screenshot", { path });
+      const annotate = input.annotate === true;
+      const shot = await runBrowserTool(accountId, profile, "browser_screenshot", { path, annotate });
       if (!/saved/i.test(shot)) return shot;
-      return readImage(accountId, profile, path);
+      const image = await readImage(accountId, profile, path);
+      // The legend says which ref each number on the picture is.
+      const legend = annotate ? shot.split("\n").filter((line) => /\[\d+\]|@e\d+/.test(line)).slice(0, 120).join("\n") : "";
+      return legend ? { ...image, note: `Numbers on the picture are refs: [12] is e12.\n${legend}` } : image;
     },
     browser_click: (input) => runBrowserTool(accountId, profile, "browser_click", input),
     browser_fill: (input) => runBrowserTool(accountId, profile, "browser_fill", input),
     browser_press_key: (input) => runBrowserTool(accountId, profile, "browser_press_key", input),
     browser_handle_dialog: (input) => runBrowserTool(accountId, profile, "browser_handle_dialog", input),
     browser_wait_for: (input) => runBrowserTool(accountId, profile, "browser_wait_for", input),
+    // Several actions in one call, through the single tools so their checks and fallbacks apply.
+    browser_batch: async (input) => {
+      const steps = Array.isArray(input.steps) ? (input.steps as Record<string, unknown>[]).slice(0, 12) : [];
+      const lines: string[] = [];
+      for (const [index, step] of steps.entries()) {
+        const action = String(step.action ?? "");
+        const tool = `browser_${action}`;
+        const run = actions[tool];
+        if (!run || !BATCH_ACTIONS.has(action)) {
+          lines.push(`${index + 1}. ${action}: not an action a batch can take.`);
+          break;
+        }
+        let out: string;
+        try {
+          out = String(await run(step));
+        } catch (error) {
+          out = `✗ ${error instanceof Error ? error.message : "failed"}`;
+        }
+        const failed = /^✗|did not take|not an element reference|No field called/m.test(out);
+        lines.push(`${index + 1}. ${action}${step.uid ? ` ${String(step.uid)}` : ""}: ${out.split("\n").slice(0, 3).join(" | ").slice(0, 300)}`);
+        if (failed) {
+          lines.push(`Stopped at step ${index + 1}; the steps after it did not run.`);
+          break;
+        }
+      }
+      return lines.join("\n");
+    },
   };
+  return actions;
 }
+
+/** The actions browser_batch may run, matching the schema's list. */
+const BATCH_ACTIONS = new Set(["click", "fill", "type", "select", "check", "set_value", "press_key", "scroll", "hover", "wait_for"]);
 
 /**
  * Bounds one raw text result before it becomes multi-step model history.

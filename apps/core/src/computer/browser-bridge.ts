@@ -127,6 +127,43 @@ export function findFileFieldScript(fileName: string, pick: number | null): stri
 })()`;
 }
 
+/**
+ * A snapshot as the model reads it: the whole tree, "nothing changed", or the changes.
+ * Why: `--delta` answers in JSON meant for a program to apply. The model gets
+ * the tree the first time, then only what is new or gone, in the tree's own
+ * form, so opening a menu costs a few lines instead of the whole page again.
+ * Input: the CLI's JSON output. Output: text, or null when it is not a snapshot answer.
+ */
+export function snapshotText(raw: string): string | null {
+  let parsed: { success?: boolean; error?: string | null; data?: { snapshot?: SnapshotAnswer } };
+  try {
+    parsed = JSON.parse(raw.trim());
+  } catch {
+    return null;
+  }
+  if (parsed.success === false) return `✗ ${parsed.error ?? "The snapshot failed."}`;
+  const snapshot = parsed.data?.snapshot;
+  if (!snapshot) return null;
+  if (snapshot.kind === "full") return snapshot.tree ?? "";
+  if (snapshot.kind === "unchanged") return "Nothing changed on the page since your last snapshot; its refs still hold.";
+  const added = snapshot.treeChange?.lines ?? [];
+  const gone = (snapshot.changes ?? [])
+    .filter((change) => change.op === "remove")
+    .map((change) => `- ${change.node?.role ?? "element"}${change.node?.name ? ` "${change.node.name}"` : ""} [ref=${change.ref.replace(/^@/, "")}]`);
+  const parts = ["Changed since your last snapshot; the rest of the page is as you saw it."];
+  if (added.length > 0) parts.push(`New or changed:\n${added.join("\n")}`);
+  if (gone.length > 0) parts.push(`Gone:\n${gone.join("\n")}`);
+  if (added.length === 0 && gone.length === 0) parts.push("Only small changes, nothing new to act on. Pass full: true to see the whole page.");
+  return parts.join("\n");
+}
+
+type SnapshotAnswer = {
+  kind: "full" | "unchanged" | "delta";
+  tree?: string;
+  changes?: { op: string; ref: string; node?: { role?: string; name?: string } }[];
+  treeChange?: { startLine: number; deleteCount: number; lines: string[] };
+};
+
 /** An element reference from a snapshot, with or without its "@": e12. */
 function ref(value: unknown): string {
   const text = String(value ?? "").trim().replace(/^@/, "");
@@ -159,12 +196,20 @@ export function browserCommands(name: string, args: Record<string, unknown>): st
         throw new Error("browser_navigate only opens http or https URLs.");
       }
       // Not --compact: that drops paragraphs, and with them the text the agent came to read.
-      return [["open", url.toString()], ["snapshot", "-u"]];
+      // A full snapshot that is also the baseline the next snapshot's changes are counted from.
+      return [["open", url.toString()], ["snapshot", "-u", "--delta", "--full", "--json"]];
     }
-    case "browser_snapshot":
-      return [["snapshot", "-u", ...(args.interactive === true ? ["-i"] : [])]];
-    case "browser_read":
-      return [["get", "text", args.uid ? ref(args.uid) : "body"]];
+    case "browser_snapshot": {
+      const scope = typeof args.scope === "string" && args.scope.trim() ? ["-s", args.scope.trim().slice(0, 200)] : [];
+      // After the first one, only what changed: a long page resent whole on every look was most of a job's tokens.
+      return [["snapshot", "-u", "--delta", ...(args.full === true ? ["--full"] : []), ...(args.interactive === true ? ["-i"] : []), ...scope, "--json"]];
+    }
+    case "browser_read": {
+      if (args.uid) return [["get", "text", ref(args.uid)]];
+      // The rendered page as markdown: what a person reads, without the layout's noise.
+      const filter = typeof args.filter === "string" && args.filter.trim() ? ["--filter", args.filter.trim().slice(0, 200)] : [];
+      return [["read", ...(args.outline === true ? ["--outline"] : []), ...filter]];
+    }
     case "browser_click": {
       const hold = holdMs(args.holdMs);
       // Press and hold: the pointer rests on the element, the button stays down, then lets go.
@@ -237,10 +282,14 @@ export function browserCommands(name: string, args: Record<string, unknown>): st
     }
     case "browser_handle_dialog":
       return [args.accept ? ["dialog", "accept", ...(args.promptText ? [String(args.promptText)] : [])] : ["dialog", "dismiss"]];
-    case "browser_wait_for":
+    case "browser_wait_for": {
+      if (typeof args.url === "string" && args.url) return [["wait", "--url", args.url]];
+      if (typeof args.load === "string" && ["load", "domcontentloaded", "networkidle"].includes(args.load)) return [["wait", "--load", args.load]];
+      if (typeof args.gone === "string" && args.gone) return [["wait", "--fn", `!document.body.innerText.includes(${JSON.stringify(args.gone)})`]];
       return [["wait", "--text", String(args.text ?? "")]];
+    }
     case "browser_screenshot":
-      return [["screenshot", String(args.path ?? "")]];
+      return [["screenshot", String(args.path ?? ""), ...(args.annotate === true ? ["--annotate"] : [])]];
   }
 }
 
@@ -363,8 +412,11 @@ export async function runBrowserTool(
   }
   const parts: string[] = [];
   for (const command of commands) {
-    const result = await exec(accountId, ["agent-browser", "--cdp", String(cdpPort), ...command], profile, undefined, { timeoutMs: 60_000 });
-    const text = result.stdout.trim();
+    // Page text is marked as page content, so instructions written in a page cannot pass for ours, and kept to a size.
+    const guard = command[0] === "read" || command[0] === "get" ? ["--content-boundaries", "--max-output", String(MAX_OUTPUT)] : [];
+    const result = await exec(accountId, ["agent-browser", "--cdp", String(cdpPort), ...guard, ...command], profile, undefined, { timeoutMs: 60_000 });
+    const raw = result.stdout.trim();
+    const text = command[0] === "snapshot" && command.includes("--json") ? (snapshotText(raw) ?? raw) : raw;
     if (result.code === 127 || /agent-browser: (command )?not found|executable file not found/i.test(text)) {
       return "The browser tools are still being installed on this computer. Try again in a minute; if it still fails, report it under Blockers.";
     }
@@ -376,6 +428,14 @@ export async function runBrowserTool(
     if (text.startsWith("✗") || result.code !== 0) break;
   }
   let text = parts.join("\n");
+  // Covered: the page drew something over the element, such as a styled box over a
+  // hidden input. A real mouse click at its position reaches what is on top
+  // there, usually the control itself. Without this, a worker spent fifty steps
+  // on one dropdown, trying script clicks that never open a menu.
+  if (name === "browser_click" && !args.holdMs && /is covered by/.test(text)) {
+    const covered = await clickAtElement(accountId, profile, cdpPort, ref(args.uid)).catch(() => null);
+    if (covered) text = covered;
+  }
   if (name === "browser_navigate") {
     if (text.length > NAVIGATE_SNAPSHOT_CHARS) {
       text = `${text.slice(0, NAVIGATE_SNAPSHOT_CHARS)}\n[The page is longer than this. browser_snapshot shows it all; browser_read gives its text.]`;
@@ -418,6 +478,23 @@ async function uploadToPage(accountId: string, profile: string, cdpPort: number,
   const text = result.stdout.trim();
   if (result.code !== 0 || text.startsWith("✗")) return `The file field was found (${found.slice(7)}) but the file did not attach: ${text.slice(0, 400)}`;
   return `Attached ${path} to the file field (${found.slice(7)}). Take a browser_snapshot to check the page took it; many pages show a preview or a progress bar.`;
+}
+
+/**
+ * Clicks an element by its position with the real mouse, for when something covers it.
+ * Output: what happened, with the page it left, or null when its box could not be read.
+ */
+async function clickAtElement(accountId: string, profile: string, cdpPort: number, target: string): Promise<string | null> {
+  const browser = (command: string[]) => exec(accountId, ["agent-browser", "--cdp", String(cdpPort), ...command], profile, undefined, { timeoutMs: 30_000 });
+  const box = JSON.parse((await browser(["get", "box", target, "--json"])).stdout.trim()) as { data?: { x?: number; y?: number; width?: number; height?: number } };
+  const { x, y, width, height } = box.data ?? {};
+  if ([x, y, width, height].some((value) => typeof value !== "number")) return null;
+  const at = [String(Math.round(x! + width! / 2)), String(Math.round(y! + height! / 2))];
+  const out: string[] = [];
+  for (const command of [["mouse", "move", ...at], ["mouse", "down"], ["mouse", "up"], ["wait", "400"], ["get", "title"], ["get", "url"]]) {
+    out.push((await browser(command)).stdout.trim());
+  }
+  return `${target} was covered by another element, so it was clicked at its position (${at.join(", ")}) with the mouse instead; that reaches whatever is on top there, often the control itself. Take a snapshot to see what opened.\n${out.filter(Boolean).join("\n")}`;
 }
 
 /** agent-browser prints a script's string result as a JSON string; this gives the text back. */

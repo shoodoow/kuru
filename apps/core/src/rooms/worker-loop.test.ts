@@ -1,15 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage } from "ai";
-import {
-  collapseOldSteps,
-  compactTranscript,
-  compactionThreshold,
-  dropStaleViews,
-  isLookOnlyStep,
-  isReadOnlyShell,
-  resumableTranscript,
-  transcriptForStorage,
-} from "./worker-loop.js";
+import { collapseOldSteps, compactTranscript, compactionThreshold, dropStaleViews, isLookOnlyStep, isReadOnlyShell, resumableTranscript, transcriptForStorage, StuckWatch, callTargets, stepFailed } from "./worker-loop.js";
 
 const call = (id: string, toolName: string, input: unknown): ModelMessage =>
   ({ role: "assistant", content: [{ type: "tool-call", toolCallId: id, toolName, input }] }) as ModelMessage;
@@ -223,5 +214,44 @@ describe("stale views of a page", () => {
   it("starts trimming old output well before a large window is full", () => {
     expect(compactionThreshold(1_000_000)).toBe(48_000);
     expect(compactionThreshold(32_000)).toBe(24_000);
+  });
+});
+
+describe("StuckWatch", () => {
+  const covered = { output: { type: "text", value: "✗ Element '@e12750' is covered by <div.orca-combo-box.category-selector__value-container>" } };
+  const ok = { output: { type: "text", value: "true" } };
+  const evalClick = (comment: string) => ({
+    name: "browser_eval",
+    input: { script: `// ${comment}\ndocument.querySelectorAll('#gig-edit-create-form .category-selector__value-container')[1]?.click();\ntrue` },
+  });
+
+  it("catches the same dropdown tried with differently worded scripts and refused clicks", () => {
+    const watch = new StuckWatch();
+    const steps = [
+      [evalClick("open it"), ok],
+      [{ name: "browser_click", input: { uid: "e12750" } }, covered],
+      [evalClick("try the subcategory"), ok],
+      [evalClick("click the container"), ok],
+      [{ name: "browser_click", input: { uid: "e12750" } }, covered],
+      [evalClick("open it with the first container"), ok],
+    ] as const;
+    for (const [call, result] of steps) expect(watch.record([call], [result])).toBeNull();
+    expect(watch.record([evalClick("once more")], [ok])).toMatch(/5 tries on #gig-edit-create-form \.category-selector__value-container/);
+  });
+
+  it("catches a run of failures, and lets ordinary progress through", () => {
+    const watch = new StuckWatch();
+    const fail = { output: { type: "text", value: "✗ Could not locate element" } };
+    for (let index = 0; index < 3; index += 1) expect(watch.record([{ name: "browser_click", input: { uid: `e${index}` } }], [fail])).toBeNull();
+    expect(watch.record([{ name: "browser_click", input: { uid: "e9" } }], [fail])).toMatch(/last 4 steps all failed/);
+    const fresh = new StuckWatch();
+    for (let index = 0; index < 12; index += 1) expect(fresh.record([{ name: "browser_fill", input: { uid: `e${index}`, value: "x" } }], [ok])).toBeNull();
+  });
+
+  it("reads targets from refs, fields and selectors, and failures from tool text", () => {
+    expect(callTargets([{ name: "browser_click", input: { uid: "@E5" } }, { name: "browser_set_value", input: { field: "Delivery" } }])).toEqual(["uid:e5", "field:delivery"]);
+    expect(stepFailed([covered])).toBe(true);
+    expect(stepFailed([ok])).toBe(false);
+    expect(stepFailed([])).toBe(false);
   });
 });

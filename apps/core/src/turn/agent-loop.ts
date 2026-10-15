@@ -10,6 +10,7 @@ import { ensureTracePlugins } from "./trace/bootstrap.js";
 import { createTraceSession } from "./trace/plugins.js";
 import { runModelHarness, type HarnessUsage } from "./trace/harness.js";
 import { shouldRetryStall, stallNudge } from "./narration-stall.js";
+import { saveSendMessage } from "../rooms/send-message.js";
 import {
   CLOSING_TOOLS,
   FOLLOW_THROUGH_TOOLS,
@@ -99,8 +100,31 @@ export async function runAgentLoop(
     const allowed = new Set(input.allowedTools);
     for (const name of Object.keys(tools)) if (!allowed.has(name)) delete tools[name];
   }
+  // The person hears first: a line the model writes beside its first tool call
+  // ("Checking the site now") is posted before the tool runs. Only once per
+  // turn, only when someone is waiting, and only if nothing was sent yet.
+  let ledIn = false;
+  const onLeadIn =
+    mode === "dispatcher" && !input.hiddenTurn
+      ? async (raw: string): Promise<void> => {
+          const line = stripLeakedThinking(raw).trim();
+          if (ledIn || !line || input.emittedMessages.length > 0) return;
+          ledIn = true;
+          const saved = await saveSendMessage(store, {
+            accountId: input.accountId,
+            conversationId: input.conversationId,
+            agentId: input.agentId,
+            runId: input.runId,
+            blocks: [{ kind: "text", markdown: line }],
+            createdAt: input.nextTime(),
+          });
+          input.emittedMessages.push(saved);
+          await input.emit({ type: "message", message: saved });
+        }
+      : undefined;
   const harnessInput = {
     ...input,
+    onLeadIn,
     db,
     mode,
     tools,
