@@ -163,6 +163,7 @@ function tarFolder(root: string, folder: string): Promise<Buffer> {
  * Input: account id; `force` skips the wait after an install. Output: nothing.
  */
 export async function publishLocalSkills(accountId: string, force = false): Promise<void> {
+  if (force) forgetSkillCatalog(accountId);
   const last = lastPublished.get(accountId) ?? 0;
   if (!force && Date.now() - last < PUBLISH_EVERY_MS) return;
   lastPublished.set(accountId, Date.now());
@@ -198,25 +199,58 @@ export function agentLocalSkillsRoot(accountId: string, profile: string): string
   return `${accountHome(accountId, profile)}/${LOCAL_SKILLS_SEGMENT}`;
 }
 
+/** Skill lists read from a computer, kept a minute so a turn does not read every SKILL.md again. */
+const catalogCache = new Map<string, { at: number; skills: SkillSummary[] }>();
+const CATALOG_CACHE_MS = 60_000;
+
+/** Forgets the cached skill lists of an account, after an install or a rescan. */
+export function forgetSkillCatalog(accountId: string): void {
+  for (const key of catalogCache.keys()) if (key.startsWith(`${accountId}:`)) catalogCache.delete(key);
+}
+
 /**
- * Lists skills installed in this agent's container home.
- * Why: installs stay on the box (`npx skills add -g`); core never writes them
- * onto the host skills tree. A missing container or empty folder is an empty list.
+ * Lists the skills on this agent's computer: the account's shared ones, then its own.
+ * Why one command: each SKILL.md used to be read with its own call into the
+ * computer, about a hundred calls and four seconds before every reply. One
+ * script now prints the header of every file, and the list is kept a minute.
+ * Output: skills sorted by name, each marked "shared" or "own"; the agent's own copy wins.
  */
 export async function localSkillCatalog(accountId: string, profile: string): Promise<SkillSummary[]> {
+  assertSafeProfile(profile);
+  const key = `${accountId}:${profile}`;
+  const cached = catalogCache.get(key);
+  if (cached && Date.now() - cached.at < CATALOG_CACHE_MS) return cached.skills;
   await publishLocalSkills(accountId);
-  // Shared first, so the agent's own install of the same skill wins.
-  const paths = [...(await listSkillPaths(accountId, profile, sharedSkillsRoot(accountId))), ...(await listLocalSkillPaths(accountId, profile))];
+  const roots = [
+    ["shared", sharedSkillsRoot(accountId)],
+    ["own", agentLocalSkillsRoot(accountId, profile)],
+  ] as const;
+  const script = roots
+    .map(
+      ([label, root]) =>
+        `if [ -d ${shellQuote(root)} ]; then for f in $(find ${shellQuote(root)} -mindepth 2 -maxdepth 2 -type f -name SKILL.md 2>/dev/null | head -n ${MAX_LOCAL_SKILLS}); do ` +
+        `printf '\\n@@SKILL ${label}\\n'; awk 'NR==1{print;next} {print} /^---[[:space:]]*$/{exit}' "$f"; done; fi`,
+    )
+    .join("; ");
   const byName = new Map<string, SkillSummary>();
-  for (const path of paths) {
-    try {
-      const parsed = parseSkillFrontmatter(await readFile(accountId, profile, path));
-      byName.set(parsed.name, { name: parsed.name, description: parsed.description });
-    } catch {
-      // Skip broken SKILL.md files so one bad install cannot hide the rest.
+  try {
+    const result = await exec(accountId, ["bash", "-c", script], profile);
+    for (const chunk of result.stdout.split("\n@@SKILL ").slice(1)) {
+      const newline = chunk.indexOf("\n");
+      const source = chunk.slice(0, newline).trim() === "own" ? "own" : "shared";
+      try {
+        const parsed = parseSkillFrontmatter(`${chunk.slice(newline + 1).trimStart()}\n`);
+        byName.set(parsed.name, { name: parsed.name, description: parsed.description, source });
+      } catch {
+        // Skip broken SKILL.md files so one bad install cannot hide the rest.
+      }
     }
+  } catch {
+    // The computer is not reachable: the agent still has the product's skills.
   }
-  return [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
+  const skills = [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
+  catalogCache.set(key, { at: Date.now(), skills });
+  return skills;
 }
 
 /**

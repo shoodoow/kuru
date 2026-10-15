@@ -34,9 +34,10 @@ describe("agent-skills", () => {
       accountId,
       linuxProfile: "ada",
     });
+    // The product's own skills are marked core, so each agent is shown them by name.
     expect(catalog).toEqual([
       { name: "local", description: "Local skill." },
-      { name: "shared", description: "Shared skill." },
+      { name: "shared", description: "Shared skill.", source: "core" },
     ]);
     expect(await catalogTextForAgent({ skillsRoot: root, accountId, linuxProfile: "ada" })).toContain(
       "local: Local skill.",

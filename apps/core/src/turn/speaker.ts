@@ -16,7 +16,7 @@ import { fileBlocksFromText, inlineSharedOutputBlocks } from "../rooms/uploads.j
 import { RECENT_WINDOW, SUMMARY_WINDOW } from "./constants.js";
 import { propose } from "../skills/proposals.js";
 import { skillCatalogForAgent } from "../skills/agent-skills.js";
-import { budgetedCatalog, catalogBudgetTokens } from "../skills/catalog-budget.js";
+import { budgetedCatalog, catalogBudgetTokens, hiddenSkillsLine, skillsForAgent } from "../skills/catalog-budget.js";
 import { modelInfoFor } from "./usage/model-info.js";
 import { blocksToText, mirrorGroupSpeechToOwnerDm, type TurnEvent } from "../rooms/send-message.js";
 import { runAgentLoop } from "./agent-loop.js";
@@ -141,17 +141,14 @@ export async function speakOnce(
   )
     .filter((hit) => !factBodies.has(hit.body) && !facts.some((fact) => hit.body.endsWith(fact.body)))
     .map((hit) => hitLine(hit));
-  const catalog = budgetedCatalog(
-    await skillCatalogForAgent({
-      skillsRoot,
-      accountId,
-      linuxProfile: agent.linuxProfile,
-    }),
-    {
+  // This agent's skills by name (the product's, its own installs, what its work used); the rest are a search away.
+  const usedSkills = await skillsUsedBy(db, accountId, agentId).catch(() => new Set<string>());
+  const mine = skillsForAgent(await skillCatalogForAgent({ skillsRoot, accountId, linuxProfile: agent.linuxProfile }), usedSkills);
+  const catalog =
+    budgetedCatalog(mine.shown, {
       budgetTokens: catalogBudgetTokens(modelInfoFor(agent.provider, agent.modelId, agent.modelContextWindow).contextWindow),
-      favored: await skillsUsedBy(db, accountId, agentId).catch(() => new Set<string>()),
-    },
-  );
+      favored: usedSkills,
+    }) + hiddenSkillsLine(mine.hidden);
   // Query active background workers running for this parent agent in this room.
   // This gives the dispatcher full visibility over background tasks so it:
   // 1) Remains available to converse with the user while tasks run.

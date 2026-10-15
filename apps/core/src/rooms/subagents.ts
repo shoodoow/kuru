@@ -19,7 +19,7 @@ import { buildWorkerToolSet } from "../turn/tools/build-tools.js";
 import type { ToolContext } from "../turn/tools/context.js";
 import { appendEvent } from "./events.js";
 import { readSkillForAgent, skillCatalogForAgent } from "../skills/agent-skills.js";
-import { budgetedCatalog, catalogBudgetTokens } from "../skills/catalog-budget.js";
+import { budgetedCatalog, catalogBudgetTokens, hiddenSkillsLine, skillsForAgent } from "../skills/catalog-budget.js";
 import { skillDirectoryOf, skillExcerpt } from "../skills/skill-excerpt.js";
 import { prompt } from "../prompt/prompts.js";
 import { publish } from "./stream.js";
@@ -1284,12 +1284,15 @@ export async function runWorker(
     const others = (
       await skillCatalogForAgent({ skillsRoot: input.skillsRoot, accountId: input.accountId, linuxProfile: profile }).catch(() => [])
     ).filter((skill) => !named.has(skill.name));
-    if (others.length > 0) {
+    // Only the product's skills and this agent's own by name; the rest of the account's are a search away.
+    const relevant = skillsForAgent(others, new Set<string>());
+    if (relevant.shown.length > 0 || relevant.hidden > 0) {
       preloaded.push(
         prompt("worker-rules", "skill-catalog", {
-          catalog: budgetedCatalog(others, {
-            budgetTokens: Math.min(WORKER_CATALOG_TOKENS, catalogBudgetTokens(runOn.contextWindow)),
-          }),
+          catalog:
+            budgetedCatalog(relevant.shown, {
+              budgetTokens: Math.min(WORKER_CATALOG_TOKENS, catalogBudgetTokens(runOn.contextWindow)),
+            }) + hiddenSkillsLine(relevant.hidden),
         }),
       );
     }

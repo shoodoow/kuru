@@ -130,3 +130,23 @@ export function searchSkills<T extends CatalogSkill>(skills: T[], query: string)
     .sort((left, right) => right.score - left.score || left.skill.name.localeCompare(right.skill.name))
     .map((entry) => entry.skill);
 }
+
+/**
+ * The skills one agent is shown by name: the product's own, the ones it
+ * installed, and the ones its work used lately. The rest are counted.
+ * Why: every agent was shown every skill on the account, so a marketplace
+ * agent read fifteen LinkedIn skills and ten video variants on every step.
+ * The others stay one `list_skills` search away.
+ * Output: the skills to list, and how many were left out.
+ */
+export function skillsForAgent<T extends CatalogSkill & { source?: string }>(skills: T[], used: ReadonlySet<string>): { shown: T[]; hidden: number } {
+  const shown = skills.filter((skill) => skill.source === "core" || skill.source === "own" || used.has(skill.name) || skill.source === undefined);
+  return { shown, hidden: skills.length - shown.length };
+}
+
+/** The closing line for skills not listed, or "" when none were left out. */
+export function hiddenSkillsLine(hidden: number): string {
+  return hidden > 0
+    ? `\n- ${hidden} more skills are installed on this account for other work; find one with \`list_skills\` and a \`query\` when a job needs it.`
+    : "";
+}

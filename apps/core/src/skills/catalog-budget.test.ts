@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { budgetedCatalog, catalogBudgetTokens, estimateTextTokens, searchSkills } from "./catalog-budget.js";
+import { budgetedCatalog, catalogBudgetTokens, estimateTextTokens, hiddenSkillsLine, searchSkills, skillsForAgent } from "./catalog-budget.js";
 
 const skill = (name: string) => ({
   name,
@@ -29,6 +29,20 @@ describe("budgetedCatalog", () => {
     ];
     expect(searchSkills(skills, "video captions").map((found) => found.name)).toEqual(["captions", "kinetic-reel"]);
     expect(searchSkills(skills, "spreadsheet")).toEqual([]);
+  });
+
+  it("shows an agent the product's skills, its own and the ones its work used, and counts the rest", () => {
+    const skills = [
+      { name: "docx", description: "Word files.", source: "core" },
+      { name: "fiverr-research", description: "Fiverr niches.", source: "own" },
+      { name: "linkedin-post-writer", description: "LinkedIn posts.", source: "shared" },
+      { name: "hyperframes-audio", description: "Video audio.", source: "shared" },
+    ];
+    const { shown, hidden } = skillsForAgent(skills, new Set(["hyperframes-audio"]));
+    expect(shown.map((skill) => skill.name)).toEqual(["docx", "fiverr-research", "hyperframes-audio"]);
+    expect(hidden).toBe(1);
+    expect(hiddenSkillsLine(1)).toMatch(/1 more skills .*list_skills/);
+    expect(hiddenSkillsLine(0)).toBe("");
   });
 
   it("scales the budget with the context window, within bounds", () => {

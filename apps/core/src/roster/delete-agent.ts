@@ -15,7 +15,15 @@ type Db = ReturnType<typeof getDb>;
 /** A fire that cannot go ahead, with a sentence the agent can pass on. */
 export class FireAgentError extends Error {}
 
-export type FiredAgent = { name: string; label: string; chats: number; messages: number; workers: number };
+export type FiredAgent = {
+  name: string;
+  label: string;
+  chats: number;
+  messages: number;
+  workers: number;
+  /** Its Linux user on the account's computer, whose home the caller removes once the rows are gone. */
+  linuxProfile: string | null;
+};
 
 /**
  * Deletes one top-level agent of an account.
@@ -26,11 +34,12 @@ export type FiredAgent = { name: string; label: string; chats: number; messages:
 export async function deleteAgent(db: Db, accountId: string, agentId: string): Promise<FiredAgent> {
   return db.transaction(async (tx) => {
     const run = async <T>(query: ReturnType<typeof sql>): Promise<T[]> => (await tx.execute(query)) as unknown as T[];
-    const [agent] = await run<{ id: string; name: string; label: string; kind: string; hidden: boolean }>(sql`
-      select id, name, label, kind, hidden from agents where id = ${agentId} and account_id = ${accountId} for update`);
+    const [agent] = await run<{ id: string; name: string; label: string; kind: string; hidden: boolean; parent_id: string | null; linux_profile: string | null }>(sql`
+      select id, name, label, kind, hidden, parent_id, linux_profile from agents where id = ${agentId} and account_id = ${accountId} for update`);
     if (!agent) throw new FireAgentError("There is no such agent on this account.");
     if (agent.kind === "support") throw new FireAgentError("The default agent cannot be removed.");
-    if (agent.hidden) throw new FireAgentError("That is a background worker, not an agent; stop it with stop_worker.");
+    // A worker is hidden and belongs to an agent. A hidden agent of its own (the person hid it) can still be removed.
+    if (agent.hidden && agent.parent_id) throw new FireAgentError("That is a background worker, not an agent; stop it with stop_worker.");
     const groups = await run<{ title: string }>(sql`
       select title from conversations where account_id = ${accountId} and owner_agent_id = ${agentId} and kind = 'group'`);
     if (groups.length > 0) {
@@ -89,6 +98,6 @@ export async function deleteAgent(db: Db, accountId: string, agentId: string): P
     // Teammates it hired stay with the person; they just have no lead above them now.
     await tx.execute(sql`update agents set parent_id = null where ${mine} and parent_id = ${agentId} and hidden = false`);
     await tx.execute(sql`delete from agents where ${mine} and id in (${idList})`);
-    return { name: agent.name, label: agent.label, chats: chats.length, messages: messageCount, workers: workerRows.length };
+    return { name: agent.name, label: agent.label, chats: chats.length, messages: messageCount, workers: workerRows.length, linuxProfile: agent.linux_profile };
   });
 }

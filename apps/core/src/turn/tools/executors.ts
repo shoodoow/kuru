@@ -3,6 +3,7 @@
  * DB: per tool — messages, delegations, agents, routines, notifications.
  */
 import { deleteAgent, FireAgentError } from "../../roster/delete-agent.js";
+import { removeAgentHome } from "../../linux/linux.js";
 import { answerWorkerQuestion } from "../../rooms/worker-questions.js";
 import { connectSocial } from "../../social/connect.js";
 import { chartData } from "@kuru/shared";
@@ -1360,6 +1361,7 @@ async function executeFireAgent(ctx: ToolContext, input: Record<string, unknown>
   for (const row of running) await stopWorker(ctx.store, ctx.accountId, row.childAgentId).catch(noted("Stopping a removed agent's worker"));
   try {
     const fired = await deleteAgent(ctx.db, ctx.accountId, target.id);
+    if (fired.linuxProfile) await removeAgentHome(ctx.accountId, fired.linuxProfile).catch(noted("Removing a removed agent's home"));
     return {
       removed: fired.label || fired.name,
       chats: fired.chats,

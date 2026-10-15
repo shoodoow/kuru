@@ -23,7 +23,11 @@ export async function skillCatalogForAgent(ctx: AgentSkillContext): Promise<Skil
   if (ctx.skillsRoot) await adoptHostSkills(ctx.skillsRoot, ctx.accountId);
   const host = ctx.skillsRoot ? skillCatalogForAccount(ctx.skillsRoot, ctx.accountId) : [];
   const local = ctx.linuxProfile ? await localSkillCatalog(ctx.accountId, ctx.linuxProfile) : [];
-  return mergeSkillCatalogs(host, local);
+  // The product's own skills are copied to the computer too; they stay "core" there.
+  const core = new Set(host.map((skill) => skill.name));
+  return mergeSkillCatalogs(host, local).map((skill) =>
+    core.has(skill.name) && skill.source !== "own" ? { ...skill, source: "core" as const } : skill,
+  );
 }
 
 /**

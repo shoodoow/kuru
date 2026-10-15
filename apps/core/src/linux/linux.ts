@@ -1067,3 +1067,16 @@ async function ensureImage(): Promise<void> {
     throw error;
   }
 }
+
+/**
+ * Removes a removed agent's Linux user and its home from the account's computer.
+ * Why: deleting an agent left its home behind, with its files and its own
+ * copies of every skill it installed, read again on every turn. Skills it
+ * shared stay in /shared, where other agents may use them.
+ * Input: account id and the Linux username. Output: true when it was removed or was already gone.
+ */
+export async function removeAgentHome(accountId: string, profile: string): Promise<boolean> {
+  if (!/^u[0-9a-f]{8,32}$/.test(profile)) throw new Error("Linux profile is invalid.");
+  const result = await exec(accountId, ["sh", "-c", 'pkill -u "$1" 2>/dev/null; userdel -r "$1" 2>/dev/null; ! id "$1" >/dev/null 2>&1', "sh", profile]);
+  return result.code === 0;
+}

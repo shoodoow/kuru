@@ -6,7 +6,12 @@ import { join } from "node:path";
 // read. The folder name is fixed and is never listed as a default skill.
 const ACCOUNT_SKILLS = "accounts";
 
-export type SkillSummary = { name: string; description: string };
+export type SkillSummary = {
+  name: string;
+  description: string;
+  /** Where it comes from: shipped with the product, installed for the whole account, or installed by this agent. */
+  source?: "core" | "shared" | "own";
+};
 
 export type ParsedSkill = { name: string; description: string; body: string };
 
