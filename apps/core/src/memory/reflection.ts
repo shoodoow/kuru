@@ -52,6 +52,13 @@ const BODY_CHARS = 300;
 const CAPS = { rule: 4, fact: 3, total: 10 };
 /** A first step bigger than this is worth looking at. */
 const HEAVY_STEP_TOKENS = 45_000;
+/**
+ * How long one model may think before the reflection gives up on it. A slow
+ * reasoning model or a stalled gateway once left a reflection (and the
+ * profile's Fix now) waiting with no end; past this the background model
+ * tries, with the same limit.
+ */
+const MODEL_TIMEOUT_MS = 150_000;
 
 export type ReflectionEdit =
   | { op: "rule" | "fact"; body: string; evidence: string[] }
@@ -599,6 +606,7 @@ async function callModel(db: Db, accountId: string, agent: typeof agents.$inferS
         model: getModel(provider, modelId, apiKey, baseUrl),
         instructions: [{ role: "system" as const, content: prompt("memory", "reflect") }],
         messages: [{ role: "user", content: user }],
+        abortSignal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
       })
     ).text ?? "";
   try {
