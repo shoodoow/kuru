@@ -432,8 +432,8 @@ export async function runBrowserTool(
   // hidden input. A real mouse click at its position reaches what is on top
   // there, usually the control itself. Without this, a worker spent fifty steps
   // on one dropdown, trying script clicks that never open a menu.
-  if (name === "browser_click" && !args.holdMs && /is covered by/.test(text)) {
-    const covered = await clickAtElement(accountId, profile, cdpPort, ref(args.uid)).catch(() => null);
+  if (name === "browser_click" && /is covered by/.test(text)) {
+    const covered = await clickAtElement(accountId, profile, cdpPort, ref(args.uid), holdMs(args.holdMs)).catch(() => null);
     if (covered) text = covered;
   }
   if (name === "browser_navigate") {
@@ -484,14 +484,14 @@ async function uploadToPage(accountId: string, profile: string, cdpPort: number,
  * Clicks an element by its position with the real mouse, for when something covers it.
  * Output: what happened, with the page it left, or null when its box could not be read.
  */
-async function clickAtElement(accountId: string, profile: string, cdpPort: number, target: string): Promise<string | null> {
+async function clickAtElement(accountId: string, profile: string, cdpPort: number, target: string, hold = 0): Promise<string | null> {
   const browser = (command: string[]) => exec(accountId, ["agent-browser", "--cdp", String(cdpPort), ...command], profile, undefined, { timeoutMs: 30_000 });
   const box = JSON.parse((await browser(["get", "box", target, "--json"])).stdout.trim()) as { data?: { x?: number; y?: number; width?: number; height?: number } };
   const { x, y, width, height } = box.data ?? {};
   if ([x, y, width, height].some((value) => typeof value !== "number")) return null;
   const at = [String(Math.round(x! + width! / 2)), String(Math.round(y! + height! / 2))];
   const out: string[] = [];
-  for (const command of [["mouse", "move", ...at], ["mouse", "down"], ["mouse", "up"], ["wait", "400"], ["get", "title"], ["get", "url"]]) {
+  for (const command of [["mouse", "move", ...at], ["mouse", "down"], ...(hold ? [["wait", String(hold)]] : []), ["mouse", "up"], ["wait", "400"], ["get", "title"], ["get", "url"]]) {
     out.push((await browser(command)).stdout.trim());
   }
   return `${target} was covered by another element, so it was clicked at its position (${at.join(", ")}) with the mouse instead; that reaches whatever is on top there, often the control itself. Take a snapshot to see what opened.\n${out.filter(Boolean).join("\n")}`;
