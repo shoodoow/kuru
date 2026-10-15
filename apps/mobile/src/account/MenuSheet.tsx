@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type ViewStyle } from "react-native";
 import type { ProviderSetting } from "../api";
 import type { AccountUsage, PluginList, RosterAgent, UsagePeriod } from "../api";
@@ -26,7 +26,7 @@ export type SignedAccount = {
   image?: string | null;
 };
 
-export type MenuPage = "menu" | "account" | "signup" | "providers" | "models" | "plugins" | "plugin-custom" | "appearance" | "usage";
+export type MenuPage = "menu" | "account" | "signup" | "providers" | "models" | "approvals" | "plugins" | "plugin-custom" | "appearance" | "usage";
 
 /**
  * Shows the account menu, the account switcher, or signup.
@@ -48,6 +48,7 @@ export function MenuSheet({
   onChangeServer,
   onLoadUsage,
   onPage,
+  approvalsPage,
   onNotifications,
   onAutoReview,
   onAutoTimeZone,
@@ -91,6 +92,12 @@ export function MenuSheet({
   agents: RosterAgent[];
   onLoadUsage: (period: UsagePeriod) => Promise<AccountUsage>;
   onPage: (page: MenuPage) => void;
+  /**
+   * The Approvals page, drawn inside this sheet.
+   * Why here: opening it used to close the sheet and push a screen in the same
+   * moment, and on iOS that screen could come up empty.
+   */
+  approvalsPage?: ReactNode;
   onNotifications: (value: boolean) => void;
   onAutoReview: (value: boolean) => void;
   onAutoTimeZone: (value: boolean) => void;
@@ -172,6 +179,7 @@ export function MenuSheet({
       {page === "plugin-custom" ? (
         <CustomPluginPage onSave={onSaveCustomPlugin} onSignIn={onSignInCustomPlugin} scrollStyle={scrollStyle} />
       ) : null}
+      {page === "approvals" ? approvalsPage : null}
       {page === "appearance" ? <AppearancePage scrollStyle={scrollStyle} /> : null}
       {page === "usage" ? <UsagePage agents={agents} onLoad={onLoadUsage} scrollStyle={scrollStyle} /> : null}
       {page === "providers" ? (

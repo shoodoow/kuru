@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect } from "react";
 import { useNavigation } from "expo-router";
 import { HeaderBackButton, useHeaderHeight } from "expo-router/react-navigation";
 import { MenuSheet, type MenuPage } from "../src/account/MenuSheet";
+import { ApprovalsScreen } from "../src/approvals/ApprovalsScreen";
 import { createCore } from "../src/api";
 import { useSession } from "../src/session/SessionProvider";
 import { colors } from "../src/theme/tokens";
@@ -15,6 +16,7 @@ const TITLES: Record<MenuPage, string> = {
   account: "Account",
   signup: "Sign in",
   providers: "AI Providers",
+  approvals: "Approvals",
   models: "Models",
   plugins: "Plugins",
   "plugin-custom": "Your MCP",
@@ -78,7 +80,21 @@ export default function AccountRoute() {
         onNotifications={session.setNotifications}
         onAutoReview={(value) => void session.persistAutoReview(value).catch(session.show)}
         onAutoTimeZone={session.setAutoTimeZone}
-        onApprovals={session.openApprovals}
+        onApprovals={() => session.setMenu("approvals")}
+        approvalsPage={
+          <ApprovalsScreen
+            proposals={session.proposals}
+            toolApprovals={session.toolApprovals}
+            onApprove={(id) => void session.refreshProposals(id, true).catch(session.show)}
+            onReject={(id) => void session.refreshProposals(id, false).catch(session.show)}
+            onApproveTool={(id, always) => void session.decideToolRow(id, true, always).catch(session.show)}
+            onDenyTool={(id) => void session.decideToolRow(id, false).catch(session.show)}
+            onReload={session.reloadApprovals}
+            onLoadAllowances={() => core.listAllowances(session.accountId.trim())}
+            onRemoveAllowance={(id) => core.removeAllowance(session.accountId.trim(), id)}
+            onBack={() => session.setMenu("menu")}
+          />
+        }
         onComputer={() => {
           const agent = session.agents.find((row) => row.linuxProfile) ?? session.agents[0];
           if (agent) session.openDesktop(agent);

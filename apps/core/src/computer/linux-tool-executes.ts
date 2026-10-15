@@ -81,7 +81,11 @@ export function linuxToolExecutes(
       await writeFile(accountId, profile, String(input.path), String(input.body));
       return "Wrote the file.";
     },
-    bash: async (input) => conciseOutput(await bash(accountId, profile, String(input.command))),
+    bash: async (input) => {
+      const command = String(input.command);
+      if (drivesBrowserDirectly(command)) return BROWSER_SCRIPT_REFUSAL;
+      return conciseOutput(await bash(accountId, profile, command));
+    },
     computer_screenshot: async () => {
       screenshots += 1;
       if (screenshots > SCREENSHOT_BUDGET) {
@@ -239,6 +243,24 @@ export function linuxToolExecutes(
   };
   return actions;
 }
+
+/**
+ * True when a shell command drives the browser itself, around the browser tools:
+ * Chrome's debugging port, CDP methods, or a CDP client library.
+ * Why: workers wrote a Python websocket script for every step, each 10 to 25
+ * seconds and tens of thousands of tokens, chasing a marketing popup as if it
+ * were a captcha. The browser tools now cover what pushed them there: covered
+ * elements, press and hold, pickers, batches of actions.
+ */
+export function drivesBrowserDirectly(command: string): boolean {
+  const port = /(localhost|127\.0\.0\.1|0\.0\.0\.0):92\d\d\b/.test(command);
+  const cdp = /\b(Input\.dispatch(Mouse|Key|Touch)Event|Runtime\.evaluate|DOM\.(querySelector|getDocument)|Page\.navigate)\b/.test(command);
+  const client = /\b(connectOverCDP|chrome-remote-interface|puppeteer\.connect|pyppeteer|websocket-client|ws:\/\/[^\s'"]*devtools)\b/i.test(command);
+  return client || cdp || (port && /\/json|devtools|websocket/i.test(command));
+}
+
+const BROWSER_SCRIPT_REFUSAL =
+  "✗ Not run: this drives the browser around the browser tools (its debugging port or CDP). Use the browser_* tools: browser_snapshot to see the page, browser_click (it clicks a covered element with the mouse by itself; holdMs for press and hold), browser_type or browser_batch for fields and pickers, browser_press_key for Escape. A popup, chat bubble or newsletter box over the page is something to close (its ×, or Escape), not a captcha.";
 
 /** The actions browser_batch may run, matching the schema's list. */
 const BATCH_ACTIONS = new Set(["click", "fill", "type", "select", "check", "set_value", "press_key", "scroll", "hover", "wait_for"]);

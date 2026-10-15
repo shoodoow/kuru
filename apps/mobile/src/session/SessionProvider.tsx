@@ -1476,9 +1476,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       : await core.listProposals(accountId.trim());
     setProposals(next);
     setToolApprovals(await core.listToolApprovals(accountId.trim()).catch(() => []));
-    setMenu(null);
-    // Deciding a row on the approvals screen reloads it in place.
-    if (pathnameRef.current !== "/approvals") {
+    // Deciding a row reloads the list where it is shown (the Approvals page in
+    // the account sheet, or the screen); only opening it moves anywhere.
+    if (!proposalId && pathnameRef.current !== "/approvals") {
+      setMenu(null);
       closeSheet();
       router.push("/approvals");
     }
