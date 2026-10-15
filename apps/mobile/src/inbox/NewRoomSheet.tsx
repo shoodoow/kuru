@@ -78,6 +78,7 @@ export function NewRoomSheet({
               </CircleButton>
             </View>
           ) : null}
+          {/* Groups are hidden for now; the switch comes back with them.
           <View style={styles.kinds}>
             <Pressable
               accessibilityRole="button"
@@ -94,6 +95,7 @@ export function NewRoomSheet({
               <Text style={[styles.kindText, kind === "group" && styles.kindTextOn]}>Group</Text>
             </Pressable>
           </View>
+          */}
           {kind === "chat" ? (
             <>
               <Pressable
