@@ -3,8 +3,9 @@ import { ActivityIndicator, FlatList, Linking, Modal, Pressable, StyleSheet, Tex
 import { useEventListener } from "expo";
 import { Image } from "expo-image";
 import { Directory, File, Paths } from "expo-file-system";
+import { Asset, requestPermissionsAsync } from "expo-media-library";
 import * as Sharing from "expo-sharing";
-import { VideoView, useVideoPlayer } from "expo-video";
+import { VideoView, createVideoPlayer, useVideoPlayer, type VideoThumbnail } from "expo-video";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, {
   type SharedValue,
@@ -323,6 +324,8 @@ export function MediaThumb({
   size: number;
 }) {
   const [uri, setUri] = useState<string | null>(file || video ? null : url);
+  const videoFile = useMemo<FileBlock | undefined>(() => (video ? (file ?? { kind: "file", name: "video.mp4", url }) : undefined), [video, file, url]);
+  const poster = useVideoPoster(videoFile, fetchBlob);
   useEffect(() => {
     if (!file || video) return;
     let live = true;
@@ -335,9 +338,10 @@ export function MediaThumb({
       live = false;
     };
   }, [file, video, fetchBlob]);
+  // Both open inside the app; nothing is downloaded to open it.
   const open = (): void => {
-    if (file) void openFileBlock(file, fetchBlob);
-    else void Linking.openURL(url);
+    if (videoFile) viewVideo(videoFile, fetchBlob);
+    else if (uri) viewPicture({ kind: "image", url: uri, alt: file?.name });
   };
   return (
     <Pressable
@@ -347,6 +351,7 @@ export function MediaThumb({
       style={({ pressed }) => [styles.thumb, { width: size, height: size }, pressed ? { opacity: 0.7 } : null]}
     >
       {uri ? <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} /> : null}
+      {poster ? <Image source={poster} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} /> : null}
       {video ? (
         <View style={styles.thumbPlay}>
           <IconPlay />
@@ -588,7 +593,7 @@ function ImageViewer({
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [index, setIndex] = useState(start);
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<"busy" | "done" | "failed" | null>(null);
   const [chrome, setChrome] = useState(true);
   const [zoomed, setZoomed] = useState(false);
   const pull = useSharedValue(0);
@@ -604,12 +609,16 @@ function ImageViewer({
   );
   const save = (): void => {
     const block = images[index];
-    if (!block || saving) return;
-    setSaving(true);
+    if (!block || saving === "busy") return;
+    setSaving("busy");
     void imageAsFile(block, fetchBlob, index)
-      .then((file) => (file ? shareFileBlock(file) : undefined))
-      .catch(() => {})
-      .finally(() => setSaving(false));
+      .then(async (file) => {
+        if (!file) throw new Error("Nothing to save.");
+        await saveToPhotos(file);
+        setSaving("done");
+      })
+      .catch(() => setSaving("failed"))
+      .finally(() => setTimeout(() => setSaving(null), 1600));
   };
   const backdropStyle = useAnimatedStyle(() => ({ opacity: interpolate(pull.get(), [0, 320], [1, 0.25], "clamp") }));
   const chromeStyle = useAnimatedStyle(() => ({ opacity: interpolate(pull.get(), [0, 60], [1, 0], "clamp") }));
@@ -654,8 +663,8 @@ function ImageViewer({
                   {index + 1} / {images.length}
                 </Text>
               ) : null}
-              <Pressable style={styles.viewerButton} hitSlop={6} onPress={save} accessibilityRole="button" accessibilityLabel="Save image">
-                {saving ? <ActivityIndicator color="#FFFFFF" size="small" /> : <IconDownloadLight />}
+              <Pressable style={styles.viewerButton} hitSlop={6} onPress={save} accessibilityRole="button" accessibilityLabel="Save to Photos">
+                <SaveMark state={saving} />
               </Pressable>
             </View>
             {caption ? (
@@ -794,6 +803,158 @@ export async function saveFileBlock(block: FileBlock, fetchBlob?: FetchBlob): Pr
   return true;
 }
 
+const MEDIA_EXTENSION: Record<string, string> = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "image/heic": ".heic",
+  ...VIDEO_MIME,
+};
+
+/**
+ * Saves a picture or video to the phone's photo library (Photos, Gallery).
+ * Why: Save used to open the share sheet, and on Android that put a picture
+ * in Files as a document. A picture belongs with the person's photos.
+ * Asks once for permission to add photos; it never reads the library.
+ */
+export async function saveToPhotos(block: FileBlock, fetchBlob?: FetchBlob): Promise<void> {
+  // The library picks the kind of item from the extension, so a bare name gets one.
+  const extension = MEDIA_EXTENSION[(block.mime ?? "").toLowerCase()];
+  const named = extension && !/\.[a-z0-9]{2,5}$/i.test(block.name) ? { ...block, name: `${block.name}${extension}` } : block;
+  const file = await materializeFile(named, fetchBlob, false, true);
+  if (!file?.local) throw new Error("Nothing to save.");
+  const permission = await requestPermissionsAsync(true, ["photo", "video"]);
+  if (!permission.granted) throw new Error("Kuru may not add to your photos. Allow it in Settings.");
+  await Asset.create(file.uri);
+}
+
+/** The save button's face: a download arrow, a spinner, then a tick or a cross for a moment. */
+function SaveMark({ state, light = true }: { state: "busy" | "done" | "failed" | null; light?: boolean }) {
+  const tint = light ? "#FFFFFF" : colors.text;
+  if (state === "busy") return <ActivityIndicator color={tint} size="small" />;
+  if (state === "done") return <Text style={[styles.saveMark, { color: tint }]}>✓</Text>;
+  if (state === "failed") return <Text style={[styles.saveMark, { color: tint }]}>!</Text>;
+  return light ? <IconDownloadLight /> : <IconDownload />;
+}
+
+// One poster per video for the app's life; made one at a time so a grid of
+// videos does not open a decoder each at once.
+const posterCache = new Map<string, VideoThumbnail | null>();
+let posterQueue: Promise<unknown> = Promise.resolve();
+
+/** A frame from early in a video, to show before it plays. Null when none can be made. */
+function videoPoster(key: string, source: { uri: string; headers?: Record<string, string> }): Promise<VideoThumbnail | null> {
+  if (posterCache.has(key)) return Promise.resolve(posterCache.get(key) ?? null);
+  const made = posterQueue.then(async () => {
+    const player = createVideoPlayer(source.headers ? { uri: source.uri, headers: source.headers } : source.uri);
+    try {
+      const [frame] = await player.generateThumbnailsAsync(0.5, { maxWidth: 480 });
+      return frame ?? null;
+    } catch {
+      return null;
+    } finally {
+      player.release();
+    }
+  });
+  posterQueue = made.catch(() => null);
+  return made.then((frame) => {
+    posterCache.set(key, frame);
+    return frame;
+  });
+}
+
+/** The poster for a video file block, or null while it is made (or when it cannot be). */
+function useVideoPoster(block: FileBlock | undefined, fetchBlob: FetchBlob | undefined): VideoThumbnail | null {
+  const key = block ? (block.blobRef ? `${block.blobRef.messageId}:${block.blobRef.index}` : block.url.slice(0, 200)) : "";
+  const [poster, setPoster] = useState<VideoThumbnail | null>(() => posterCache.get(key) ?? null);
+  useEffect(() => {
+    if (!block || !key) return;
+    let live = true;
+    void materializeFile(block, fetchBlob, true)
+      .then((file) => (file ? videoPoster(key, { uri: file.uri, headers: file.headers }) : null))
+      .then((frame) => {
+        if (live && frame) setPoster(frame);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [block, key, fetchBlob]);
+  return poster;
+}
+
+/**
+ * A video full screen over everything, with the system player and Save.
+ * Why: a video in the profile's Media tab downloaded when tapped instead of
+ * playing. Input: the video file block, the blob fetcher, and close.
+ */
+function VideoViewer({ block, fetchBlob, onClose }: { block: FileBlock; fetchBlob?: FetchBlob; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const [source, setSource] = useState<{ uri: string; headers?: Record<string, string> } | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [saving, setSaving] = useState<"busy" | "done" | "failed" | null>(null);
+  useEffect(() => {
+    let live = true;
+    void materializeFile(block, fetchBlob, true)
+      .then((file) => {
+        if (!live) return;
+        if (file) setSource({ uri: file.uri, headers: file.headers });
+        else setFailed(true);
+      })
+      .catch(() => live && setFailed(true));
+    return () => {
+      live = false;
+    };
+  }, [block, fetchBlob]);
+  const save = (): void => {
+    if (saving === "busy") return;
+    setSaving("busy");
+    void saveToPhotos(block, fetchBlob)
+      .then(() => setSaving("done"))
+      .catch(() => setSaving("failed"))
+      .finally(() => setTimeout(() => setSaving(null), 1600));
+  };
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+      <View style={[styles.fill, styles.viewer]}>
+        {source ? (
+          <FullVideo source={source} />
+        ) : (
+          <View style={[styles.fill, styles.viewerLoading]}>
+            {failed ? <Text style={styles.viewerCount}>Could not load this video.</Text> : <ActivityIndicator color="#FFFFFF" />}
+          </View>
+        )}
+        <View style={[styles.viewerBar, { top: insets.top + 8 }]} pointerEvents="box-none">
+          <Pressable style={styles.viewerButton} hitSlop={6} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close">
+            <IconCloseLight />
+          </Pressable>
+          <Pressable style={styles.viewerButton} hitSlop={6} onPress={save} accessibilityRole="button" accessibilityLabel="Save to Photos">
+            <SaveMark state={saving} />
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function FullVideo({ source }: { source: { uri: string; headers?: Record<string, string> } }) {
+  const player = useVideoPlayer(source.headers ? { uri: source.uri, headers: source.headers } : source.uri, (created) => {
+    created.play();
+  });
+  return <VideoView player={player} style={styles.fill} nativeControls contentFit="contain" fullscreenOptions={{ enable: true }} allowsPictureInPicture={false} />;
+}
+
+/** Opens a picture full screen, the same viewer the chat uses. */
+export function viewPicture(image: ImageBlock, fetchBlob?: FetchBlob): void {
+  presentOverlay((close) => <ImageViewer images={[image]} start={0} fetchBlob={fetchBlob} onClose={close} />);
+}
+
+/** Opens a video full screen with the system player. */
+export function viewVideo(block: FileBlock, fetchBlob?: FetchBlob): void {
+  presentOverlay((close) => <VideoViewer block={block} fetchBlob={fetchBlob} onClose={close} />);
+}
+
 /** Reads a file block as text, for the in-app viewer. */
 export async function readFileText(block: FileBlock, fetchBlob?: FetchBlob): Promise<string> {
   let url = block.url;
@@ -882,9 +1043,10 @@ export function VideoBlock({ block, fetchBlob }: { block: FileBlock; fetchBlob?:
   const [source, setSource] = useState<{ uri: string; headers?: Record<string, string> } | null>(null);
   const uri = source?.uri ?? null;
   const [busy, setBusy] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<"busy" | "done" | "failed" | null>(null);
   const [failed, setFailed] = useState(false);
   const [height, setHeight] = useState(VIDEO_HEIGHT);
+  const poster = useVideoPoster(block, fetchBlob);
 
   function start(): void {
     if (busy || uri) return;
@@ -900,11 +1062,12 @@ export function VideoBlock({ block, fetchBlob }: { block: FileBlock; fetchBlob?:
   }
 
   function save(): void {
-    if (saving) return;
-    setSaving(true);
-    void shareFileBlock(block, fetchBlob)
-      .catch(() => setFailed(true))
-      .finally(() => setSaving(false));
+    if (saving === "busy") return;
+    setSaving("busy");
+    void saveToPhotos(block, fetchBlob)
+      .then(() => setSaving("done"))
+      .catch(() => setSaving("failed"))
+      .finally(() => setTimeout(() => setSaving(null), 1600));
   }
 
   return (
@@ -920,6 +1083,7 @@ export function VideoBlock({ block, fetchBlob }: { block: FileBlock; fetchBlob?:
           />
         ) : (
           <Pressable style={styles.poster} onPress={start} accessibilityRole="button" accessibilityLabel={`Play ${block.name}`}>
+            {poster ? <Image source={poster} style={StyleSheet.absoluteFill} contentFit="cover" /> : null}
             <View style={styles.playDisk}>{busy ? <ActivityIndicator color="#FFFFFF" /> : <IconPlay />}</View>
           </Pressable>
         )}
@@ -928,8 +1092,8 @@ export function VideoBlock({ block, fetchBlob }: { block: FileBlock; fetchBlob?:
         <Text style={[styles.caption, styles.videoName]} numberOfLines={1}>
           {failed ? "Could not load this video. Tap to retry." : block.name}
         </Text>
-        <Pressable style={styles.videoAction} hitSlop={8} accessibilityRole="button" accessibilityLabel="Save video" onPress={save}>
-          {saving ? <ActivityIndicator color={colors.text} size="small" /> : <IconDownload />}
+        <Pressable style={styles.videoAction} hitSlop={8} accessibilityRole="button" accessibilityLabel="Save to Photos" onPress={save}>
+          <SaveMark state={saving} light={false} />
         </Pressable>
       </View>
     </View>
@@ -978,6 +1142,7 @@ function createStyles(colors: ColorPalette) {
       alignItems: "center",
       justifyContent: "center",
     },
+    saveMark: { fontSize: 17, fontWeight: "700" },
     viewerCount: { color: "#FFFFFF", fontSize: 15, fontWeight: "600", fontVariant: ["tabular-nums"] },
     viewerCaption: {
       position: "absolute",

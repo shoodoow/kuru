@@ -75,6 +75,10 @@ export function IconClose() {
   return <PlatformIcon sf="xmark" md="close" size={18} color={colors.label} />;
 }
 
+export function IconChevronDown() {
+  return <PlatformIcon sf="chevron.down" md="keyboard-arrow-down" size={20} color={colors.label} />;
+}
+
 export function IconChevron() {
   return <PlatformIcon sf="chevron.right" md="chevron-right" size={18} color={colors.secondaryLabel} />;
 }

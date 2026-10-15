@@ -37,6 +37,11 @@ export default function ProfileRoute() {
       onLoadRoutineRuns={(routineId) => core.listRoutineRuns(session.accountId.trim(), profile.id, routineId)}
       messages={session.profileFeed}
       onFetchBlob={(roomId, messageId, index) => core.blob(session.accountId.trim(), roomId, messageId, index)}
+      health={{
+        load: () => core.agentHealth(session.accountId.trim(), profile.id),
+        fix: () => core.reflectNow(session.accountId.trim(), profile.id),
+        undo: (reflectionId) => core.undoReflection(session.accountId.trim(), profile.id, reflectionId),
+      }}
     />
     <Toast />
     </>

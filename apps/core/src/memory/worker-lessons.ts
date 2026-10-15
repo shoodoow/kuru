@@ -24,7 +24,7 @@ const LINE_CHARS = 400;
  */
 export async function workerLessons(db: Db, accountId: string, agentId: string, task: string): Promise<string> {
   const procedures = await db
-    .select({ body: memories.body, createdAt: memories.createdAt })
+    .select({ body: memories.body, createdAt: memories.createdAt, tentative: memories.tentative })
     .from(memories)
     .where(
       and(
@@ -44,7 +44,9 @@ export async function workerLessons(db: Db, accountId: string, agentId: string, 
     const body = fact.body.replace(/\s+/g, " ").trim();
     if (!body || seen.has(body)) continue;
     seen.add(body);
-    const line = `- ${body.length > LINE_CHARS ? `${body.slice(0, LINE_CHARS).replace(/\s+\S*$/, "")}…` : body} (${fact.createdAt.toISOString().slice(0, 10)})`;
+    // A rule learned from a job, not from the person, is marked until something confirms it.
+    const unconfirmed = "tentative" in fact && fact.tentative ? ", not yet confirmed" : "";
+    const line = `- ${body.length > LINE_CHARS ? `${body.slice(0, LINE_CHARS).replace(/\s+\S*$/, "")}…` : body} (${fact.createdAt.toISOString().slice(0, 10)}${unconfirmed})`;
     if (line.length > room) break;
     room -= line.length;
     lines.push(line);

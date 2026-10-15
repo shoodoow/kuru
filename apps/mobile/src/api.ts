@@ -87,6 +87,28 @@ export type ToolApproval = {
   canAlwaysAllow?: boolean;
 };
 
+/** How an agent is doing, measured by the server from what it carries and how its day went. */
+export type AgentHealth = {
+  status: "healthy" | "watch" | "needs attention";
+  issues: string[];
+  measured: {
+    stepTokens: number | null;
+    rules: number;
+    facts: number;
+    tentative: number;
+    duplicates: number | null;
+    jobs: number;
+    failedJobs: number;
+    corrections: number;
+    rewards: number;
+    lastReflection: string | null;
+  };
+};
+/** One edit a reflection proposed, with why the checks turned it down when they did. */
+export type ReflectionEdit = { op: string; body?: string; target?: string; targets?: string[]; dropped?: string; tentative?: boolean };
+/** One nightly reflection: what it changed, and whether it can still be undone. */
+export type AgentReflection = { id: string; status: "applied" | "dry" | "undone" | "failed" | "skipped"; note: string; edits: ReflectionEdit[]; createdAt: string };
+
 /** "Always allow": an action one agent may take without asking again. */
 export type ToolAllowance = { id: string; tool: string; label: string; agentId: string; agentName: string; createdAt: string };
 
@@ -344,6 +366,10 @@ export type CoreClient = {
   /** `always`: this agent may take this action from now on without asking. */
   approveTool: (accountId: string, approvalId: string, always?: boolean) => Promise<ToolApproval[]>;
   listAllowances: (accountId: string) => Promise<ToolAllowance[]>;
+  agentHealth: (accountId: string, agentId: string) => Promise<{ health: AgentHealth; reflections: AgentReflection[] }>;
+  /** Reflects now and saves what passes the checks; it takes about half a minute. */
+  reflectNow: (accountId: string, agentId: string) => Promise<AgentReflection & { health: AgentHealth }>;
+  undoReflection: (accountId: string, agentId: string, reflectionId: string) => Promise<{ undone: boolean }>;
   removeAllowance: (accountId: string, allowanceId: string) => Promise<ToolAllowance[]>;
   denyTool: (accountId: string, approvalId: string) => Promise<ToolApproval[]>;
   saveProfile: (accountId: string, agentId: string, profile: AgentProfile) => Promise<RosterAgent>;
@@ -460,6 +486,11 @@ function buildCore(baseUrl: string, fetchImpl: typeof fetch): CoreClient {
     listToolApprovals: (accountId) => listToolApprovals(baseUrl, accountId, fetchImpl),
     approveTool: (accountId, approvalId, always) => decideTool(baseUrl, accountId, approvalId, always ? "approve?always=1" : "approve", fetchImpl),
     listAllowances: (accountId) => readJson<ToolAllowance[]>(fetchImpl, `${baseUrl}/accounts/${accountId}/tool-allowances`),
+    agentHealth: (accountId, agentId) => readJson(fetchImpl, `${baseUrl}/agents/${agentId}/health?accountId=${accountId}`),
+    reflectNow: (accountId, agentId) =>
+      readJson(fetchImpl, `${baseUrl}/agents/${agentId}/reflect?accountId=${accountId}`, { method: "POST", body: JSON.stringify({}) }),
+    undoReflection: (accountId, agentId, reflectionId) =>
+      readJson(fetchImpl, `${baseUrl}/agents/${agentId}/reflections/${reflectionId}/undo?accountId=${accountId}`, { method: "POST" }),
     removeAllowance: (accountId, allowanceId) =>
       readJson<ToolAllowance[]>(fetchImpl, `${baseUrl}/accounts/${accountId}/tool-allowances/${allowanceId}`, { method: "DELETE" }),
     denyTool: (accountId, approvalId) => decideTool(baseUrl, accountId, approvalId, "deny", fetchImpl),

@@ -1,13 +1,20 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import Animated, { interpolate, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
+import { allowedEmojis } from "@kuru/shared";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import type { Reaction } from "../api";
 
-// Server allowlist (shared reactionSchema) — the only emoji that may be sent.
-export const QUICK_EMOJI = ["👍", "❤️", "👀", "🚀", "😮", "✅"] as const;
+// Two rows of six in the hold sheet. The server accepts a few more (see emojiTones).
+export const SHEET_EMOJI = ["👍", "👎", "❤️", "😂", "🎉", "😮", "🔥", "👀", "🙏", "😢", "💯", "👏"].filter((emoji) =>
+  (allowedEmojis as readonly string[]).includes(emoji),
+);
 
-export type MessageAction = { label: string; icon: ReactNode; onPress: () => void };
+/** One row in the hold sheet; rows with the same group share a rounded box. */
+export type MessageAction = { label: string; icon: ReactNode; onPress: () => void; group?: number };
 /** Where a bubble sits in the window, from measureInWindow. */
 export type BubbleFrame = { x: number; y: number; width: number; height: number };
 
@@ -40,75 +47,108 @@ export function ReactionChips({ reactions, onPick }: { reactions: Reaction[]; on
   );
 }
 
-const BAR_HEIGHT = 50;
-const ROW_HEIGHT = 46;
-const GAP = 8;
+const PER_ROW = 6;
+const KEY_GAP = 12;
+/** Hidden below the screen before it slides up, and when it is dragged away. */
+const OFF = 700;
 
 /**
- * The hold menu, Telegram style: a row of emoji just above the held bubble
- * and the actions (Reply, Copy, Select Text) just below it, on the bubble's
- * own side of the screen.
- * Why: the old panel opened in the middle of the screen, away from the
- * message it was about. Emoji are drawn with the system emoji font.
- * Input: the bubble's frame (null = closed), its side, callbacks, actions.
- * Output: the floating menu over a light scrim.
+ * The hold menu, as a sheet from the bottom: two rows of emoji, then the
+ * actions in rounded groups (Reply; Copy and Select Text).
+ * Why: the floating bar and menu beside the bubble could not fit more than six
+ * emoji, and on a tall message they covered it. A sheet has room for a full
+ * set and sits in the same place every time, under the thumb.
+ * Drag it down or tap outside to close it.
+ * Input: whether it is open, the actions (each with its group), and what
+ * picking an emoji and closing do. Output: the sheet over a dimmed screen.
  */
 export function MessageMenu({
-  frame,
-  mine,
+  open,
   actions,
   onPick,
   onClose,
 }: {
-  frame: BubbleFrame | null;
-  mine: boolean;
+  open: boolean;
   actions: MessageAction[];
   onPick: (emoji: string) => void;
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
-  if (!frame) return null;
-  // A bubble taller than the screen leaves no room above or below it, so both
-  // parts are held inside the safe area and may then sit over the bubble.
-  const menuHeight = actions.length * ROW_HEIGHT;
-  const floor = window.height - insets.bottom - 12;
-  const barTop = Math.min(
-    Math.max(frame.y - BAR_HEIGHT - GAP, insets.top + 8),
-    floor - menuHeight - GAP - BAR_HEIGHT,
-  );
-  const menuTop = Math.max(Math.min(frame.y + frame.height + GAP, floor - menuHeight), barTop + BAR_HEIGHT + GAP);
-  const side = mine ? { right: 12 } : { left: Math.max(12, Math.min(frame.x, 52)) };
+  const drop = useSharedValue(OFF);
+  useEffect(() => {
+    if (open) drop.set(withTiming(0, { duration: 260 }));
+    else drop.set(OFF);
+  }, [open, drop]);
+  const close = (): void => {
+    drop.set(withTiming(OFF, { duration: 200 }));
+    setTimeout(onClose, 180);
+  };
+  const pan = Gesture.Pan()
+    .activeOffsetY(8)
+    .onUpdate((event) => {
+      drop.set(Math.max(0, event.translationY));
+    })
+    .onEnd((event) => {
+      if (event.translationY > 120 || event.velocityY > 900) {
+        drop.set(withTiming(OFF, { duration: 180 }));
+        scheduleOnRN(onClose);
+      } else {
+        drop.set(withTiming(0, { duration: 200 }));
+      }
+    });
+  const sheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: drop.get() }] }));
+  const dimStyle = useAnimatedStyle(() => ({ opacity: interpolate(drop.get(), [0, 400], [1, 0], "clamp") }));
+  if (!open) return null;
+  const key = Math.min(56, Math.floor((window.width - 32 - KEY_GAP * (PER_ROW - 1)) / PER_ROW));
+  const groups: MessageAction[][] = [];
+  for (const action of actions) {
+    const at = action.group ?? 0;
+    (groups[at] ??= []).push(action);
+  }
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close menu">
-        <View style={[styles.bar, side, { top: barTop }]}>
-          {QUICK_EMOJI.map((emoji) => (
-            <Pressable
-              key={emoji}
-              accessibilityRole="button"
-              accessibilityLabel={`React ${emoji}`}
-              onPress={() => onPick(emoji)}
-              style={({ pressed }) => [styles.key, pressed ? styles.keyPressed : null]}
-            >
-              <Text style={styles.keyEmoji}>{emoji}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <View style={[styles.menu, side, { top: menuTop }]}>
-          {actions.map((action, index) => (
-            <Pressable
-              key={action.label}
-              accessibilityRole="button"
-              onPress={action.onPress}
-              style={({ pressed }) => [styles.menuRow, index > 0 ? styles.menuDivider : null, pressed ? styles.menuPressed : null]}
-            >
-              <Text style={styles.menuLabel}>{action.label}</Text>
-              {action.icon}
-            </Pressable>
-          ))}
-        </View>
-      </Pressable>
+    <Modal visible transparent animationType="none" onRequestClose={close} statusBarTranslucent navigationBarTranslucent>
+      {/* A Modal is its own window on Android, so the drag needs its own root. */}
+      <GestureHandlerRootView style={styles.fill}>
+        <Animated.View style={[StyleSheet.absoluteFill, styles.dim, dimStyle]}>
+          <Pressable style={styles.fill} onPress={close} accessibilityLabel="Close menu" />
+        </Animated.View>
+        <GestureDetector gesture={pan}>
+          <Animated.View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }, sheetStyle]}>
+            <View style={styles.grabber} />
+            <View style={[styles.emojiGrid, { gap: KEY_GAP }]}>
+              {SHEET_EMOJI.map((emoji) => (
+                <Pressable
+                  key={emoji}
+                  accessibilityRole="button"
+                  accessibilityLabel={`React ${emoji}`}
+                  onPress={() => onPick(emoji)}
+                  style={({ pressed }) => [styles.key, { width: key, height: key, borderRadius: key / 2 }, pressed ? styles.keyPressed : null]}
+                >
+                  <Text style={styles.keyEmoji}>{emoji}</Text>
+                </Pressable>
+              ))}
+            </View>
+            {groups.filter(Boolean).map((group, at) => (
+              <View key={at} style={styles.group}>
+                {group.map((action, index) => (
+                  <Pressable
+                    key={action.label}
+                    accessibilityRole="button"
+                    onPress={action.onPress}
+                    style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
+                  >
+                    <View style={styles.rowIcon}>{action.icon}</View>
+                    <View style={[styles.rowBody, index > 0 ? styles.rowDivider : null]}>
+                      <Text style={styles.rowLabel}>{action.label}</Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            ))}
+          </Animated.View>
+        </GestureDetector>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
@@ -127,40 +167,33 @@ function createStyles(colors: ColorPalette) {
     },
     chipEmoji: { fontSize: 15 },
     count: { color: colors.muted, fontSize: 12, fontWeight: "600" },
-    backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
-    bar: {
+    fill: { flex: 1 },
+    dim: { backgroundColor: "rgba(0,0,0,0.45)" },
+    sheet: {
       position: "absolute",
-      height: BAR_HEIGHT,
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: colors.control,
-      borderRadius: BAR_HEIGHT / 2,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: colors.sheet,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
       borderCurve: "continuous",
-      paddingHorizontal: 6,
-      boxShadow: "0 8px 16px rgba(0, 0, 0, 0.35)",
-    },
-    key: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
-    keyPressed: { backgroundColor: colors.line },
-    keyEmoji: { fontSize: 28 },
-    menu: {
-      position: "absolute",
-      width: 230,
-      backgroundColor: colors.control,
-      borderRadius: 16,
-      borderCurve: "continuous",
-      overflow: "hidden",
-      boxShadow: "0 8px 16px rgba(0, 0, 0, 0.35)",
-    },
-    menuRow: {
-      height: ROW_HEIGHT,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
       paddingHorizontal: 16,
+      paddingTop: 8,
+      gap: 14,
     },
-    menuDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-    menuPressed: { backgroundColor: colors.line },
-    menuLabel: { color: colors.text, fontSize: 16 },
+    grabber: { alignSelf: "center", width: 36, height: 5, borderRadius: 3, backgroundColor: colors.line, marginBottom: 4 },
+    emojiGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center" },
+    key: { backgroundColor: colors.bubble, alignItems: "center", justifyContent: "center" },
+    keyPressed: { backgroundColor: colors.line },
+    keyEmoji: { fontSize: 26 },
+    group: { backgroundColor: colors.bubble, borderRadius: 16, borderCurve: "continuous", overflow: "hidden" },
+    row: { flexDirection: "row", alignItems: "center", paddingLeft: 16, minHeight: 52 },
+    rowPressed: { backgroundColor: colors.pressed },
+    rowIcon: { width: 28, alignItems: "center" },
+    rowBody: { flex: 1, alignSelf: "stretch", justifyContent: "center", marginLeft: 14 },
+    rowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+    rowLabel: { color: colors.text, fontSize: 17 },
   });
 }
 

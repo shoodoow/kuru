@@ -15,7 +15,8 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import type { MessageBlock, ProviderSetting, RosterAgent, Routine, RoutineRun } from "../api";
+import { AgentHealthCard } from "./AgentHealthCard";
+import type { AgentHealth, AgentReflection, MessageBlock, ProviderSetting, RosterAgent, Routine, RoutineRun } from "../api";
 import { formatLastRun, formatNextRunRelative, formatRunHistoryWhen, formatSchedule, routineTitle } from "../api";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import Feather from "@expo/vector-icons/Feather";
@@ -80,7 +81,10 @@ export function BotInfoScreen({
   onLoadRoutineRuns,
   messages,
   onFetchBlob,
+  health,
 }: {
+  /** Loaders for the Health card; left out, the card is not shown. */
+  health?: { load: () => Promise<{ health: AgentHealth; reflections: AgentReflection[] }>; fix: () => Promise<unknown>; undo: (id: string) => Promise<unknown> };
   profile: RosterAgent;
   providers: ProviderSetting[];
   routines: Routine[];
@@ -227,6 +231,7 @@ export function BotInfoScreen({
       }}
       messages={messages}
       onFetchBlob={onFetchBlob}
+      health={health}
     />
   );
 }
@@ -258,7 +263,9 @@ function InfoPage({
   onRoutine,
   messages,
   onFetchBlob,
+  health,
 }: {
+  health?: { load: () => Promise<{ health: AgentHealth; reflections: AgentReflection[] }>; fix: () => Promise<unknown>; undo: (id: string) => Promise<unknown> };
   profile: RosterAgent;
   providers: ProviderSetting[];
   routines: Routine[];
@@ -499,6 +506,7 @@ function InfoPage({
               </Pressable>
             </View>
             <Text style={styles.caption}>Shape, color, and material tabs — or the image icon for a photo</Text>
+            {health ? <AgentHealthCard key={profile.id} onLoad={health.load} onFix={health.fix} onUndo={health.undo} /> : null}
             <Pressable accessibilityRole="button" onPress={onInstructions} style={styles.rowCard}>
               <IconDoc />
               <Text style={styles.rowLabel}>Instructions</Text>

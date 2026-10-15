@@ -17,7 +17,7 @@ import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme
 import { useResolvedScheme } from "../theme/appearance";
 import { Avatar, colorFor } from "../ui/Avatar";
 import { CircleButton } from "../ui/CircleButton";
-import { IconCopy, IconPlus, IconReplyAction, IconSelectText } from "../ui/icons";
+import { IconChevronDown, IconCopy, IconPlus, IconReplyAction, IconSelectText } from "../ui/icons";
 import { PillButton } from "../ui/PrimaryButton";
 import { KeyboardLift } from "../ui/KeyboardLift";
 import { Sheet } from "../ui/Sheet";
@@ -494,7 +494,24 @@ export function ChatScreen({
     for (const row of roster ?? []) map.set(row.id, row);
     return map;
   }, [agent, members, roster]);
+  // Read back up the thread: a button takes the person down to the latest
+  // message, and counts what arrived while they were reading.
+  const [away, setAway] = useState(false);
+  const [unseen, setUnseen] = useState(0);
+  const newest = thread[0];
+  const seenNewest = useRef(newest?.id);
   useEffect(() => {
+    if (!newest || newest.id === seenNewest.current) return;
+    seenNewest.current = newest.id;
+    if (away && !newest.mine) setUnseen((count) => count + 1);
+  }, [newest, away]);
+  const toLatest = useEvent(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+    setUnseen(0);
+  });
+  useEffect(() => {
+    setAway(false);
+    setUnseen(0);
     setHeld(null);
     setHighlightId(null);
     setAttachOpen(false);
@@ -606,11 +623,19 @@ export function ChatScreen({
           {contextRing.hint}
         </Text>
       ) : null}
+      <View style={styles.threadList}>
       <FlatList
         ref={listRef}
         key={conversationId}
         style={styles.threadList}
         inverted
+        // Inverted: an offset of 0 is the latest message.
+        onScroll={(event) => {
+          const far = event.nativeEvent.contentOffset.y > 480;
+          if (far !== away) setAway(far);
+          if (!far && unseen > 0) setUnseen(0);
+        }}
+        scrollEventThrottle={64}
         data={thread}
         keyExtractor={keyOfBubble}
         renderItem={renderRow}
@@ -650,6 +675,23 @@ export function ChatScreen({
           )
         }
       />
+      {away ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={unseen > 0 ? `Go to the latest message, ${unseen} new` : "Go to the latest message"}
+          hitSlop={6}
+          onPress={toLatest}
+          style={({ pressed }) => [styles.toLatest, pressed ? styles.toLatestPressed : null]}
+        >
+          <IconChevronDown />
+          {unseen > 0 ? (
+            <View style={styles.toLatestBadge}>
+              <Text style={styles.toLatestCount}>{unseen > 99 ? "99+" : unseen}</Text>
+            </View>
+          ) : null}
+        </Pressable>
+      ) : null}
+      </View>
       {roomActivity ? (
         <RoomActivityBar phase={roomActivity} agent={agent} isGroup={isGroup} />
       ) : null}
@@ -728,8 +770,7 @@ export function ChatScreen({
         ) : null}
       </Sheet>
       <MessageMenu
-        frame={held?.frame ?? null}
-        mine={held?.bubble.mine ?? false}
+        open={held !== null}
         onClose={() => setHeld(null)}
         onPick={(emoji) => {
           const bubble = held?.bubble;
@@ -750,6 +791,7 @@ export function ChatScreen({
                 {
                   label: "Copy",
                   icon: <IconCopy />,
+                  group: 1,
                   onPress: () => {
                     setHeld(null);
                     void copyText(messagePlainText(held.bubble.blocks, held.bubble.body));
@@ -758,6 +800,7 @@ export function ChatScreen({
                 {
                   label: "Select Text",
                   icon: <IconSelectText />,
+                  group: 1,
                   onPress: () => {
                     setHeld(null);
                     // iOS drops a sheet presented while another modal is
@@ -870,6 +913,31 @@ function createStyles(colors: ColorPalette) {
   mentionName: { color: colors.text, fontSize: 16 },
   headerSpacer: { width: 44 },
   threadList: { flex: 1 },
+  toLatest: {
+    position: "absolute",
+    right: 12,
+    bottom: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.control,
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 2px 8px rgba(0, 0, 0, 0.25)",
+  },
+  toLatestPressed: { opacity: 0.7 },
+  toLatestBadge: {
+    position: "absolute",
+    top: -6,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    backgroundColor: colors.online,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  toLatestCount: { color: "#FFFFFF", fontSize: 12, fontWeight: "700", fontVariant: ["tabular-nums"] },
   // With inverted lists, paddingTop is the visual bottom (near composer).
   thread: { flexGrow: 1, paddingHorizontal: 12, paddingTop: 16, paddingBottom: 12, gap: 8 },
   emptyInvert: { transform: [{ scaleY: -1 }] },

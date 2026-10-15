@@ -515,7 +515,40 @@ export function blocksFromMaybeWidgetText(markdown: string): MessageBlock[] {
   return expandWidgetMarkupBlocks([{ kind: "text", markdown }]) as MessageBlock[];
 }
 
-export const allowedEmojis = ["👍", "❤️", "👀", "🚀", "😮", "🎉", "✅", "❌"] as const;
+/**
+ * What each reaction says about the message it is on.
+ * Why: a reaction is feedback, but not always praise. 👎 or 😡 on a result is
+ * a complaint, and 👀 or 🤔 says nothing about quality. Learning reads this
+ * tone instead of counting every tap as a reward.
+ */
+export const emojiTones = {
+  "👍": "good",
+  "❤️": "good",
+  "🔥": "good",
+  "🎉": "good",
+  "👏": "good",
+  "🙏": "good",
+  "💯": "good",
+  "😂": "good",
+  "✅": "good",
+  "🚀": "good",
+  "👎": "bad",
+  "😡": "bad",
+  "😢": "bad",
+  "❌": "bad",
+  "👀": "neutral",
+  "😮": "neutral",
+  "🤔": "neutral",
+} as const;
+
+export type EmojiTone = (typeof emojiTones)[keyof typeof emojiTones];
+
+export const allowedEmojis = Object.keys(emojiTones) as [keyof typeof emojiTones, ...(keyof typeof emojiTones)[]];
+
+/** The tone of one reaction; anything unknown is neutral. */
+export function emojiTone(emoji: string): EmojiTone {
+  return (emojiTones as Record<string, EmojiTone>)[emoji] ?? "neutral";
+}
 
 export type RoomCreate = z.infer<typeof roomCreateSchema>;
 export type MessageCreate = z.infer<typeof messageCreateSchema>;

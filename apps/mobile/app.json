@@ -57,6 +57,14 @@
       "expo-web-browser",
       "expo-sharing",
       "expo-video",
+      [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "Allow Kuru to save pictures and videos to your photos.",
+          "isAccessMediaLocationEnabled": false,
+          "granularPermissions": ["photo", "video"]
+        }
+      ],
       ["expo-notifications", { "defaultChannel": "default" }],
       [
         "expo-image-picker",

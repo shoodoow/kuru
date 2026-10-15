@@ -11,7 +11,7 @@
 import { config } from "../config.js";
 import { createOpenAI } from "@ai-sdk/openai";
 import { embed, embedMany, type EmbeddingModel } from "ai";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { getDb } from "../db/client.js";
 import { members, memories, summaryItems } from "../db/schema.js";
 import { keyFor } from "../keys/keys.js";
@@ -85,6 +85,71 @@ async function embedRows(
     if (!vector) continue;
     await db.update(table).set({ embedding: vector }).where(eq(table.id, rows[i]!.id)).catch(noted("Saving an embedding"));
   }
+}
+
+/**
+ * Cosine distance under which two memory lines likely mean the same thing.
+ * Paraphrases of one rule sit around 0.05-0.12; related but different rules
+ * (same topic, another number or case) sit further out. Being close is only a
+ * candidate: the reflection model decides whether to merge.
+ */
+export const ALIKE_DISTANCE = 0.13;
+
+/** Fills missing vectors for these memory rows; returns the embedder, or null when there is none. */
+async function vectorsFor(db: Db, accountId: string, ids: string[]): Promise<EmbeddingModel | null> {
+  const model = await accountEmbedder(db, accountId);
+  if (!model || ids.length === 0) return model;
+  const missing = await db
+    .select({ id: memories.id, body: memories.body })
+    .from(memories)
+    .where(and(eq(memories.accountId, accountId), inArray(memories.id, ids), isNull(memories.embedding)));
+  await embedRows(db, model, memories, missing).catch(noted("Embedding memory lines"));
+  return model;
+}
+
+/**
+ * Pairs among these memory rows that mean nearly the same, by embedding, or
+ * null when the account has no embedder (then nothing is guessed from words).
+ */
+export async function alikePairs(db: Db, accountId: string, ids: string[]): Promise<[string, string][] | null> {
+  if (!(await vectorsFor(db, accountId, ids))) return null;
+  if (ids.length < 2) return [];
+  const list = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
+  const rows = (await db.execute(sql`
+    select a.id as a, b.id as b from memories a join memories b on a.id < b.id
+    where a.id in (${list}) and b.id in (${list})
+      and a.embedding is not null and b.embedding is not null
+      and (a.embedding <=> b.embedding) < ${ALIKE_DISTANCE}
+  `)) as unknown as { a: string; b: string }[];
+  return rows.map((row) => [row.a, row.b]);
+}
+
+/**
+ * For each text, the closest of these memory rows and how far it is, or null
+ * when the account has no embedder.
+ */
+export async function closestRows(
+  db: Db,
+  accountId: string,
+  texts: string[],
+  ids: string[],
+): Promise<({ id: string; distance: number } | null)[] | null> {
+  const model = await vectorsFor(db, accountId, ids);
+  if (!model) return null;
+  if (texts.length === 0 || ids.length === 0) return texts.map(() => null);
+  const { embeddings } = await embedMany({ model, values: texts }).catch(() => ({ embeddings: null as number[][] | null }));
+  if (!embeddings) return null;
+  const found: ({ id: string; distance: number } | null)[] = [];
+  for (const vector of embeddings) {
+    const [row] = await db
+      .select({ id: memories.id, distance: sql<number>`${memories.embedding} <=> ${toVectorLiteral(vector)}::vector` })
+      .from(memories)
+      .where(and(eq(memories.accountId, accountId), inArray(memories.id, ids), sql`${memories.embedding} is not null`))
+      .orderBy(sql`${memories.embedding} <=> ${toVectorLiteral(vector)}::vector`)
+      .limit(1);
+    found.push(row ? { id: row.id, distance: Number(row.distance) } : null);
+  }
+  return found;
 }
 
 /** Nearest facts and summary lines by embedding, or [] when no embedder is configured. */

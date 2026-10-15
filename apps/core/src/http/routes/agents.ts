@@ -1,5 +1,6 @@
 import { routineCreateInputSchema, subagentCreateSchema } from "@kuru/agent-tools";
 import { Router } from "express";
+import { measureHealth, recentReflections, reflectAgent, undoReflection } from "../../memory/reflection.js";
 import { createProfile } from "../../linux/linux.js";
 import { buildInstructions } from "../../prompt/build-instructions.js";
 import { RoomCapacityError } from "../../rooms/rooms.js";
@@ -27,6 +28,31 @@ export function agentsRoutes(ctx: AppContext, guard: Guard): Router {
       return;
     }
     res.json(updated);
+  });
+  // Health: measured by code; "Fix now" reflects at once; each reflection can be undone.
+  agents.get("/:agentId/health", guard, async (req, res) => {
+    const accountId = queryAccountId(req);
+    const agentId = pathParam(req, "agentId");
+    const [health, reflections] = await Promise.all([measureHealth(ctx.db, accountId, agentId), recentReflections(ctx.db, accountId, agentId, 5)]);
+    res.json({ health, reflections });
+  });
+  agents.post("/:agentId/reflect", guard, async (req, res) => {
+    const accountId = queryAccountId(req);
+    const agentId = pathParam(req, "agentId");
+    try {
+      const result = await reflectAgent(ctx.db, accountId, agentId, { dryRun: (req.body ?? {}).dryRun === true });
+      res.json(result);
+    } catch (error) {
+      res.status(502).json({ error: error instanceof Error ? `The reflection could not run: ${error.message.slice(0, 200)}` : "The reflection could not run." });
+    }
+  });
+  agents.post("/:agentId/reflections/:reflectionId/undo", guard, async (req, res) => {
+    const undone = await undoReflection(ctx.db, queryAccountId(req), pathParam(req, "reflectionId"));
+    if (!undone) {
+      res.status(404).json({ error: "That reflection was already undone, or is not one that changed anything." });
+      return;
+    }
+    res.json({ undone: true });
   });
   agents.get("/:agentId/routines", guard, async (req, res) => {
     res.json(await listOwnRoutines(ctx.db, queryAccountId(req), pathParam(req, "agentId")));

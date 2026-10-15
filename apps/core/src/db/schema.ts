@@ -183,7 +183,7 @@ export const reactions = pgTable(
   },
   (table) => [
     unique("reactions_message_user_emoji_unique").on(table.messageId, table.userKey, table.emoji),
-    check("reactions_emoji_check", sql`${table.emoji} in ('👍', '❤️', '👀', '🚀', '😮', '🎉', '✅', '❌')`),
+    check("reactions_emoji_check", sql`${table.emoji} in ('👍', '❤️', '🔥', '🎉', '👏', '🙏', '💯', '😂', '✅', '🚀', '👎', '😡', '😢', '❌', '👀', '😮', '🤔')`),
   ],
 );
 
@@ -295,6 +295,10 @@ export const memories = pgTable(
     subject: text("subject"),
     // A changed fact points at its replacement and is skipped by recall; the
     // old row stays as history.
+    /** How often the person's words or results confirmed this rule or fact; contradictions count down. */
+    confirmed: integer("confirmed").notNull().default(0),
+    /** Inferred, not said: a rule from a job's failure or a guess, until something confirms it. */
+    tentative: boolean("tentative").notNull().default(false),
     supersededBy: uuid("superseded_by"),
     validFrom: timestamp("valid_from", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -315,6 +319,32 @@ export const memories = pgTable(
  * yes once for good, for that agent and that action only; everything else
  * still asks. Shell commands and removing an agent are never allowed this way.
  */
+/**
+ * One nightly reflection of an agent: what it found and every edit it made, so
+ * the person can read it and undo it. `health` is measured by code, not judged
+ * by the model.
+ */
+export const agentReflections = pgTable(
+  "agent_reflections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    /** applied, dry (proposed only), undone, failed. */
+    status: text("status").notNull(),
+    health: jsonb("health").$type<Record<string, unknown>>().notNull().default({}),
+    /** Each edit with the memory rows it created and replaced, for undo. */
+    edits: jsonb("edits").$type<unknown[]>().notNull().default([]),
+    note: text("note").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("agent_reflections_agent_index").on(table.agentId, table.createdAt)],
+);
+
 export const toolAllowances = pgTable(
   "tool_allowances",
   {

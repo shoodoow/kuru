@@ -1,4 +1,4 @@
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { IconSend } from "../ui/icons";
@@ -7,8 +7,9 @@ import { pressableStyle } from "../ui/pressableStyles";
 /**
  * The send button beside the message field: an icon, as in Telegram.
  * iOS shows a white up arrow on a blue disk. Android shows a blue paper
- * plane with no disk. With nothing to send it is greyed out; while a message
- * is on its way it shows a spinner.
+ * plane with no disk. With nothing to send it is greyed out. While a message
+ * is on its way it looks the same but ignores taps: a spinner there made a
+ * quick send feel slow, and the message already shows in the chat.
  * Input: whether there is something to send, whether a send is in flight,
  * and what sending does. Output: the button, 44pt square to tap.
  */
@@ -32,12 +33,10 @@ export function SendButton({ onPress, disabled, busy }: { onPress: () => void; d
     >
       {ios ? (
         <View style={[styles.disk, off && !busy ? styles.diskOff : null]}>
-          {busy ? <ActivityIndicator color="#FFFFFF" size="small" /> : <IconSend color="#FFFFFF" />}
+          <IconSend color="#FFFFFF" />
         </View>
-      ) : busy ? (
-        <ActivityIndicator color={colors.online} size="small" />
       ) : (
-        <IconSend color={off ? colors.muted : colors.online} />
+        <IconSend color={off && !busy ? colors.muted : colors.online} />
       )}
     </Pressable>
   );

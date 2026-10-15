@@ -326,6 +326,9 @@ importers:
       expo-linking:
         specifier: ^57.0.11
         version: 57.0.11(expo@57.0.25)(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.87.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.2)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1)
+      expo-media-library:
+        specifier: ~57.0.5
+        version: 57.0.5(expo@57.0.25)(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.87.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.2)(react@19.2.3)(supports-color@8.1.1))
       expo-network:
         specifier: ^57.0.2
         version: 57.0.2(expo@57.0.25)(react@19.2.3)
@@ -3361,6 +3364,12 @@ packages:
     resolution: {integrity: sha512-pPIIcKR73OShwlWMg8H90WRzKUd2krDdKlKAwuQV1FtUwE7H3hQEFw0ePFQY9yFoGMF/77ryYwNKfI5umMcCog==}
     peerDependencies:
       expo: '*'
+
+  expo-media-library@57.0.5:
+    resolution: {integrity: sha512-amSLrLsS7Gl4nCqbc2PlVbHj5jK9kQLsSOQgJ2QasHCSHzYXw6Ui7aolxX5APg9P4TgYPE0yWn46ndifh52bRw==}
+    peerDependencies:
+      expo: '*'
+      react-native: '*'
 
   expo-modules-autolinking@57.0.13:
     resolution: {integrity: sha512-Hj5NjZRlfccazhKab+wK19leRVUr1Y/PUERaRvegIbUSkq4GVxKq6lU9QHlKQyC16MdD/VS4iwsiLivB4o7lvQ==}
@@ -8176,6 +8185,11 @@ snapshots:
     dependencies:
       expo: 57.0.25(9655a91f44628f8bf07987e4fd9dcad9)
       expo-json-utils: 57.0.2
+
+  expo-media-library@57.0.5(expo@57.0.25)(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.87.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.2)(react@19.2.3)(supports-color@8.1.1)):
+    dependencies:
+      expo: 57.0.25(9655a91f44628f8bf07987e4fd9dcad9)
+      react-native: 0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.87.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.2)(react@19.2.3)(supports-color@8.1.1)
 
   expo-modules-autolinking@57.0.13(supports-color@8.1.1)(typescript@7.0.2):
     dependencies:
