@@ -45,6 +45,7 @@ import {
   workerRedirectInputSchema,
   workerRefInputSchema,
   xyInputSchema,
+  computerClickInputSchema,
   pathInputSchema,
   readWriteInputSchema,
   browserNavigateInputSchema,
@@ -358,7 +359,7 @@ export const allToolDefinitions: ToolDefinition[] = [
     name: "computer_click",
     surfaces: ["worker"],
     requiresLinux: true,
-    inputSchema: xyInputSchema,
+    inputSchema: computerClickInputSchema,
   },
   {
     name: "computer_type",

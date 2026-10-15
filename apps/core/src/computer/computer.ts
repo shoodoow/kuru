@@ -212,9 +212,9 @@ export async function moveMouse(accountId: string, profile: string, x: number, y
  * Atomically moves and left-clicks so grounding cannot race a screenshot.
  * Input: account id, profile, x/y, optional button. Output: clamped {x, y}.
  */
-export async function clickAt(accountId: string, profile: string, x: number, y: number, button = 1) {
+export async function clickAt(accountId: string, profile: string, x: number, y: number, button = 1, holdMs = 0) {
   assertControllable(accountId, profile);
-  return click(accountId, profile, x, y, button);
+  return click(accountId, profile, x, y, button, holdMs);
 }
 
 /**

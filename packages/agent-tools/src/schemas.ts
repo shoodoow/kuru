@@ -452,6 +452,11 @@ export const xyInputSchema = z.object({
   y: z.number(),
 });
 
+export const computerClickInputSchema = xyInputSchema.extend({
+  /** Keep the button down this long before letting go, for a "press and hold" control. */
+  holdMs: z.number().int().min(100).max(30000).optional(),
+});
+
 export const typeTextInputSchema = z.object({
   text: z.string().min(1).max(4000),
 });

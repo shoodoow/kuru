@@ -339,28 +339,19 @@ function WidgetBody({
         : typeof props.title === "string" && props.title.trim()
           ? props.title.trim()
           : "Your agent needs you on the desktop.";
-    const buttonLabel =
-      typeof props.buttonLabel === "string" && props.buttonLabel.trim()
-        ? props.buttonLabel.trim()
-        : "Open desktop";
     return (
-      <View style={styles.card}>
-        <Text style={styles.cardLine}>{message}</Text>
-        {typeof props.detail === "string" && props.detail.trim() ? (
-          <Text style={styles.handoverDetail}>{props.detail.trim()}</Text>
-        ) : null}
-        <Pressable
-          accessibilityRole="button"
-          style={[styles.handoverBtn, !onOpenDesktop ? styles.handoverBtnDisabled : null]}
-          disabled={!onOpenDesktop}
-          onPress={() => onOpenDesktop?.()}
-        >
-          <IconMonitor />
-          <Text style={styles.handoverBtnText}>{buttonLabel}</Text>
-        </Pressable>
-      </View>
+      <HandoverWidget
+        message={message}
+        detail={typeof props.detail === "string" ? props.detail.trim() : ""}
+        selected={typeof props.selected === "string" ? props.selected : null}
+        onTakeOver={onOpenDesktop}
+        onAnswer={(pick) => {
+          if (messageId && onQuestionPick) onQuestionPick(messageId, pick);
+        }}
+      />
     );
   }
+
   if (widget === "secret") {
     return (
       <SecretWidget
@@ -518,6 +509,65 @@ function ApprovalWidget({
           );
         })}
       </View>
+    </View>
+  );
+}
+
+/**
+ * A step the person does on the agent's computer: what to do, a window onto
+ * the screen, and three answers. "Take over" opens the screen; "I'm done"
+ * and "Skip" go back to the agent, so it carries on without being told in
+ * a message. The card says which was picked once one is.
+ */
+function HandoverWidget({
+  message,
+  detail,
+  selected,
+  onTakeOver,
+  onAnswer,
+}: {
+  message: string;
+  detail: string;
+  selected: string | null;
+  onTakeOver?: () => void;
+  onAnswer: (pick: { value: string; label: string }) => void;
+}) {
+  const [picked, setPicked] = useState(selected);
+  const done = picked !== null && picked.length > 0;
+  function answer(value: string, label: string): void {
+    if (done) return;
+    setPicked(value);
+    onAnswer({ value, label });
+  }
+  return (
+    <View style={styles.surface}>
+      <Text style={styles.pollTitle}>Computer</Text>
+      <Text style={styles.handoverMessage}>{message}</Text>
+      {detail ? <Text style={styles.handoverDetail}>{detail}</Text> : null}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Open the agent's computer"
+        disabled={!onTakeOver}
+        onPress={() => onTakeOver?.()}
+        style={({ pressed }) => [styles.handoverScreen, pressed ? styles.pollRowPressed : null]}
+      >
+        <IconMonitor />
+      </Pressable>
+      {done ? (
+        <Text style={styles.handoverDone}>{picked === "skip" ? "Skipped." : "Done. Your agent is carrying on."}</Text>
+      ) : (
+        <View style={styles.handoverActions}>
+          <Pressable accessibilityRole="button" disabled={!onTakeOver} onPress={() => onTakeOver?.()} style={({ pressed }) => [styles.handoverPrimary, pressed ? styles.pollRowPressed : null]}>
+            <Text style={styles.handoverPrimaryText}>Take over</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => answer("done", "I'm done")} style={({ pressed }) => [styles.handoverSecondary, pressed ? styles.pollRowPressed : null]}>
+            <Text style={styles.handoverSecondaryText}>I'm done</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => answer("skip", "Skip")} style={({ pressed }) => [styles.handoverSkip, pressed ? styles.pollRowPressed : null]}>
+            <Text style={styles.handoverSkipText}>Skip</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
@@ -949,7 +999,26 @@ function createStyles(colors: ColorPalette) {
   agentOpenText: { color: colors.bg, fontSize: 16, fontWeight: "600" },
   cardTitle: { color: colors.text, fontWeight: "700", fontSize: 15 },
   cardLine: { color: colors.text, fontSize: 14, lineHeight: 20 },
-  handoverDetail: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+  handoverMessage: { color: colors.text, fontSize: 17, lineHeight: 24, marginTop: 6 },
+  handoverScreen: {
+    height: 170,
+    marginTop: 14,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    backgroundColor: colors.bg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  handoverActions: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 14 },
+  handoverPrimary: { flex: 1.2, height: 44, borderRadius: 14, backgroundColor: colors.text, alignItems: "center", justifyContent: "center" },
+  handoverPrimaryText: { color: colors.bg, fontSize: 16, fontWeight: "600" },
+  handoverSecondary: { flex: 1, height: 44, borderRadius: 14, borderWidth: 1, borderColor: colors.line, alignItems: "center", justifyContent: "center" },
+  handoverSecondaryText: { color: colors.text, fontSize: 16 },
+  handoverSkip: { paddingHorizontal: 10, height: 44, alignItems: "center", justifyContent: "center" },
+  handoverSkipText: { color: colors.muted, fontSize: 16 },
+  handoverDone: { color: colors.muted, fontSize: 14, marginTop: 12 },
+  handoverDetail: { color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 8 },
   handoverBtn: {
     flexDirection: "row",
     alignItems: "center",

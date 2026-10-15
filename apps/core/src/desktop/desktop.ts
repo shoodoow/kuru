@@ -309,14 +309,19 @@ export async function click(
   x: number,
   y: number,
   button = 1,
+  /** Keep the button down this long (ms) before letting go, for a "press and hold" control. */
+  holdMs = 0,
 ): Promise<{ x: number; y: number }> {
   return withComputerUse(accountId, profile, async () => {
     assertAgent(accountId, profile);
     const at = clampPoint(x, y);
     const session = await startDesktop(accountId, profile);
+    const hold = Math.min(30_000, Math.max(0, Math.round(holdMs)));
+    // A hold is a real press on the screen: down, wait, up.
+    const press = hold > 0 ? ["mousedown", String(button), "sleep", (hold / 1000).toFixed(2), "mouseup", String(button)] : ["click", String(button)];
     const done = await exec(
       accountId,
-      ["xdotool", "mousemove", "--sync", String(at.x), String(at.y), "click", String(button)],
+      ["xdotool", "mousemove", "--sync", String(at.x), String(at.y), ...press],
       profile,
       displayEnv(session),
     );

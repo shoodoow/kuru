@@ -154,7 +154,7 @@ Take a PNG of your 1280x800 desktop. It is saved under `/shared/screenshots/` an
 Move the pointer to x/y (0-1279, 0-799) without clicking.
 
 # computer_click
-Move to x/y and left-click, in one step. Take a screenshot first so you know where things are.
+Move to x/y and left-click, in one step. Take a screenshot first so you know where things are. `holdMs` presses and holds there with the real mouse: use it for a "press and hold" check in the browser when `browser_click` with `holdMs` did not clear it (find the button with `computer_screenshot`, hold 10000 to 20000, and hold again if it asks).
 
 # computer_type
 Type 1-4000 characters into the focused field. Click the field first.

@@ -13,6 +13,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import type { MessageBlock, ProviderSetting, RosterAgent, Routine, RoutineRun } from "../api";
 import { formatLastRun, formatNextRunRelative, formatRunHistoryWhen, formatSchedule, routineTitle } from "../api";
@@ -35,6 +36,7 @@ import {
 import { openFileBlock } from "./blocks";
 import { PrimaryButton } from "../ui/PrimaryButton";
 import { collectShares, type SharedFile } from "./shares";
+import { MediaThumb } from "./media";
 
 type Page = "info" | "instructions" | "provider" | "routine";
 type Tab = "info" | "links" | "media" | "files";
@@ -589,7 +591,12 @@ function InfoPage({
   );
 }
 
-/** Lists links, photos, or files from this private chat. */
+/**
+ * Lists links, media, or files from this private chat.
+ * Links are rows with the site's icon, its name and the address; media is a
+ * grid of pictures and videos, including those sent as files; files are the
+ * documents left over.
+ */
 function ShareTab({
   tab,
   messages,
@@ -599,26 +606,109 @@ function ShareTab({
   messages: { conversationId?: string; body: string; blocks?: MessageBlock[] | null }[];
   onFetchBlob?: (conversationId: string, messageId: string, index: number) => Promise<{ url?: string; previewUrl?: string }>;
 }) {
+  const { width } = useWindowDimensions();
   const shares = collectShares(messages);
-  const files = shares.files;
-  const items = tab === "links" ? shares.links : tab === "media" ? shares.media.map((item) => item.label) : files.map((file) => file.name);
-  if (items.length === 0) return <TabEmpty tab={tab} />;
+  const count = tab === "links" ? shares.links.length : tab === "media" ? shares.media.length : shares.files.length;
+  if (count === 0) return <TabEmpty tab={tab} />;
+  if (tab === "media") {
+    const gap = 12;
+    const size = Math.floor((width - 32 - gap) / 2);
+    return (
+      <View style={[styles.mediaGrid, { gap }]}>
+        {shares.media.map((item, index) => {
+          const fetchBlob =
+            item.file?.conversationId && onFetchBlob
+              ? (messageId: string, at: number) => onFetchBlob(item.file!.conversationId!, messageId, at)
+              : undefined;
+          return (
+            <MediaThumb
+              key={`${item.url}-${index}`}
+              url={item.url}
+              file={item.file ? { kind: "file", name: item.file.name, url: item.file.url, mime: item.file.mime, blobRef: item.file.blobRef } : undefined}
+              video={item.video}
+              fetchBlob={fetchBlob}
+              size={size}
+            />
+          );
+        })}
+      </View>
+    );
+  }
+  if (tab === "links") {
+    return (
+      <View style={styles.shareList}>
+        {shares.links.map((link, index) => {
+          const host = hostOf(link);
+          return (
+            <Pressable
+              key={`${link}-${index}`}
+              accessibilityRole="link"
+              accessibilityLabel={`${host}, ${link}`}
+              style={({ pressed }) => [styles.linkRow, index > 0 ? styles.linkDivider : null, pressed ? styles.rowPressed : null]}
+              onPress={() => void Linking.openURL(link)}
+            >
+              <SiteIcon host={host} />
+              <View style={styles.linkText}>
+                <Text style={styles.linkHost} numberOfLines={1}>{host}</Text>
+                <Text style={styles.linkUrl} numberOfLines={2}>{link}</Text>
+              </View>
+              <IconChevron />
+            </Pressable>
+          );
+        })}
+      </View>
+    );
+  }
   return (
     <View style={styles.shareList}>
-      {items.map((item, index) => (
+      {shares.files.map((file, index) => (
         <Pressable
-          key={`${item}-${index}`}
+          key={`${file.name}-${index}`}
           accessibilityRole="button"
-          style={styles.shareRow}
-          onPress={() => {
-            if (tab === "links") void Linking.openURL(item);
-            if (tab === "files") openSharedFile(files[index], onFetchBlob);
-          }}
+          style={({ pressed }) => [styles.linkRow, index > 0 ? styles.linkDivider : null, pressed ? styles.rowPressed : null]}
+          onPress={() => openSharedFile(file, onFetchBlob)}
         >
-          <Text style={styles.shareLabel} numberOfLines={2}>{item}</Text>
+          <View style={styles.fileIcon}>
+            <IconDoc />
+          </View>
+          <View style={styles.linkText}>
+            <Text style={styles.linkHost} numberOfLines={2}>{file.name}</Text>
+            {file.mime ? <Text style={styles.linkUrl} numberOfLines={1}>{file.mime}</Text> : null}
+          </View>
+          <IconChevron />
         </Pressable>
       ))}
     </View>
+  );
+}
+
+/** "https://www.youtube.com/shorts/x" as "www.youtube.com". */
+function hostOf(link: string): string {
+  try {
+    return new URL(link).host || link;
+  } catch {
+    return link;
+  }
+}
+
+/** The site's own icon, loaded from the site itself; a plain link mark when it has none. */
+function SiteIcon({ host }: { host: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed || !host.includes(".")) {
+    return (
+      <View style={styles.siteIcon}>
+        <Feather name="link" size={16} color={colors.muted} />
+      </View>
+    );
+  }
+  return (
+    <Image
+      source={{ uri: `https://${host}/favicon.ico` }}
+      style={styles.siteIcon}
+      contentFit="contain"
+      onError={() => setFailed(true)}
+      accessibilityIgnoresInvertColors
+    />
   );
 }
 
@@ -1129,8 +1219,15 @@ function createStyles(colors: ColorPalette) {
   saveSpace: { marginTop: 20 },
   tabEmpty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 48 },
   shareList: { marginHorizontal: 16, marginTop: 12, backgroundColor: colors.bubble, borderRadius: 14, overflow: "hidden" },
-  shareRow: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-  shareLabel: { color: colors.text, fontSize: 16 },
+  linkRow: { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, paddingVertical: 14 },
+  linkDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  rowPressed: { opacity: 0.6 },
+  linkText: { flex: 1, gap: 3 },
+  linkHost: { color: colors.text, fontSize: 17, fontWeight: "500" },
+  linkUrl: { color: colors.muted, fontSize: 14, lineHeight: 19 },
+  siteIcon: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: colors.card },
+  fileIcon: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: colors.card },
+  mediaGrid: { flexDirection: "row", flexWrap: "wrap", marginHorizontal: 16, marginTop: 12 },
   tabEmptyInline: { alignItems: "center", gap: 6, paddingHorizontal: 48, paddingVertical: 64 },
   tabEmptyTitle: { color: colors.text, fontSize: 17, fontWeight: "600" },
   tabEmptyHint: { color: colors.muted, fontSize: 14, textAlign: "center" },

@@ -301,6 +301,63 @@ export function ImageFileBlock({ block, fetchBlob, fallback }: { block: FileBloc
   return <ImageGroup images={image} />;
 }
 
+/**
+ * One square in a media grid: a picture, or a video shown with a play mark.
+ * Why: the profile's Media tab listed names only, and pictures sent as files
+ * were filed under Files. It is a grid of what was shared, like a phone's
+ * photo library; a tap opens the item.
+ * Input: the picture or video (a web address, or a file block to load the way
+ * the chat does), the blob fetcher, and the square's size.
+ */
+export function MediaThumb({
+  url,
+  file,
+  video,
+  fetchBlob,
+  size,
+}: {
+  url: string;
+  file?: FileBlock;
+  video?: boolean;
+  fetchBlob?: FetchBlob;
+  size: number;
+}) {
+  const [uri, setUri] = useState<string | null>(file || video ? null : url);
+  useEffect(() => {
+    if (!file || video) return;
+    let live = true;
+    void imageFileUri(file, fetchBlob)
+      .then((found) => {
+        if (live && found) setUri(found);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [file, video, fetchBlob]);
+  const open = (): void => {
+    if (file) void openFileBlock(file, fetchBlob);
+    else void Linking.openURL(url);
+  };
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={video ? `Video ${file?.name ?? ""}` : `Picture ${file?.name ?? ""}`}
+      onPress={open}
+      style={({ pressed }) => [styles.thumb, { width: size, height: size }, pressed ? { opacity: 0.7 } : null]}
+    >
+      {uri ? <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} /> : null}
+      {video ? (
+        <View style={styles.thumbPlay}>
+          <IconPlay />
+        </View>
+      ) : !uri ? (
+        <ActivityIndicator color={colors.muted} />
+      ) : null}
+    </Pressable>
+  );
+}
+
 const ZOOM_MAX = 4;
 const ZOOM_DOUBLE_TAP = 2.5;
 /** How far, or how fast, a picture must be dragged down or up to close the viewer. */
@@ -881,6 +938,8 @@ export function VideoBlock({ block, fetchBlob }: { block: FileBlock; fetchBlob?:
 
 function createStyles(colors: ColorPalette) {
   return StyleSheet.create({
+    thumb: { borderRadius: 18, overflow: "hidden", backgroundColor: colors.bubble, alignItems: "center", justifyContent: "center" },
+    thumbPlay: { width: 46, height: 46, borderRadius: 23, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
     mediaWrap: { gap: 6 },
     fill: { flex: 1 },
     single: { width: ALBUM_WIDTH, borderRadius: 12, borderCurve: "continuous", overflow: "hidden", backgroundColor: colors.control },

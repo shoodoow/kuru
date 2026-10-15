@@ -1322,7 +1322,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         return {
           ...bubble,
           blocks: bubble.blocks.map((block) =>
-            block.kind === "widget" && block.widget === "question"
+            block.kind === "widget" && (block.widget === "question" || block.widget === "desktop-handover")
               ? { ...block, props: { ...block.props, selected: pick.value } }
               : block,
           ),
@@ -1330,7 +1330,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }),
     );
     await core.wakeCue(accountId.trim(), conversationId, {
-      cue: `Person tapped your question and chose "${pick.label}" (value: ${pick.value}). Continue from that choice.`,
+      cue:
+        pick.value === "done" || pick.value === "skip"
+          ? `Person answered your computer card: "${pick.label}". ${pick.value === "done" ? "They finished the step on your computer; check the screen and carry on." : "They skipped that step; carry on without it, or say plainly what is now blocked."}`
+          : `Person tapped your question and chose "${pick.label}" (value: ${pick.value}). Continue from that choice.`,
       messageId,
       selected: pick.value,
     });

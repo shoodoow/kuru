@@ -214,7 +214,8 @@ export function conversationsRoutes(ctx: AppContext, guard: Guard): Router {
     if (messageId && selected) {
       const row = await getMessage(ctx.db, accountId, conversationId, messageId);
       if (row?.payload) {
-        const answered = withWidgetProps(row.payload, "question", { selected });
+        // A question, or a handover card answered with "I'm done" or "Skip".
+        const answered = withWidgetProps(withWidgetProps(row.payload, "question", { selected }), "desktop-handover", { selected });
         const [updated] = await ctx.db
           .update(messages)
           // The body is what the agent reads as history, so it records the answer too.

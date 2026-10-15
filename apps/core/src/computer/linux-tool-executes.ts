@@ -98,7 +98,7 @@ export function linuxToolExecutes(
       return screenshotImage(accountId, profile);
     },
     computer_mouse: async (input) => moveMouse(accountId, profile, Number(input.x), Number(input.y)),
-    computer_click: async (input) => clickAt(accountId, profile, Number(input.x), Number(input.y)),
+    computer_click: async (input) => clickAt(accountId, profile, Number(input.x), Number(input.y), 1, Number(input.holdMs) || 0),
     computer_type: async (input) => typeText(accountId, profile, String(input.text)),
     computer_key: async (input) => pressKeys(accountId, profile, String(input.key)),
     web_fetch: async (input) => {
