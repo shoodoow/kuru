@@ -82,8 +82,10 @@ const serverSkillsOn = new Map<string, string>();
  * the skill's scripts, copy its template and read its style guide, and none of
  * those files were on the computer the worker runs on. It then built from
  * nothing and the result was poor. Each skill is copied to `/shared/skills`
- * once and again when its files change on the server. A skill of the same name
- * the account installed for itself is left alone.
+ * once and again when its files change on the server. The product's skill wins
+ * over one of the same name an agent installed: HeyGen's own "hyperframes"
+ * router, installed for every agent, had replaced ours, and workers lost the
+ * method that sets a job up and holds the result to a standard.
  * Input: the server's skills directory and the account id. Output: nothing.
  */
 export async function publishHostSkills(skillsRoot: string, accountId: string): Promise<void> {
@@ -103,7 +105,7 @@ export async function publishHostSkills(skillsRoot: string, accountId: string): 
     const onComputer = new Map(seen.stdout.split("\n").map((line) => line.trim().split(" ") as [string, string]));
     for (const { folder, signature } of folders) {
       const found = onComputer.get(folder);
-      if (found === signature || found === "own") continue;
+      if (found === signature) continue;
       const archive = await tarFolder(skillsRoot, folder);
       const unpack = `rm -rf "$1.new" && mkdir -p "$1.new" && tar -xf - -C "$1.new" --strip-components=1 --no-same-owner && printf %s "$2" > "$1.new/${SERVER_SKILL_MARK}" && rm -rf "$1" && mv "$1.new" "$1" && chmod -R a+rX "$1/.."`;
       const result = await execStdin(accountId, ["sh", "-c", unpack, "sh", `${shared}/${folder}`, signature], archive);
@@ -174,6 +176,8 @@ export async function publishLocalSkills(accountId: string, force = false): Prom
     `  [ -f "$dir/SKILL.md" ] || continue`,
     `  name="$(basename "$dir")"`,
     `  dest=${shared}/"$name"`,
+    // The product's own skills are never replaced by an agent's copy of the same name.
+    `  [ -f "$dest/${SERVER_SKILL_MARK}" ] && continue`,
     // Copy when it is new, or when the installed copy was updated since.
     `  if [ ! -f "$dest/SKILL.md" ] || [ "$dir/SKILL.md" -nt "$dest/SKILL.md" ]; then`,
     `    rm -rf "$dest.new" && cp -rL "$dir" "$dest.new" 2>/dev/null && rm -rf "$dest" && mv "$dest.new" "$dest"`,
@@ -251,6 +255,24 @@ export async function localSkillCatalog(accountId: string, profile: string): Pro
   const skills = [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
   catalogCache.set(key, { at: Date.now(), skills });
   return skills;
+}
+
+/**
+ * Loads the product's copy of a skill from `/shared`, where it was published with its files.
+ * Output: the body with its folder, or null when no product copy is there.
+ */
+export async function readProductSkill(accountId: string, profile: string, name: string): Promise<string | null> {
+  assertSafeProfile(profile);
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) return null;
+  const folder = `${sharedSkillsRoot(accountId)}/${name}`;
+  try {
+    const marked = await exec(accountId, ["test", "-f", `${folder}/${SERVER_SKILL_MARK}`], profile);
+    if (marked.code !== 0) return null;
+    const parsed = parseSkillFrontmatter(await readFile(accountId, profile, `${folder}/SKILL.md`));
+    return withSkillDirectory(`${folder}/SKILL.md`, parsed.body);
+  } catch {
+    return null;
+  }
 }
 
 /**

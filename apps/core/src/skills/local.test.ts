@@ -18,7 +18,7 @@ describe("server skills on the account computer", () => {
     await db.$client.end();
   });
 
-  it("copies a skill's scripts and templates, not only its text, and leaves the account's own skill alone", async () => {
+  it("copies a skill's scripts and templates, not only its text, and puts the product's copy over one of the same name", async () => {
     root = await mkdtemp(join(tmpdir(), "kuru-server-skills-"));
     await mkdir(join(root, "reel", "scripts"), { recursive: true });
     await mkdir(join(root, "reel", "node_modules", "big"), { recursive: true });
@@ -38,7 +38,8 @@ describe("server skills on the account computer", () => {
     expect(ran.code).toBe(0);
     const body = await readLocalSkill(account.id, "root", "reel");
     expect(body).toContain(`Skill directory: ${shared}/reel`);
-    expect(await readLocalSkill(account.id, "root", "mine")).toContain("Account body.");
+    // The product's skill wins over an install of the same name: a router of the same name had displaced ours.
+    expect(await readLocalSkill(account.id, "root", "mine")).toContain("Server body.");
 
   });
 });

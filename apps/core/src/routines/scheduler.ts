@@ -6,6 +6,7 @@ import { reclaimStaleDelegations } from "../rooms/subagents.js";
 import { continueQueuedTurn, type GenerateResult, type TurnInput } from "../rooms/turn.js";
 import { runDue } from "./routines.js";
 import { relayNotifications } from "../notify/relay.js";
+import { reflectDueAgents } from "../memory/reflection.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -99,6 +100,13 @@ export function startScheduler(db: Db, options: SchedulerOptions = {}): () => vo
         }
       } catch (error) {
         options.onError?.(error, "routine");
+      }
+      // 2b. Nightly reflection: a couple of agents per tick improve what they know from their day.
+      // Off until switched on with REFLECTION_ENABLED=1, so its first results can be reviewed.
+      try {
+        if (process.env.REFLECTION_ENABLED === "1") await reflectDueAgents(db);
+      } catch (error) {
+        options.onError?.(error, "reflect");
       }
       // 3. Relay pending pings (push or in-app per policy).
       try {

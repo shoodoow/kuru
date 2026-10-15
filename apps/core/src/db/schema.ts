@@ -64,6 +64,8 @@ export const agents = pgTable(
     // Teams (Phase 10): null for top-level hires, parent agent id for subagents.
     parentId: uuid("parent_id"),
     teamId: text("team_id"),
+    /** When the agent last reflected on its day (its nightly "sleep"); null before the first. */
+    reflectedAt: timestamp("reflected_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

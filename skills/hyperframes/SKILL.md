@@ -49,7 +49,21 @@ workflow skill; read that one and the domain skills it names, and no others.
 If the install fails, work from `npx hyperframes docs` and the project's own `AGENTS.md` / `CLAUDE.md`, and say so
 in the report.
 
-## 3. Build, and look at it
+## 3. Direction first, then style frames
+
+What separates a professional video from an amateur one is decided before any animation:
+1. **Work from the person's words, all of them.** List every requirement in their brief (length, size, scenes, wording,
+   style, what to leave out) in `brief-check.md`, and tick each one off before you report.
+2. **Read `hyperframes-creative`** (palette, typography, composition, beat planning) and write `design.md`: one typeface
+   pair at most, a palette of three to five colours with exact values, the grid and margins, the motion feel (easing,
+   speed, how scenes hand over), and the sound plan. A real typeface and sound design matter more than effects.
+3. **Gather real assets**: the product's logo, colours and images (`npx hyperframes capture <url>` when there is a
+   site), a music bed and sound effects. Never fake a logo or a screenshot.
+4. **Style frames**: build the three or four key moments as still frames (`npx hyperframes snapshot`). When the person
+   has not yet approved a look for this video, stop here: report the frames' paths and `design.md`, and say the build
+   continues once they are approved. A changed look costs minutes now and hours later.
+
+## 4. Build, and look at it
 
 ```bash
 npx hyperframes lint                       # static check; an error here stops a render
@@ -59,11 +73,19 @@ npx hyperframes snapshot --at 1,4,8        # PNG frames without a full render
 Open the snapshots with `read` and judge them the way the person will: text readable and inside the frame, nothing
 overlapping, no empty frame at a cut, motion that starts and lands. Fix and look again, for every scene.
 
+Before rendering, hold it to this bar, scene by scene; fix anything that misses and look again:
+- **Type**: one typeface pair, sizes from a scale, no text touching an edge, nothing below 32px at 1080p.
+- **Layout**: everything on the grid in `design.md`, generous margins, one focal point per frame.
+- **Motion**: eased, never linear; elements arrive in an order, not all at once; nothing moves without a reason.
+- **Pacing**: each line on screen long enough to read twice; cuts on the beat or on a phrase.
+- **Colour**: only the palette; contrast readable on every background.
+- **Sound**: music under any voice, sound effects on the big moments, no silence by accident.
+
 Voice: `npx hyperframes tts "<text>" -o voice.wav -v af_heart` speaks with the same local Kokoro model as the
 `kokoro-tts` skill. For a whole script with per-line timings, use `kokoro-tts`. `npx hyperframes transcribe <file>`
 gives word-level timestamps for captions.
 
-## 4. Render
+## 5. Render
 
 Rendering is the heavy step, and HyperFrames reads the machine's memory, not your computer's limit, so it will
 start more Chromes than you can hold. Ask first and set the worker count yourself:
@@ -78,8 +100,10 @@ npx hyperframes render --quality delivery --workers <n> -o renders/<name>.mp4   
 - Never pass `--docker`: there is no Docker on your computer.
 - `release` the memory when the MP4 exists.
 
-Then check the file as the worker rules say: frames pulled with ffmpeg at 10%, 50% and 90%, opened with `read`, and
-the measured length and resolution in the report.
+Then review the finished file at least twice: pull a frame every two seconds into a contact sheet
+(`ffmpeg -i <mp4> -vf "fps=0.5,scale=480:-1,tile=4x4" sheet.png`), open it with `read`, check it against the bar
+above and `brief-check.md`, fix, render again. Report the measured length and resolution, and what the last review
+still found.
 
 ## Do not
 

@@ -993,7 +993,8 @@ export async function alreadyDelivered(
  * to the worker's own model instead of failing the job.
  * Input: db, account id, the worker row. Output: provider, model id, context window and key.
  */
-async function workerModelFor(
+/** The model background work runs on: the account's background model, else the agent's own. */
+export async function backgroundModelFor(
   db: ReturnType<typeof getDb>,
   accountId: string,
   child: { provider: string; modelId: string; modelContextWindow: number | null },
@@ -1116,7 +1117,7 @@ export async function runWorker(
     // thread history: anything the worker needs must be in the brief. The
     // parent keeps all context and decides with the worker's reported proof.
     // The account's cheap model, when set, runs all background work; otherwise the worker's own.
-    const runOn = await workerModelFor(db, input.accountId, child);
+    const runOn = await backgroundModelFor(db, input.accountId, child);
     const credential = runOn.credential;
     // Recorded for the usage page, which counts tokens per model.
     await db

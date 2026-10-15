@@ -91,6 +91,7 @@ import type { ToolContext } from "./context.js";
 import { startFirstHello } from "../first-hello.js";
 import { ZodError } from "zod";
 import { noted } from "../../log/logger.js";
+import { historyBody } from "../util.js";
 
 export type ToolExecutor = (ctx: ToolContext, input: Record<string, unknown>) => Promise<unknown>;
 
@@ -1141,7 +1142,8 @@ async function workerContext(ctx: ToolContext, task: string): Promise<string> {
     .limit(4);
   const quoted = said
     .reverse()
-    .map((row) => row.body.replace(/\s+/g, " ").trim().slice(0, 1200))
+    // The person's words in full: a long message is usually the job itself.
+    .map((row) => historyBody(row.body.trim(), true))
     .filter(Boolean)
     .map((body) => `- "${body}"`);
   if (quoted.length > 0) lines.push(prompt("worker-rules", "context-person", { messages: quoted.join("\n") }));

@@ -8,6 +8,8 @@ vi.mock("./local.js", () => ({
   localSkillCatalog: vi.fn(),
   publishHostSkills: vi.fn(),
   readLocalSkill: vi.fn(),
+  // No product copy on the computer in this test, so the server's text is read.
+  readProductSkill: vi.fn(async () => null),
 }));
 
 import { catalogTextForAgent, readSkillForAgent, skillCatalogForAgent } from "./agent-skills.js";

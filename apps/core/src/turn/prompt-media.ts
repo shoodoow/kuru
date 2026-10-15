@@ -4,7 +4,7 @@
  */
 import { parseDataUri } from "../rooms/uploads.js";
 import { MAX_VISION_CHARS, MAX_VISION_IMAGES } from "./constants.js";
-import { tailSlice } from "./util.js";
+import { historyBody, tailSlice } from "./util.js";
 
 export type TurnImagePart =
   | { type: "file"; data: string; mediaType: string }
@@ -152,7 +152,7 @@ export function toModelMessages(
     const role = row.agentId && !other ? "assistant" : "user";
     const where = row.relayKind ? ", passed on to you" : "";
     const speaker = other ? `[${reader!.names.get(row.agentId!) ?? "teammate"}${where}]: ` : "";
-    const body = `${speaker}${tailSlice(row.body)}`;
+    const body = `${speaker}${historyBody(row.body, !row.agentId)}`;
     const linked = row.replyTo ? formatReplyBody(body, byId.get(row.replyTo) ?? null) : body;
     const marker = dateMarker(history[index - 1]?.createdAt, row.createdAt, timezone);
     // A reaction is feedback on what the agent said. It rides on the person's
