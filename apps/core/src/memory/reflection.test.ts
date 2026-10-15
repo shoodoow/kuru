@@ -4,7 +4,7 @@ import { getDb } from "../db/client.js";
 import { agentReflections, conversations, delegations, memories, messages, reactions } from "../db/schema.js";
 import { createAccount, createAgent } from "../roster/roster.js";
 import { remember } from "./memory.js";
-import { measureHealth, parseReflection, parseSignals, reflectAgent, textProblem, undoReflection } from "./reflection.js";
+import { localHour, measureHealth, parseReflection, parseSignals, reflectAgent, textProblem, undoReflection } from "./reflection.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
@@ -41,6 +41,13 @@ describe("reflection", () => {
       { op: "merge", targets: ["R1", "R4"], body: "one rule" },
       { op: "retire", target: "F2", evidence: ["M11"] },
     ]);
+  });
+
+  it("tells the person's hour from their zone, falling back to UTC", () => {
+    const at = new Date("2026-10-16T00:30:00Z");
+    expect(localHour("Asia/Tehran", at)).toBe(4);
+    expect(localHour("", at)).toBe(0);
+    expect(localHour("Not/AZone", at)).toBe(0);
   });
 
   it("turns down text that names a skill the agent lacks, holds a secret, or runs long", () => {

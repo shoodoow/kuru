@@ -39,6 +39,7 @@ export function startScheduler(db: Db, options: SchedulerOptions = {}): () => vo
   const staleMs = options.staleMs ?? 120_000;
   const retentionDays = options.eventRetentionDays ?? 30;
   let inFlight = false;
+  let reflecting = false;
   let stopped = false;
 
   const tick = async () => {
@@ -101,12 +102,17 @@ export function startScheduler(db: Db, options: SchedulerOptions = {}): () => vo
       } catch (error) {
         options.onError?.(error, "routine");
       }
-      // 2b. Nightly reflection: a couple of agents per tick improve what they know from their day.
+      // 2b. Nightly reflection: agents improve what they know from their day.
       // Off until switched on with REFLECTION_ENABLED=1, so its first results can be reviewed.
-      try {
-        if (process.env.REFLECTION_ENABLED === "1") await reflectDueAgents(db);
-      } catch (error) {
-        options.onError?.(error, "reflect");
+      // It runs beside the tick, one agent at a time: a reflection can take minutes,
+      // and notifications and routines must not wait for it.
+      if (process.env.REFLECTION_ENABLED === "1" && !reflecting) {
+        reflecting = true;
+        void reflectDueAgents(db, 1)
+          .catch((error: unknown) => options.onError?.(error, "reflect"))
+          .finally(() => {
+            reflecting = false;
+          });
       }
       // 3. Relay pending pings (push or in-app per policy).
       try {

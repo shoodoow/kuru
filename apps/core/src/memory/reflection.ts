@@ -29,7 +29,7 @@ import { and, asc, avg, count, desc, eq, gt, inArray, isNull, lt, or, sql } from
 import { toolsForSurface } from "@kuru/agent-tools";
 import { emojiTone } from "@kuru/shared";
 import type { getDb } from "../db/client.js";
-import { agentReflections, agents, conversations, delegations, memories, messages, reactions, runs, toolApprovals } from "../db/schema.js";
+import { accounts, agentReflections, agents, conversations, delegations, memories, messages, reactions, runs, toolApprovals } from "../db/schema.js";
 import { keyFor } from "../keys/keys.js";
 import { getModel } from "../model/get-model.js";
 import { prompt } from "../prompt/prompts.js";
@@ -43,6 +43,17 @@ type Db = ReturnType<typeof getDb>;
 
 /** How often an agent reflects on its own, at most. */
 export const REFLECT_EVERY_MS = 20 * 60 * 60 * 1000;
+/** The person's local hours when agents reflect on their own: from 2 to before 6 at night. */
+export const REFLECT_HOURS = { from: 2, to: 6 } as const;
+
+/** The hour (0-23) it is now in this zone; UTC when the zone is empty or unknown. */
+export function localHour(timezone: string, now = new Date()): number {
+  try {
+    return Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone: timezone || "UTC" }).format(now));
+  } catch {
+    return now.getUTCHours();
+  }
+}
 /** What one agent keeps for itself before it must merge or retire. */
 export const RULE_BUDGET = 25;
 export const FACT_BUDGET = 40;
@@ -621,14 +632,17 @@ async function callModel(db: Db, accountId: string, agent: typeof agents.$inferS
 /**
  * Reflects for the agents that are due, a few per call.
  * Due: a visible agent that has not reflected for REFLECT_EVERY_MS, whose
- * chats saw the person since, and that is not working right now. The time is
+ * chats saw the person since, that is not working right now, and whose
+ * person is at night (REFLECT_HOURS in the account's zone), so it never
+ * competes with their day. The time is
  * stamped first, so a failure does not retry in a loop.
  */
 export async function reflectDueAgents(db: Db, limit = 2): Promise<number> {
   const cutoff = new Date(Date.now() - REFLECT_EVERY_MS);
-  const due = await db
-    .select({ id: agents.id, accountId: agents.accountId, reflectedAt: agents.reflectedAt, createdAt: agents.createdAt })
+  const candidates = await db
+    .select({ id: agents.id, accountId: agents.accountId, reflectedAt: agents.reflectedAt, createdAt: agents.createdAt, timezone: accounts.timezone })
     .from(agents)
+    .innerJoin(accounts, eq(accounts.id, agents.accountId))
     .where(
       and(
         eq(agents.hidden, false),
@@ -641,7 +655,13 @@ export async function reflectDueAgents(db: Db, limit = 2): Promise<number> {
       ),
     )
     .orderBy(asc(agents.reflectedAt))
-    .limit(limit);
+    .limit(limit * 20);
+  const due = candidates
+    .filter((row) => {
+      const hour = localHour(row.timezone);
+      return hour >= REFLECT_HOURS.from && hour < REFLECT_HOURS.to;
+    })
+    .slice(0, limit);
   let done = 0;
   for (const row of due) {
     const since = row.reflectedAt ?? row.createdAt;
