@@ -225,7 +225,14 @@ export async function createLinux(accountId: string, emailHint?: string): Promis
     return winner.Id;
   }
   await ensureBaseToolchain(accountId);
-  const shared = await exec(accountId, ["sh", "-c", "mkdir -p /shared && chmod 1777 /shared"]);
+  // Notes folders are made here, open to every agent like /shared itself:
+  // made by whoever came first, a folder was once root's, and no routine
+  // could save its notes there again.
+  const shared = await exec(accountId, [
+    "sh",
+    "-c",
+    "mkdir -p /shared/notes/routines /shared/notes/sites && chmod 1777 /shared /shared/notes /shared/notes/routines /shared/notes/sites",
+  ]);
   if (shared.code !== 0) {
     throw new Error(shared.stdout || "The shared directory was not created.");
   }

@@ -123,7 +123,9 @@ describe("collapseOldSteps", () => {
     const note = String(out[1]!.content);
     expect(note).toContain("use pauses in the voice-over");
     expect(note).toContain("- bash: npm run step-1");
-    expect(note).not.toContain("yyyy");
+    // Only the start of each old result stays, enough to know what it said.
+    expect(note).not.toContain("y".repeat(200));
+    expect(note).toContain(`→ ${"y".repeat(160)}…`);
     expect(out.slice(2)).toEqual(transcript.slice(-6));
     expect(JSON.stringify(out).length).toBeLessThan(JSON.stringify(transcript).length / 3);
   });

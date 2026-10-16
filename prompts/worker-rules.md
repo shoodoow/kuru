@@ -162,5 +162,8 @@ You made the same call several times and got the same result each time. Repeatin
 # start-doing
 Your last {{steps}} steps only read and searched. You know enough to begin. Make the change now: write the file, run the build, or run the command that does the job. Come back to reading only when a specific error calls for it.
 
+# look-stop
+Your last {{steps}} steps only read and searched again, after being asked twice to start. Stop here and write your report: what you found, what you would do next and why you have not, and anything you need. The job can be continued from your report.
+
 # wrap-up
 You have about {{steps}} steps left in this run. Finish the piece you are on, check it, and write the report. The job can be continued afterwards, so say exactly where you stopped.

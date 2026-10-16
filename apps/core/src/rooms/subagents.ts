@@ -33,6 +33,7 @@ import { accounts, agents, conversations, delegations, members, messages, runs, 
 import { repairToolInput } from "../turn/tools/repair-input.js";
 import {
   LOOK_ONLY_NUDGE_AFTER,
+  LOOK_ONLY_NUDGES_BEFORE_STOP,
   WORKER_SEGMENT_STEPS,
   WORKER_STEP_CEILING,
   WORKER_WALL_MS,
@@ -1362,6 +1363,7 @@ export async function runWorker(
     const stepLog: { text?: string; reasoningText?: string; toolCalls?: unknown[]; toolResults?: never[] }[] = [];
     let recentToolResults: unknown[] = [];
     let lookOnlyStreak = 0;
+    let lookNudges = 0;
     let lastInputTokens = 0;
     let lastToolCallSignature = "";
     let duplicateCallCount = 0;
@@ -1464,6 +1466,13 @@ export async function runWorker(
               .where(and(eq(delegations.id, input.delegationId), eq(delegations.status, "running")))
               .catch(noted("Saving a worker's progress"));
             lastInputTokens = step.usage?.inputTokens ?? lastInputTokens;
+            // Counted per step, not per segment: a stop mid-segment still bills what ran.
+            usage.inputTokens = (usage.inputTokens ?? 0) + (step.usage?.inputTokens ?? 0);
+            usage.outputTokens = (usage.outputTokens ?? 0) + (step.usage?.outputTokens ?? 0);
+            usage.cacheReadTokens = (usage.cacheReadTokens ?? 0) + (step.usage?.inputTokenDetails?.cacheReadTokens ?? 0);
+            usage.cacheWriteTokens = (usage.cacheWriteTokens ?? 0) + (step.usage?.inputTokenDetails?.cacheWriteTokens ?? 0);
+            usage.reasoningTokens = (usage.reasoningTokens ?? 0) + (step.usage?.outputTokenDetails?.reasoningTokens ?? 0);
+            usage.modelSteps = totalSteps;
             await workerTrace.emit({
               type: "model.step.finish",
               step: totalSteps,
@@ -1496,17 +1505,6 @@ export async function runWorker(
         });
         inFlight = [];
         transcript.push(...(result.responseMessages as ModelMessage[]));
-        // AI SDK 7: result.usage already sums every step of this call.
-        const inDetails = result.usage.inputTokenDetails as
-          | { cacheReadTokens?: number; cacheWriteTokens?: number }
-          | undefined;
-        const outDetails = result.usage.outputTokenDetails as { reasoningTokens?: number } | undefined;
-        usage.inputTokens = (usage.inputTokens ?? 0) + (result.usage.inputTokens ?? 0);
-        usage.outputTokens = (usage.outputTokens ?? 0) + (result.usage.outputTokens ?? 0);
-        usage.cacheReadTokens = (usage.cacheReadTokens ?? 0) + (inDetails?.cacheReadTokens ?? 0);
-        usage.cacheWriteTokens = (usage.cacheWriteTokens ?? 0) + (inDetails?.cacheWriteTokens ?? 0);
-        usage.reasoningTokens = (usage.reasoningTokens ?? 0) + (outDetails?.reasoningTokens ?? 0);
-        usage.modelSteps = totalSteps;
         await saveTranscript();
         if (closing) {
           finalText = result.text;
@@ -1552,7 +1550,15 @@ export async function runWorker(
           }
         }
         if (lookOnlyStreak >= LOOK_ONLY_NUDGE_AFTER) {
-          say(prompt("worker-rules", "start-doing", { steps: lookOnlyStreak }));
+          // Told twice and still only looking: it reports what it found instead
+          // of reading until the ceiling. The job can be continued from the report.
+          if (lookNudges >= LOOK_ONLY_NUDGES_BEFORE_STOP) {
+            say(prompt("worker-rules", "look-stop", { steps: lookOnlyStreak }));
+            loopStrikes = 2;
+          } else {
+            lookNudges += 1;
+            say(prompt("worker-rules", "start-doing", { steps: lookOnlyStreak }));
+          }
           lookOnlyStreak = 0;
         }
         if (!warnedWrapUp && WORKER_STEP_CEILING - totalSteps <= WRAP_UP_WARNING_STEPS) {
@@ -1577,6 +1583,20 @@ export async function runWorker(
       // Stopped or crashed mid-segment: keep what was done so the job can be continued.
       if (inFlight.length > 0) transcript.push(...inFlight);
       await saveTranscript();
+      // And what it cost: a stopped job once showed no usage at all while the
+      // provider had billed every step of it.
+      await db
+        .update(delegations)
+        .set({
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadTokens: usage.cacheReadTokens,
+          cacheWriteTokens: usage.cacheWriteTokens,
+          reasoningTokens: usage.reasoningTokens,
+          modelSteps: totalSteps,
+        })
+        .where(eq(delegations.id, input.delegationId))
+        .catch(noted("Saving a stopped worker's usage"));
       throw error;
     }
     await workerTrace.emit({

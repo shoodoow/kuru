@@ -16,6 +16,14 @@ export const WORKER_SEGMENT_STEPS = 6;
 export const WORKER_WALL_MS = 90 * 60 * 1000;
 /** Steps spent only looking before the worker is told to start doing. */
 export const LOOK_ONLY_NUDGE_AFTER = 8;
+/**
+ * Times it is told to start doing before it must report instead. A worker
+ * once read for 200 tool calls through two such nudges and delivered nothing;
+ * the report it writes instead can be continued, so no work is lost.
+ */
+export const LOOK_ONLY_NUDGES_BEFORE_STOP = 2;
+/** How much of what a collapsed step returned stays in view. */
+const COLLAPSED_RESULT_CHARS = 160;
 /** Steps left when the worker is warned the ceiling is near. */
 export const WRAP_UP_WARNING_STEPS = 8;
 /** Largest conversation kept for a later continuation, as JSON characters. */
@@ -225,11 +233,12 @@ const COLLAPSED_NOTES_KEPT = 8;
 const COLLAPSED_NOTE_CHARS = 1_500;
 
 /** One tool call as a short line: the tool and the part of its input that says what it did. */
-function actionLine(part: Part): string {
+function actionLine(part: Part, returned?: string): string {
   const name = String(part.toolName ?? "tool");
   const input = (part.input ?? {}) as Record<string, unknown>;
   const said = typeof input.command === "string" ? input.command : typeof input.path === "string" ? input.path : JSON.stringify(input);
-  return `- ${name}: ${String(said ?? "").replace(/\s+/g, " ").slice(0, 120)}`;
+  const result = returned?.replace(/\s+/g, " ").trim();
+  return `- ${name}: ${String(said ?? "").replace(/\s+/g, " ").slice(0, 120)}${result ? ` → ${result.slice(0, COLLAPSED_RESULT_CHARS)}${result.length > COLLAPSED_RESULT_CHARS ? "…" : ""}` : ""}`;
 }
 
 /** Text of a plain message, whether its content is a string or a list of parts. */
@@ -264,10 +273,19 @@ export function collapseOldSteps(messages: ModelMessage[], keepRecent = 16): Mod
   const actions: string[] = [];
   const notes: string[] = [];
   let earlierActions = 0;
+  // What each call returned, so the summary says what was learned, not only what was run:
+  // without it a worker re-read the same files after every collapse.
+  const returned = new Map<string, string>();
+  for (const message of messages.slice(1, cut)) {
+    if (message.role !== "tool" || !Array.isArray(message.content)) continue;
+    for (const part of message.content as Part[]) {
+      if (part.type === "tool-result") returned.set(String(part.toolCallId ?? ""), outputText(part.output ?? part.result).text);
+    }
+  }
   for (const message of messages.slice(1, cut)) {
     if (message.role === "assistant" && Array.isArray(message.content)) {
       for (const part of message.content as Part[]) {
-        if (part.type === "tool-call") actions.push(actionLine(part));
+        if (part.type === "tool-call") actions.push(actionLine(part, returned.get(String(part.toolCallId ?? ""))));
       }
       continue;
     }
@@ -289,7 +307,7 @@ export function collapseOldSteps(messages: ModelMessage[], keepRecent = 16): Mod
   earlierActions += actions.length - keptActions.length;
   const keptNotes = notes.slice(-COLLAPSED_NOTES_KEPT);
   const note = [
-    `${COLLAPSED_HEAD} Their results are no longer in view: what was built is on disk, so look there or rerun a command if you need something again.]`,
+    `${COLLAPSED_HEAD} Each tool call below shows the start of what it returned. Trust these and what is on disk; read something again only if it has changed since, or you need a detail that is not here.]`,
     "",
     "Instructions given during those steps:",
     keptNotes.length > 0 ? keptNotes.join("\n\n") : "(none)",
