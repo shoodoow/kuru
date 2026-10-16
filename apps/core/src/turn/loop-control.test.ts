@@ -156,6 +156,25 @@ describe("asksInPlainText", () => {
   });
 });
 
+describe("stripLeakedToolCall", () => {
+  it("cuts a tool call written into the reply, and leaves ordinary text alone", async () => {
+    const { stripLeakedToolCall, stripLeakedThinking } = await import("./loop-control.js");
+    expect(stripLeakedToolCall("Publishing now; I'll drop you the link.spawn_worker<arg_key>instructions</arg_key><arg_value>Publish ONE post")).toBe(
+      "Publishing now; I'll drop you the link.",
+    );
+    expect(stripLeakedToolCall('On it — no link field.spawn_worker spr подготовки {"task": "Edit two entries"}')).toBe("On it — no link field.");
+    expect(stripLeakedToolCall("Done.<tool_call>read_file")).toBe("Done.");
+    expect(stripLeakedThinking('Checking now. browser_open {"url": "x"}')).toBe("Checking now.");
+    for (const plain of [
+      "The file_name is report.md and the JSON looks like {a: 1}.",
+      "Use the `snake_case` style {like this} for keys.",
+      "I set max_steps to 60 for the job.",
+    ]) {
+      expect(stripLeakedToolCall(plain)).toBe(plain);
+    }
+  });
+});
+
 describe("stripLeakedThinking", () => {
   it("drops a long opening note to self and keeps ordinary brackets", async () => {
     const { stripLeakedThinking } = await import("./loop-control.js");

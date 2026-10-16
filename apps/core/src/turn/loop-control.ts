@@ -169,6 +169,36 @@ export function asksInPlainText(text: string): boolean {
   return tail.includes("?") || /[:：]\s*$/.test(tail);
 }
 
+/** Tool-call markup that some models write as plain text: <arg_key>, <tool_call>, <|tool_call_begin|>, <function=…>, [TOOL_CALLS]. */
+const TOOL_MARKUP = /<\/?(?:arg_key|arg_value|tool_call|tool_calls|function_call|invoke|parameter)\b|<\|[a-z_]*tool[a-z_]*\|>|<function=|\[TOOL_CALLS\]/i;
+/** A tool name in snake_case followed, within a few words, by JSON arguments: `spawn_worker {"task": …`. */
+const TOOL_WITH_ARGS = /(^|[\s.!?:;,)])([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b[^\n{]{0,40}\{\s*"/;
+
+/**
+ * Cuts a tool call the model wrote into its reply as text.
+ * Why: a model sometimes writes its call in its own markup instead of making
+ * it ("…when it's up.spawn_worker<arg_key>instructions</arg_key>…"), and the
+ * person got the whole worker brief as a chat message. The real call is made
+ * separately when there is one; the text from the leak on is dropped.
+ * Input: the reply text. Output: the text before the leak, or the text as it was.
+ */
+export function stripLeakedToolCall(text: string): string {
+  let cut = -1;
+  const markup = TOOL_MARKUP.exec(text);
+  if (markup) {
+    cut = markup.index;
+    // The tool's name usually sits right before its markup: "spawn_worker<arg_key>".
+    const name = /[a-z][a-z0-9]*(?:_[a-z0-9]+)+\s*$/.exec(text.slice(0, cut));
+    if (name) cut = name.index;
+  }
+  const withArgs = TOOL_WITH_ARGS.exec(text);
+  if (withArgs) {
+    const at = withArgs.index + withArgs[1]!.length;
+    cut = cut < 0 ? at : Math.min(cut, at);
+  }
+  return cut < 0 ? text : text.slice(0, cut).trimEnd();
+}
+
 /**
  * Removes reasoning a model wrote into its reply by mistake.
  * Why: small models sometimes open the reply with a long bracketed note to
@@ -177,6 +207,7 @@ export function asksInPlainText(text: string): boolean {
  * Input: the reply text. Output: the text without that opening note.
  */
 export function stripLeakedThinking(text: string): string {
+  text = stripLeakedToolCall(text);
   const trimmed = text.trimStart();
   if (!trimmed.startsWith("(")) return text;
   let depth = 0;
