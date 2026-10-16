@@ -6,6 +6,24 @@ What changed in each release, newest first. Update your server with
 Each entry says whether it needs anything from the person running the
 server (a new setting, a new app build) under **To update**.
 
+## Unreleased
+
+**New**
+
+- **Nightly reflection.** Once a night, in the person's time zone, each agent
+  they talked to reviews its day: it learns rules from corrections, confirms
+  what worked, and merges or retires old memory. Code checks every change, and
+  each one shows on the agent's new **Health** card with Undo.
+- Reactions say more: 👎 and other dislikes count as a correction, not praise.
+
+**To update**
+
+- Add `REFLECTION_ENABLED=1` to `apps/core/.env` to turn on nightly
+  reflection (see `apps/core/.env.example`). Without it, agents only reflect
+  when someone taps **Reflect now** on the Health card.
+- Build the phone app again: saving pictures and videos to Photos uses a new
+  native module.
+
 ## 0.4.0
 
 **New**
