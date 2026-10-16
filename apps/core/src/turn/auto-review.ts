@@ -217,9 +217,22 @@ export async function allowForGood(db: Db, accountId: string, approval: { agentI
   await db.insert(toolAllowances).values({ accountId, agentId: owner, tool: approval.tool }).onConflictDoNothing();
 }
 
+/** The other actions that can wait for the person, in their words. */
+const OTHER_ACTIONS: Record<string, string> = {
+  bash: "Run a command on its computer",
+  gmail_send: "Send an email",
+  fire_agent: "Remove an agent",
+  delete_group: "Delete a team chat",
+  delete_routine: "Delete a routine",
+  delete_routines: "Delete routines",
+};
+
 /** An action as the person reads it: "Publish a reel on Instagram" rather than the tool's name. */
 export function actionLabel(tool: string): string {
-  return SOCIAL_ACTIONS[tool] ?? (tool === "gmail_send" ? "Send email" : tool.replace(/_/g, " "));
+  const named = SOCIAL_ACTIONS[tool] ?? OTHER_ACTIONS[tool];
+  if (named) return named;
+  const words = tool.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /** The account's allowances, newest first, with the agent's name and the action in words. */
@@ -498,12 +511,20 @@ export async function setAutoReview(db: Db, accountId: string, autoReview: boole
   return row ?? null;
 }
 
+/** What waits for the person, newest first, with who asks and the action in words. */
 export async function listToolApprovals(db: Db, accountId: string) {
   const rows = await db
-    .select()
+    .select({ approval: toolApprovals, agentName: agents.name })
     .from(toolApprovals)
-    .where(and(eq(toolApprovals.accountId, accountId), eq(toolApprovals.status, "pending")));
-  return rows.map((row) => ({ ...row, canAlwaysAllow: canAlwaysAllow(row.tool) }));
+    .leftJoin(agents, eq(agents.id, toolApprovals.agentId))
+    .where(and(eq(toolApprovals.accountId, accountId), eq(toolApprovals.status, "pending")))
+    .orderBy(desc(toolApprovals.createdAt));
+  return rows.map(({ approval, agentName }) => ({
+    ...approval,
+    agentName: agentName ?? "An agent",
+    action: actionLabel(approval.tool),
+    canAlwaysAllow: canAlwaysAllow(approval.tool),
+  }));
 }
 
 export async function decideToolApproval(

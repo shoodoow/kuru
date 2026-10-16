@@ -16,6 +16,7 @@ export default function ApprovalsRoute() {
       onReload={session.reloadApprovals}
       onLoadAllowances={() => core.listAllowances(session.accountId.trim())}
       onRemoveAllowance={(id) => core.removeAllowance(session.accountId.trim(), id)}
+      agents={session.agents}
       onDenyTool={(id) => void session.decideToolRow(id, false).catch(session.show)}
       onBack={() => {}}
     />

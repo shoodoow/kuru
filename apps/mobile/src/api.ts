@@ -85,6 +85,10 @@ export type ToolApproval = {
   status: string;
   /** False for a shell command or removing an agent, which always ask. */
   canAlwaysAllow?: boolean;
+  /** Who asks, and the action in the person's words ("Publish a reel on Instagram"). */
+  agentName?: string;
+  action?: string;
+  createdAt?: string;
 };
 
 /** How an agent is doing, measured by the server from what it carries and how its day went. */

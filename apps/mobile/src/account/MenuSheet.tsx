@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type ViewStyle } from "react-native";
+import { Alert, KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type ViewStyle } from "react-native";
 import type { ProviderSetting } from "../api";
 import type { AccountUsage, PluginList, RosterAgent, UsagePeriod } from "../api";
 import type { SavedAccount } from "../auth";
@@ -491,6 +491,10 @@ function AccountPage({
   scrollStyle: ViewStyle;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
+  // The second step of deleting: the person types "delete" to unlock the button.
+  const [typing, setTyping] = useState(false);
+  const [typed, setTyped] = useState("");
+  const typedRight = typed.trim().toLowerCase() === "delete";
   const host = (url: string): string => url.replace(/^https?:\/\//, "");
 
   function run(kind: string, action: () => Promise<void>): void {
@@ -513,7 +517,14 @@ function AccountPage({
       `This deletes ${account.email} for good: every agent, chat and file, what the agents remember, and their computer. It cannot be undone.`,
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Delete everything", style: "destructive", onPress: () => run("delete", onDelete) },
+        {
+          text: "Continue",
+          style: "destructive",
+          onPress: () => {
+            setTyped("");
+            setTyping(true);
+          },
+        },
       ],
     );
   }
@@ -555,6 +566,44 @@ function AccountPage({
         <Text style={styles.dangerText}>{busy === "delete" ? "Deleting…" : "Delete account"}</Text>
       </Pressable>
       <Text style={styles.caption}>Deleting removes the account and all of its data from the server. This can't be undone.</Text>
+      <Modal visible={typing} transparent animationType="fade" onRequestClose={() => setTyping(false)}>
+        <KeyboardAvoidingView behavior={process.env.EXPO_OS === "ios" ? "padding" : undefined} style={styles.confirmBackdrop}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Type delete to confirm</Text>
+            <Text style={styles.confirmBody}>
+              {account.email} and everything in it will be gone for good: agents, chats, files, memory and their computer.
+            </Text>
+            <TextInput
+              value={typed}
+              onChangeText={setTyped}
+              placeholder="delete"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus
+              accessibilityLabel="Type delete to confirm"
+              style={styles.confirmInput}
+            />
+            <View style={styles.confirmActions}>
+              <Pressable accessibilityRole="button" onPress={() => setTyping(false)} style={(state) => pressableStyle(styles.confirmButton, state)}>
+                <Text style={styles.confirmCancel}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !typedRight }}
+                disabled={!typedRight}
+                onPress={() => {
+                  setTyping(false);
+                  run("delete", onDelete);
+                }}
+                style={(state) => pressableStyle([styles.confirmButton, styles.confirmDanger, !typedRight ? styles.confirmOff : null], state)}
+              >
+                <Text style={styles.confirmDangerText}>Delete account</Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </ScrollView>
   );
 }
@@ -697,6 +746,17 @@ function createStyles(colors: ColorPalette) {
     height: 52,
   },
   dangerText: { color: colors.danger, fontSize: 16, fontWeight: "600" },
+  confirmBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
+  confirmCard: { width: "100%", maxWidth: 360, backgroundColor: colors.sheet, borderRadius: 20, borderCurve: "continuous", padding: 20, gap: 12 },
+  confirmTitle: { color: colors.text, fontSize: 18, fontWeight: "700" },
+  confirmBody: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+  confirmInput: { color: colors.text, fontSize: 17, backgroundColor: colors.bubble, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
+  confirmActions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  confirmButton: { flex: 1, minHeight: 46, borderRadius: 14, borderCurve: "continuous", backgroundColor: colors.control, alignItems: "center", justifyContent: "center" },
+  confirmCancel: { color: colors.text, fontSize: 16, fontWeight: "600" },
+  confirmDanger: { backgroundColor: colors.danger },
+  confirmOff: { opacity: 0.4 },
+  confirmDangerText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
   caption: { color: colors.muted, fontSize: 13, lineHeight: 18, marginHorizontal: 6 },
   signupTitle: { color: colors.text, fontSize: 28, fontWeight: "700", marginTop: 8 },
   input: {

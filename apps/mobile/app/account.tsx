@@ -92,6 +92,7 @@ export default function AccountRoute() {
             onReload={session.reloadApprovals}
             onLoadAllowances={() => core.listAllowances(session.accountId.trim())}
             onRemoveAllowance={(id) => core.removeAllowance(session.accountId.trim(), id)}
+            agents={session.agents}
             onBack={() => session.setMenu("menu")}
           />
         }
