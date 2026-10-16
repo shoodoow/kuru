@@ -1,5 +1,5 @@
 import type { getDb } from "../db/client.js";
-import { googleAccessToken } from "./google-oauth.js";
+import { forgetGoogleGrant, GoogleGrantRevokedError, googleAccessToken } from "./google-oauth.js";
 import { googleRefreshToken } from "./plugins.js";
 import { youtube } from "../social/youtube.js";
 
@@ -41,6 +41,7 @@ export async function runGoogleTool(
     const text = JSON.stringify(result);
     return text.length > MAX_OUTPUT ? `${text.slice(0, MAX_OUTPUT)}\n[truncated]` : text;
   } catch (error) {
+    if (error instanceof GoogleGrantRevokedError) await forgetGoogleGrant(db, accountId).catch(() => undefined);
     return error instanceof Error ? error.message : "The Google call failed.";
   }
 }

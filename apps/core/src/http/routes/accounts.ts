@@ -7,7 +7,7 @@ import { getModel } from "../../model/get-model.js";
 import { listProviderKeys, saveProviderKey } from "../../keys/keys.js";
 import { saveSecret } from "../../keys/secrets.js";
 import { createProfile } from "../../linux/linux.js";
-import { startGoogleOAuth } from "../../mcp/google-oauth.js";
+import { startGoogleOAuth, syncGoogleGrant } from "../../mcp/google-oauth.js";
 import { startMcpOAuth } from "../../mcp/mcp-oauth.js";
 import { listAccountPlugins } from "../../mcp/plugins.js";
 import { deleteMcpServer, listMcpServers, mcpRowsForAccount, refreshStaleMcpTools, saveMcpServer } from "../../mcp/store.js";
@@ -84,6 +84,7 @@ export function accountsRoutes(ctx: AppContext, guard: Guard): Router {
     void mcpRowsForAccount(ctx.db, accountId)
       .then((rows) => refreshStaleMcpTools(ctx.db, rows, true))
       .catch(() => undefined);
+    await syncGoogleGrant(ctx.db, accountId);
     res.json(await listAccountPlugins(ctx.db, accountId));
   });
   accounts.post("/:accountId/plugins/google/start", guard, async (req, res) => {
