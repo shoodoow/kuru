@@ -133,6 +133,22 @@ export function isSafeImageUrl(url: string): boolean {
  * Input: store, ids, run id, validated blocks, optional replyTo/attribution, timestamp.
  * Output: the saved message row. Throws on cross-account replyTo or bad image.
  */
+/**
+ * Turns a "code" block that holds a plain sentence back into text.
+ * Why: models sometimes put a status line in a code block, and the person saw
+ * "Full sweep running…" in a monospace box. Real code (several lines, a language,
+ * or code punctuation) stays a code block.
+ */
+export function proseCodeAsText(block: MessageBlock): MessageBlock {
+  if (block.kind !== "code" || block.language) return block;
+  const code = block.code.trim();
+  if (code.includes("\n") || /[{}();=<>$`\[\]|\\]|=>|::|\/\//.test(code)) return block;
+  // A sentence: five or more words, and sentence punctuation (a final stop, a dash, a comma).
+  const words = code.split(/\s+/).filter((word) => /\p{L}/u.test(word)).length;
+  if (words < 5 || !/([.!?…]$|\s[—–-]\s|,\s)/u.test(code)) return block;
+  return { kind: "text", markdown: code };
+}
+
 export async function saveSendMessage(
   store: Store,
   input: {
@@ -147,6 +163,7 @@ export async function saveSendMessage(
   },
 ) {
   const parsed = sendMessageInputSchema.parse({ blocks: input.blocks, replyTo: input.replyTo ?? null });
+  parsed.blocks = parsed.blocks.map(proseCodeAsText);
   for (const block of parsed.blocks) {
     if (block.kind === "image" && !isSafeImageUrl(block.url)) {
       throw new Error("Image must be an https URL or a data:image base64 URI.");
