@@ -670,6 +670,8 @@ export const mcpServers = pgTable(
     enabled: boolean("enabled").notNull().default(true),
     toolsCache: jsonb("tools_cache").notNull().default([]),
     lastError: text("last_error"),
+    /** A Google plugin's granted scopes. Each Google plugin keeps its own sign-in in `secret`. */
+    scopes: text("scopes").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -679,7 +681,7 @@ export const mcpServers = pgTable(
   ],
 );
 
-/** One Google refresh token per account. Plugin rows do not each store a copy. */
+/** Legacy: the one Google token an account shared before each Google plugin kept its own (migration 0054). Not read any more. */
 export const accountGoogleOauth = pgTable("account_google_oauth", {
   accountId: uuid("account_id")
     .primaryKey()

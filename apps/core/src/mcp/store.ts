@@ -10,7 +10,6 @@ import { catalogPlugin } from "./catalog.js";
 import { callMcpTool, listMcpTools, McpAuthError, toolResultText } from "./client.js";
 import { readSecret, sealOAuth, type OAuthSecret } from "./credential.js";
 import { refreshOAuthSecret, updateOAuthSecret } from "./mcp-oauth.js";
-import { dropGoogleTokenIfUnused } from "./plugins.js";
 import type { McpToolCacheEntry } from "./types.js";
 import { assertSafeMcpUrl } from "./url.js";
 
@@ -55,13 +54,8 @@ export async function listMcpServers(db: Database, accountId: string): Promise<S
 }
 
 export async function deleteMcpServer(db: Database, accountId: string, slug: string): Promise<void> {
-  const [row] = await db
-    .select({ id: mcpServers.id, kind: mcpServers.kind })
-    .from(mcpServers)
-    .where(and(eq(mcpServers.accountId, accountId), eq(mcpServers.slug, slug)));
-  if (!row) return;
+  // A Google plugin's sign-in lives on its row, so it goes with it.
   await db.delete(mcpServers).where(and(eq(mcpServers.accountId, accountId), eq(mcpServers.slug, slug)));
-  if (row.kind === "google") await dropGoogleTokenIfUnused(db, accountId);
 }
 
 export async function saveMcpServer(db: Database, accountId: string, input: unknown): Promise<StoredMcpServer> {

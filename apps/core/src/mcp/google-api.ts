@@ -28,7 +28,7 @@ export async function runGoogleTool(
   /** The agent's Linux user, for tools that send a file from its computer (YouTube). */
   profile?: string | null,
 ): Promise<string> {
-  const stored = await googleRefreshToken(db, accountId);
+  const stored = await googleRefreshToken(db, accountId, slug);
   if (!stored?.refreshToken) return "Connect this Google plugin again.";
   try {
     const token = await googleAccessToken(stored.refreshToken);
@@ -41,7 +41,7 @@ export async function runGoogleTool(
     const text = JSON.stringify(result);
     return text.length > MAX_OUTPUT ? `${text.slice(0, MAX_OUTPUT)}\n[truncated]` : text;
   } catch (error) {
-    if (error instanceof GoogleGrantRevokedError) await forgetGoogleGrant(db, accountId).catch(() => undefined);
+    if (error instanceof GoogleGrantRevokedError) await forgetGoogleGrant(db, accountId, slug).catch(() => undefined);
     return error instanceof Error ? error.message : "The Google call failed.";
   }
 }

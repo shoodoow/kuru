@@ -1,10 +1,11 @@
 import { afterAll, expect, test } from "vitest";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db/client.js";
-import { accountGoogleOauth, accounts, mcpServers } from "../db/schema.js";
+import { accounts, mcpServers } from "../db/schema.js";
 import { discoverMcpOAuth, startMcpOAuth } from "./mcp-oauth.js";
+import { catalogPlugin } from "./catalog.js";
 import { startGoogleOAuth } from "./google-oauth.js";
-import { applyGoogleConnection, listAccountPlugins } from "./plugins.js";
+import { applyGoogleConnection, googleRefreshToken, listAccountPlugins } from "./plugins.js";
 import { deleteMcpServer, saveMcpServer } from "./store.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
@@ -26,33 +27,31 @@ test("a Google plugin stays on the account that installed it and the token is no
   expect(JSON.stringify(own)).not.toContain(token);
   expect(JSON.stringify(other)).not.toContain(token);
   await deleteMcpServer(db, a!.id, "gmail");
-  const [left] = await db.select().from(accountGoogleOauth).where(eq(accountGoogleOauth.accountId, a!.id));
-  expect(left).toBeUndefined();
+  expect(await googleRefreshToken(db, a!.id, "gmail")).toBeNull();
   await db.delete(mcpServers).where(eq(mcpServers.accountId, a!.id));
   await db.delete(mcpServers).where(eq(mcpServers.accountId, b!.id));
   await db.delete(accounts).where(eq(accounts.id, a!.id));
   await db.delete(accounts).where(eq(accounts.id, b!.id));
 });
 
-test("adding Calendar asks for the Gmail scopes this account already granted", async () => {
+test("each Google plugin asks only for its own scopes and keeps its own sign-in", async () => {
   process.env.GOOGLE_CLIENT_ID = "test-client";
   process.env.GOOGLE_CLIENT_SECRET = "test-secret";
   const [account] = await db.insert(accounts).values({ name: "Plugin Scopes" }).returning();
-  await applyGoogleConnection(
-    db,
-    account!.id,
-    "gmail",
-    "refresh-token-scopes",
-    "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose",
-  );
-  const started = await startGoogleOAuth(db, account!.id, "google-calendar");
-  expect(started.installed).toBe(false);
-  if (started.installed) throw new Error("expected a consent URL");
+  const gmailScopes = catalogPlugin("gmail")!.scopes.join(" ");
+  await applyGoogleConnection(db, account!.id, "gmail", "refresh-token-gmail", gmailScopes);
+  const started = await startGoogleOAuth(db, account!.id, "youtube");
   const scope = new URL(started.url).searchParams.get("scope") ?? "";
-  expect(scope).toContain("gmail.readonly");
-  expect(scope).toContain("calendar.events");
+  expect(scope).not.toContain("gmail");
+  expect(new URL(started.url).searchParams.get("prompt")).toContain("select_account");
   expect(started.url).not.toContain(account!.id);
-  await db.delete(accountGoogleOauth).where(eq(accountGoogleOauth.accountId, account!.id));
+  // YouTube on another Google account (a brand account) leaves Gmail's sign-in alone.
+  await applyGoogleConnection(db, account!.id, "youtube", "refresh-token-brand", catalogPlugin("youtube")!.scopes.join(" "));
+  expect((await googleRefreshToken(db, account!.id, "gmail"))?.refreshToken).toBe("refresh-token-gmail");
+  expect((await googleRefreshToken(db, account!.id, "youtube"))?.refreshToken).toBe("refresh-token-brand");
+  const cards = (await listAccountPlugins(db, account!.id)).plugins;
+  expect(cards.find((plugin) => plugin.id === "gmail")?.configured).toBe(true);
+  expect(cards.find((plugin) => plugin.id === "youtube")?.configured).toBe(true);
   await db.delete(mcpServers).where(eq(mcpServers.accountId, account!.id));
   await db.delete(accounts).where(eq(accounts.id, account!.id));
 });

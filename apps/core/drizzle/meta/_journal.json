@@ -379,6 +379,13 @@
       "when": 1791415100000,
       "tag": "0053_more-reactions",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791501500000,
+      "tag": "0054_google-sign-in-per-plugin",
+      "breakpoints": true
     }
   ]
 }

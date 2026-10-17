@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import type { getDb } from "../db/client.js";
-import { accountGoogleOauth, mcpServers } from "../db/schema.js";
+import { mcpServers } from "../db/schema.js";
 import { seal } from "../keys/keys.js";
 import { catalogPlugin, PLUGIN_CATALOG, scopesCover, type CatalogPlugin, type PluginMark, type PluginSkill } from "./catalog.js";
 import { bumpAccountPromptVersions } from "../skills/install.js";
@@ -37,8 +37,6 @@ function markForName(name: string): PluginMark {
  */
 export async function listAccountPlugins(db: Database, accountId: string): Promise<{ installed: number; plugins: PluginCard[] }> {
   const rows = await db.select().from(mcpServers).where(eq(mcpServers.accountId, accountId));
-  const [google] = await db.select().from(accountGoogleOauth).where(eq(accountGoogleOauth.accountId, accountId));
-  const granted = google?.scopes ?? "";
   // Instagram and TikTok are not on this page. A person connects them by asking an agent in its chat,
   // with their own app keys, and the connection belongs to that agent (see social/connect.ts).
   const featured: PluginCard[] = PLUGIN_CATALOG.filter((plugin) => plugin.provider === "google").map((plugin) => {
@@ -52,7 +50,7 @@ export async function listAccountPlugins(db: Database, accountId: string): Promi
       mark: plugin.mark,
       skills: plugin.skills,
       installed: Boolean(row),
-      configured: Boolean(row) && scopesCover(granted, plugin.scopes),
+      configured: Boolean(row) && scopesCover(row?.scopes ?? "", plugin.scopes),
       lastError: row?.lastError ?? null,
     };
   });
@@ -75,7 +73,9 @@ export async function listAccountPlugins(db: Database, accountId: string): Promi
 }
 
 /**
- * Saves a Google refresh token for one account and marks one featured plugin installed.
+ * Saves the Google sign-in for one featured plugin and marks it installed.
+ * Why per plugin: each Google plugin may use a different Google account (YouTube often a brand
+ * account), and granting one must not take access away from another.
  * The login session is not read or written. The refresh token stays sealed in the database.
  */
 export async function applyGoogleConnection(
@@ -88,30 +88,10 @@ export async function applyGoogleConnection(
   const plugin = catalogPlugin(pluginId);
   if (!plugin) throw new Error("Unknown Google plugin.");
   if (!refreshToken.trim()) throw new Error("Google did not return a refresh token.");
-  const sealed = seal(refreshToken);
-  const [existing] = await db.select().from(accountGoogleOauth).where(eq(accountGoogleOauth.accountId, accountId));
-  if (existing) {
-    await db
-      .update(accountGoogleOauth)
-      .set({ secret: sealed, scopes: grantedScopes })
-      .where(eq(accountGoogleOauth.accountId, accountId));
-  } else {
-    await db.insert(accountGoogleOauth).values({ accountId, secret: sealed, scopes: grantedScopes });
-  }
-  await upsertGooglePlugin(db, accountId, plugin, scopesCover(grantedScopes, plugin.scopes) ? null : "Google did not grant every permission this plugin needs.");
+  const missing = scopesCover(grantedScopes, plugin.scopes) ? null : "Google did not grant every permission this plugin needs.";
+  await upsertGooglePlugin(db, accountId, plugin, { secret: seal(refreshToken), scopes: grantedScopes, lastError: missing });
   await installCatalogSkills(db, accountId, plugin.id);
   return plugin;
-}
-
-/** Installs a featured plugin when this account's Google token already includes its scopes. */
-export async function installGooglePluginIfGranted(db: Database, accountId: string, pluginId: string): Promise<boolean> {
-  const plugin = catalogPlugin(pluginId);
-  if (!plugin) throw new Error("Unknown Google plugin.");
-  const [google] = await db.select().from(accountGoogleOauth).where(eq(accountGoogleOauth.accountId, accountId));
-  if (!google || !scopesCover(google.scopes, plugin.scopes)) return false;
-  await upsertGooglePlugin(db, accountId, plugin, null);
-  await installCatalogSkills(db, accountId, plugin.id);
-  return true;
 }
 
 /** Saves this plugin's skills on the account's computer. A computer that cannot be reached does not undo the connection. */
@@ -129,18 +109,23 @@ export async function installCatalogSkills(db: Database, accountId: string, plug
   }
 }
 
-export async function grantedGoogleScopes(db: Database, accountId: string): Promise<string> {
-  const [google] = await db.select({ scopes: accountGoogleOauth.scopes }).from(accountGoogleOauth).where(eq(accountGoogleOauth.accountId, accountId));
-  return google?.scopes ?? "";
+/** One Google plugin's sign-in, or null when it is not connected. */
+export async function googleRefreshToken(db: Database, accountId: string, slug: string): Promise<{ refreshToken: string; scopes: string } | null> {
+  const [row] = await db
+    .select({ secret: mcpServers.secret, scopes: mcpServers.scopes })
+    .from(mcpServers)
+    .where(and(eq(mcpServers.accountId, accountId), eq(mcpServers.slug, slug), eq(mcpServers.kind, "google")));
+  if (!row) return null;
+  const refreshToken = readSecret(row.secret).bearer;
+  return refreshToken ? { refreshToken, scopes: row.scopes } : null;
 }
 
-export async function googleRefreshToken(db: Database, accountId: string): Promise<{ refreshToken: string; scopes: string } | null> {
-  const [google] = await db.select().from(accountGoogleOauth).where(eq(accountGoogleOauth.accountId, accountId));
-  if (!google) return null;
-  return { refreshToken: readSecret(google.secret).bearer, scopes: google.scopes };
-}
-
-async function upsertGooglePlugin(db: Database, accountId: string, plugin: CatalogPlugin, lastError: string | null): Promise<void> {
+async function upsertGooglePlugin(
+  db: Database,
+  accountId: string,
+  plugin: CatalogPlugin,
+  grant: { secret: string; scopes: string; lastError: string | null },
+): Promise<void> {
   const [existing] = await db
     .select()
     .from(mcpServers)
@@ -149,23 +134,16 @@ async function upsertGooglePlugin(db: Database, accountId: string, plugin: Catal
     accountId,
     slug: plugin.id,
     url: "https://www.googleapis.com",
-    secret: seal(""),
+    secret: grant.secret,
+    scopes: grant.scopes,
     kind: "google",
     enabled: true,
     toolsCache: plugin.tools,
-    lastError,
+    lastError: grant.lastError,
   };
   if (existing) {
     await db.update(mcpServers).set(values).where(eq(mcpServers.id, existing.id));
     return;
   }
   await db.insert(mcpServers).values(values);
-}
-
-/** Drops the account Google token once no featured Google plugin remains. */
-export async function dropGoogleTokenIfUnused(db: Database, accountId: string): Promise<boolean> {
-  const rows = await db.select({ slug: mcpServers.slug }).from(mcpServers).where(and(eq(mcpServers.accountId, accountId), eq(mcpServers.kind, "google")));
-  if (rows.length > 0) return false;
-  await db.delete(accountGoogleOauth).where(eq(accountGoogleOauth.accountId, accountId));
-  return true;
 }
