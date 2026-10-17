@@ -86,10 +86,11 @@ export function buildContext(input: {
   /** Specs of the agent's own computer, so it never asks the person about them. */
   computer?: string;
 }): BuiltContext {
+  const isCompanionOrSupport = input.identity.kind === "companion" || input.identity.kind === "support";
   const extras = [
     ...(input.toolSets ?? []).filter(isToolSetName).map((set) => toolSetGuidance(set)),
-    ...(input.catalog ? [`${prompt("dispatcher", "skills-heading")}\n${input.catalog}`] : []),
-    turnRule(),
+    ...(!isCompanionOrSupport && input.catalog ? [`${prompt("dispatcher", "skills-heading")}\n${input.catalog}`] : []),
+    ...(!isCompanionOrSupport ? [turnRule()] : []),
   ];
   const prefix = [buildInstructions(input.identity), ...extras].join("\n\n");
   const summaryLines = [...input.summary].sort(

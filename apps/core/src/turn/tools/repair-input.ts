@@ -69,6 +69,22 @@ export function repairToolInput(toolName: string, raw: string): string | null {
     }
     if (typeof fixed.maxSteps === "number") fixed.maxSteps = Math.min(Math.max(Math.round(fixed.maxSteps), 3), 40);
   }
+  if (toolName === "write") {
+    if (fixed.content !== undefined && fixed.body === undefined) {
+      fixed.body = fixed.content;
+      delete fixed.content;
+    }
+    if (fixed.file !== undefined && fixed.path === undefined) {
+      fixed.path = fixed.file;
+      delete fixed.file;
+    }
+  }
+  if (toolName === "read") {
+    if (fixed.file !== undefined && fixed.path === undefined) {
+      fixed.path = fixed.file;
+      delete fixed.file;
+    }
+  }
   const next = JSON.stringify(fixed);
   return next === JSON.stringify(parsed) ? null : next;
 }

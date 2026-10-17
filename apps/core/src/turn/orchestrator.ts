@@ -4,7 +4,7 @@ import type { MessageBlock } from "@kuru/shared";
  * DB: runs, messages, events (via TurnEmitter).
  */
 import { relayAwaitedReply, reportRoundToLead } from "./team-chat.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { getDb } from "../db/client.js";
 import { agents, conversations, members, messages } from "../db/schema.js";
 import { speakers } from "../rooms/mentions.js";
@@ -235,23 +235,25 @@ export async function continueQueuedTurn(
   onEvent?: (event: StreamEvent) => void,
 ): Promise<boolean> {
   const claimed = await claimQueuedForRoom(db, accountId, conversationId);
+  if (claimed.length === 0) return false;
   const latest = claimed[claimed.length - 1];
-  if (!latest) return false;
   let runId: string;
   try {
     runId = (await acquireRun(db, accountId, conversationId, "turn", 0)).id;
   } catch (error) {
+    const ids = claimed.map((m) => m.id);
     await db
       .update(messages)
       .set({ queued: true })
-      .where(and(eq(messages.id, latest.id), eq(messages.accountId, accountId)))
-      .catch(noted("Putting a message back in the queue"));
+      .where(and(inArray(messages.id, ids), eq(messages.accountId, accountId)))
+      .catch(noted("Putting messages back in the queue"));
     if (error instanceof Error && /busy/.test(error.message)) return false;
     throw error;
   }
-  await runTurn(db, accountId, conversationId, latest.body, generate, skillsRoot, {
+  const combinedBody = claimed.map((m) => m.body).join("\n\n");
+  await runTurn(db, accountId, conversationId, combinedBody, generate, skillsRoot, {
     existingRunId: runId,
-    alreadySavedUserMessage: { id: latest.id, text: latest.body },
+    alreadySavedUserMessage: { id: latest.id, text: combinedBody },
     onEvent,
   });
   return true;

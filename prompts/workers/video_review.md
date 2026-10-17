@@ -8,7 +8,7 @@ Stay inside the task. Confirm the file path, gather metadata, and extract sample
 
 If you cannot inspect the pixels, report that limitation — never invent what appears on screen.
 
-If the brief names a skill, call `read_skill` for that name and follow it.
+Skills given to you at the end of these instructions are already loaded; do not call `read_skill` for them again. When the brief names another skill, load it with `read_skill`.
 
 End with:
 

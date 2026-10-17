@@ -6,18 +6,47 @@ What changed in each release, newest first. Update your server with
 Each entry says whether it needs anything from the person running the
 server (a new setting, a new app build) under **To update**.
 
-## Unreleased
+## 0.5.0
 
 **New**
 
+- **Each Google plugin has its own sign-in.** YouTube can use a brand account
+  and asks only for YouTube; connecting it no longer takes Gmail's access
+  away. A plugin shows as disconnected once access is removed in Google, and
+  connecting again asks Google again.
+- **Gmail an agent can tidy.** Search pages through the whole mailbox and shows
+  dates, labels and read state. New tools label, mark read, archive and delete
+  (to Trash, after approval), by message or by a Gmail search, up to 500 at a
+  time in one call, so a big cleanup no longer runs into Gmail's per-minute
+  limit.
+- Reacting to a message no longer always gets a reply: the agent can react
+  back or say nothing, and answers when the reaction asks for something.
 - **Nightly reflection.** Once a night, in the person's time zone, each agent
   they talked to reviews its day: it learns rules from corrections, confirms
   what worked, and merges or retires old memory. Code checks every change, and
   each one shows on the agent's new **Health** card with Undo.
 - Reactions say more: 👎 and other dislikes count as a correction, not praise.
 
+**Fixed**
+
+- One approval card per action: asking twice for the same thing no longer
+  makes a second card, and an agent cannot draw an approval card that does
+  nothing.
+- After **Always allow**, the agent is told that later calls run without a
+  card.
+- Asking about background work shows which calls failed and whether it is
+  waiting for an approval, so the agent reports what is really happening.
+- Background work stops after one wait on a rate limit instead of sleeping
+  in a loop, and treats text in emails and web pages as data, not orders.
+- One acknowledgement per request instead of two; a sentence put in a code
+  block shows as text; "sweep running" with nothing running is caught.
+- Desktop screenshots work for every agent on an account, not only the first.
+- Messages sent while the agent was busy stay queued when the room is busy.
+
 **To update**
 
+- The server copies each Google plugin's existing sign-in to the plugin on
+  start; nothing to reconnect.
 - Add `REFLECTION_ENABLED=1` to `apps/core/.env` to turn on nightly
   reflection (see `apps/core/.env.example`). Without it, agents only reflect
   when someone taps **Reflect now** on the Health card.

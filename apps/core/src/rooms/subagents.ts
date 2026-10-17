@@ -630,21 +630,34 @@ export async function continueWorker(
   });
 }
 
-/** Last few things a worker did, read from its saved conversation. */
+/** A paused worker's progress line; check_worker reads it back as `waitingOnApproval`. */
+const PAUSED_FOR_APPROVAL = "Paused: waiting for the person to approve an action.";
+
+/** Last few things a worker did, and the calls that failed, read from its saved conversation. */
 function recentActions(saved: unknown[], limit = 6): string[] {
   const actions: string[] = [];
   for (const message of saved) {
-    const content = (message as { role?: string; content?: unknown } | null)?.content;
-    if ((message as { role?: string } | null)?.role !== "assistant" || !Array.isArray(content)) continue;
-    for (const part of content as { type?: string; toolName?: string; input?: unknown }[]) {
-      if (part.type !== "tool-call") continue;
-      let detail = "";
-      try {
-        detail = JSON.stringify(part.input ?? {}).replace(/\s+/g, " ").slice(0, 140);
-      } catch {
-        detail = "";
+    const msg = message as { role?: string; content?: unknown } | null;
+    if (msg?.role === "assistant" && Array.isArray(msg.content)) {
+      for (const part of msg.content as { type?: string; toolName?: string; input?: unknown }[]) {
+        if (part.type !== "tool-call") continue;
+        let detail = "";
+        try {
+          detail = JSON.stringify(part.input ?? {}).replace(/\s+/g, " ").slice(0, 140);
+        } catch {
+          detail = "";
+        }
+        actions.push(`${part.toolName ?? "tool"} ${detail}`.trim());
       }
-      actions.push(`${part.toolName ?? "tool"} ${detail}`.trim());
+    } else if (msg?.role === "tool" && Array.isArray(msg.content)) {
+      // A failed call is what explains a worker that seems stuck, so it is listed too.
+      for (const part of msg.content as { type?: string; toolName?: string; output?: { type?: string; value?: unknown } }[]) {
+        if (part.type !== "tool-result") continue;
+        const value = part.output?.value;
+        const text = typeof value === "string" ? value : JSON.stringify(value ?? "");
+        if (part.output?.type !== "error-text" && part.output?.type !== "error-json" && !/^(Error|The call failed)|quota|rate limit|permission denied|timed out/i.test(text)) continue;
+        actions.push(`${part.toolName ?? "tool"} failed: ${text.replace(/\s+/g, " ").slice(0, 120)}`);
+      }
     }
   }
   return actions.slice(-limit);
@@ -660,6 +673,7 @@ export type WorkerStatus = {
   steps: number;
   progress: string;
   recentActions: string[];
+  waitingOnApproval?: boolean;
   result?: string;
 };
 
@@ -717,6 +731,7 @@ export async function workerStatuses(
       steps: saved?.steps ?? row.modelSteps ?? 0,
       progress: (row.progress ?? "").slice(0, 200),
       recentActions: recentActions(saved?.messages ?? []),
+      waitingOnApproval: running && row.progress === PAUSED_FOR_APPROVAL,
       ...(running ? {} : { result: (row.result ?? "").slice(0, 900) }),
     });
   }
@@ -1157,7 +1172,7 @@ export async function runWorker(
             .update(delegations)
             .set({
               heartbeatAt: new Date(),
-              ...(state === "waiting" ? { progress: "Paused: waiting for the person to approve an action." } : {}),
+              ...(state === "waiting" ? { progress: PAUSED_FOR_APPROVAL } : {}),
               ...(state === "resumed" ? { progress: "Working." } : {}),
             })
             .where(and(eq(delegations.id, input.delegationId), eq(delegations.status, "running")))

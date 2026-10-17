@@ -19,12 +19,10 @@ const NO_PARAMETERS_TOOLS = new Set([
   "list_routines",
   "todo_list",
   "computer_screenshot",
-  "list_skills",
   "refresh_skills",
   "browser_list_pages",
   "browser_back",
   "browser_reload",
-  "browser_screenshot",
 ]);
 
 const emptyParametersSchema = jsonSchema<Record<string, never>>({

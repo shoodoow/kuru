@@ -9,7 +9,7 @@
  */
 
 /** This release. Semantic versioning: major.minor.patch. */
-export const KURU_VERSION = "0.4.0";
+export const KURU_VERSION = "0.5.0";
 
 /**
  * The oldest app this server still works with. Raise it in the release that

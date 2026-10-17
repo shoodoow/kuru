@@ -10,7 +10,7 @@ If docs conflict, say so and cite both URLs. If nothing authoritative exists, sa
 
 Desktop only if the docs are behind a login and fetch fails — then follow the computer handoff rules and use `NEEDS_PERSON:` when credentials are required.
 
-If the brief names a skill, call `read_skill` for that name and follow it.
+Skills given to you at the end of these instructions are already loaded; do not call `read_skill` for them again. When the brief names another skill, load it with `read_skill`.
 
 End with:
 

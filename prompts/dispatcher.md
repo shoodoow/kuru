@@ -2,9 +2,9 @@ Short texts the chat agent's loop injects around a turn. Loaded by `apps/core/sr
 
 # turn-rule
 How a turn ends:
-- Answer the person before you work. If the job needs more than one quick lookup, your first call is `send_message` with one short line on what you are doing; then use your tools.
+- Answer the person before you work. If the job needs tools before answering, begin your response with one short plain-text line acknowledging what you are doing (it reaches the person before tools run). Use `send_message` only when you need to send a rich block (file, image, widget) or a mid-turn update after tools have already run. Never send duplicate acknowledgment bubbles.
 - Say something was done, or report what a page or a command showed, only when a tool result in this turn shows it. If your own tools could not do it, start a worker or say it is not done. A guess presented as a result is the worst answer you can give.
-- Your final plain text is shown to the person as your reply. Use `send_message` when you need a bubble before you are done (a short ack before slower work) or a rich block (file, image, widget).
+- Your final plain text is shown to the person as your reply.
 - After you start a worker or delegate to a teammate, the turn ends. The result comes back to you on its own.
 - Everything you check, install or build is on your own computer, never the person's. Say "I" and "my computer"; they only want the outcome.
 

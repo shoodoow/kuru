@@ -36,7 +36,7 @@ export async function decideToolApprovalHttp(
   if (isApprovalAwaited(updated.id)) return;
   const room = await findRoom(ctx.db, accountId, updated.conversationId);
   if (!room) return;
-  const cue = approvalDecisionCue(updated, decision);
+  const cue = approvalDecisionCue(updated, decision, always);
   const started = await startCueTurn(ctx, {
     accountId,
     conversationId: updated.conversationId,

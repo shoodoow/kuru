@@ -57,6 +57,9 @@ async function google(path: string, token: string, init: RequestInit = {}): Prom
     },
   });
   const text = await response.text();
+  if ((response.status === 429 || response.status === 403) && /quota|rate ?limit/i.test(text)) {
+    throw new Error("Google's per-minute limit for this account was reached. Wait one minute, then run the same call again.");
+  }
   if (!response.ok) throw new Error(text.slice(0, 400) || `Google HTTP ${response.status}`);
   return text ? (JSON.parse(text) as Json) : {};
 }
@@ -171,11 +174,12 @@ async function gmail(tool: string, args: Args, token: string): Promise<unknown> 
   }
   if (tool === "delete") {
     const ids = await targetIds(args, token);
-    // Ten at a time: a 500-message sweep finishes in seconds and stays under Gmail's rate limit.
-    for (let start = 0; start < ids.length; start += 10) {
-      await Promise.all(
-        ids.slice(start, start + 10).map((id) => google(`/gmail/v1/users/me/messages/${encodeURIComponent(id)}/trash`, token, { method: "POST" })),
-      );
+    // One batch call per 500: trashing message by message used up Gmail's per-minute quota.
+    for (let start = 0; start < ids.length; start += 500) {
+      await google("/gmail/v1/users/me/messages/batchModify", token, {
+        method: "POST",
+        body: JSON.stringify({ ids: ids.slice(start, start + 500), addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] }),
+      });
     }
     return { trashed: ids.length, message: "Moved to Trash. Gmail empties Trash after 30 days." };
   }

@@ -10,7 +10,7 @@ Do not wander into desktop or browser work unless the task explicitly requires a
 
 Return concrete evidence: paths, line hits, short quotes. Do not dump huge files.
 
-If the brief names a skill, call `read_skill` for that name and follow it.
+Skills given to you at the end of these instructions are already loaded; do not call `read_skill` for them again. When the brief names another skill, load it with `read_skill`.
 
 End with:
 

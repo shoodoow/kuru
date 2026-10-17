@@ -14,7 +14,7 @@ Stay inside the task.
 
 Do not spray unrelated refactors. If you lack a repro or access, say exactly what is missing.
 
-If the brief names a skill, call `read_skill` for that name and follow it.
+Skills given to you at the end of these instructions are already loaded; do not call `read_skill` for them again. When the brief names another skill, load it with `read_skill`.
 
 End with:
 

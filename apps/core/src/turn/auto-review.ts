@@ -356,6 +356,31 @@ export async function reviewToolCall(
     return { allow: true };
   }
 
+  const [pending] = await ctx.db
+    .select()
+    .from(toolApprovals)
+    .where(
+      and(
+        eq(toolApprovals.accountId, ctx.accountId),
+        eq(toolApprovals.conversationId, ctx.conversationId),
+        eq(toolApprovals.tool, name),
+        eq(toolApprovals.inputHash, hash),
+        eq(toolApprovals.status, "pending"),
+      ),
+    )
+    .limit(1);
+  if (pending) {
+    return {
+      allow: false,
+      blocked: true,
+      approvalId: pending.id,
+      reason:
+        `Auto-review is already waiting on the person for this call (${pending.id}). Tell the person in one sentence and wait. ` +
+        `After they approve, retry the SAME call with requestApproval:true and approvalId:"${pending.id}". ` +
+        `Do not rewrite, encode, or route around it. Reason: ${reason}`,
+    };
+  }
+
   const speakerId = ctx.voiceAgentId ?? ctx.agentId;
   const [created] = await ctx.db
     .insert(toolApprovals)
@@ -600,10 +625,16 @@ export async function markApprovalWidget(
 export function approvalDecisionCue(
   row: { id: string; tool: string; summary: string },
   decision: "approved" | "denied",
+  always?: boolean,
 ): string {
+  const alwaysNote =
+    always && decision === "approved"
+      ? `\nThe person selected "Always allow" for ${row.tool} — future calls to this tool by you or your workers will execute immediately without needing approval cards.`
+      : "";
   return prompt("cues", decision === "approved" ? "approval-approved" : "approval-denied", {
     summary: row.summary,
     tool: row.tool,
     approvalId: row.id,
+    alwaysNote,
   });
 }

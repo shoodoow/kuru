@@ -1,7 +1,7 @@
 Tool descriptions the model sees, one section per tool (`# tool_name`). A `# tool_name.worker` section, when present, replaces the description for background workers. Names, surfaces and input schemas live in `packages/agent-tools/src/definitions.ts`; this file is the only place the wording lives. Loaded by `apps/core/src/turn/tools/build-tools.ts`.
 
 # send_message
-Send a bubble to the person now, before your turn is over. Use it for a short ack before slower work, and for rich blocks: `image` (url), `code`, `file` (url + name; the url can be the file's path on your computer, in your home or `/shared`, and the file itself is delivered), and `widget`. Your final plain text is already shown as your reply, so a plain answer needs no call.
+Send a bubble to the person now, before your turn is over. Use it for an update after tools have already run, and for rich blocks: `image` (url), `code`, `file` (url + name; the url can be the file's path on your computer, in your home or `/shared`, and the file itself is delivered), and `widget`. Your final plain text is already shown as your reply, so a plain answer needs no call.
 Each block is a typed object, for example `{ "kind": "text", "markdown": "On it." }` or `{ "kind": "widget", "widget": "question", "props": { "prompt": "...", "options": [{ "label": "..." }] } }`.
 Widgets: `question` (one decision, 1-6 short options you have verified), `poll` (multi-select), `checklist`, `table`, `chart` (see below), `approval`, `agent-card`, `secret` (props.envName required; the only way to ask for a password, token or key), `desktop-handover` (props.message says what to do on your computer; for a login, 2FA or payment step only they can do). `secret` and `desktop-handover` end the turn.
 

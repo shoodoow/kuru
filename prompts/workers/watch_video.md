@@ -8,7 +8,7 @@ Stay inside the task. Locate the file with `glob` / `bash`, confirm it exists wi
 
 You may not have a dedicated video-understanding model. Do what you can with available tools (extract frames with ffmpeg if installed, describe filenames/duration/metadata, read adjacent transcripts). If you cannot actually watch the video, say so plainly in Findings — never invent scenes.
 
-If the brief names a skill, call `read_skill` for that name and follow it.
+Skills given to you at the end of these instructions are already loaded; do not call `read_skill` for them again. When the brief names another skill, load it with `read_skill`.
 
 End with:
 

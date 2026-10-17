@@ -33,9 +33,23 @@ export function normalizeSendMessageInput(input: Record<string, unknown>): { blo
   if (Array.isArray(blocks)) {
     blocks = expandWidgetMarkupBlocks(blocks).map((block) => {
       if (!block || typeof block !== "object") return block;
-      const row = block as { kind?: string; markdown?: string };
+      const row = block as { kind?: string; markdown?: string; widget?: string; props?: Record<string, unknown> };
       if (row.kind === "text" && typeof row.markdown === "string") {
         return { ...row, markdown: stripInternalChatMarks(row.markdown) };
+      }
+      if (
+        row.kind === "widget" &&
+        row.widget === "approval" &&
+        (!row.props?.approvalId || typeof row.props.approvalId !== "string")
+      ) {
+        const title = typeof row.props?.title === "string" ? row.props.title : "Approval needed";
+        const detail =
+          typeof row.props?.detail === "string"
+            ? row.props.detail
+            : typeof row.props?.body === "string"
+              ? row.props.body
+              : "";
+        return { kind: "text", markdown: detail ? `**${title}**\n${detail}` : `**${title}**` };
       }
       return block;
     });

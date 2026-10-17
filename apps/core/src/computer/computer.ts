@@ -10,7 +10,7 @@ import {
   DESKTOP_WIDTH,
   DESKTOP_HEIGHT,
 } from "../desktop/desktop.js";
-import { accountShared, exec, execBytes, execStdin } from "../linux/linux.js";
+import { accountHome, accountShared, exec, execBytes, execStdin } from "../linux/linux.js";
 import { machinePlan } from "../linux/linux.js";
 import { inGb, largestGrant } from "../linux/memory-plan.js";
 import { expandHome, assertInside } from "./find.js";
@@ -173,7 +173,7 @@ export async function bash(accountId: string, profile: string, command: string):
 export async function screenshotImage(accountId: string, profile: string) {
   assertControllable(accountId, profile);
   const shot = await screenshotPng(accountId, profile);
-  const dir = `${accountShared(accountId)}/screenshots/${profile}`;
+  const dir = `${accountHome(accountId, profile)}/.cache/kuru/screenshots`;
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const path = `${dir}/shot-${stamp}.png`;
   const mkdir = await exec(accountId, ["mkdir", "-p", dir], profile);

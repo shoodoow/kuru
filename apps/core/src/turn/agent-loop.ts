@@ -312,7 +312,10 @@ export async function runAgentLoop(
     // Handing off ends the turn; text after that is never the answer.
     workLog: toolCtx.workEntries ?? [],
     finalTextIsReply: corrected || (!handedOffInTurn && !handedOffNow && finalTextIsReply(stepToolNames)),
-    quiet: !corrected && handedOffInTurn && Boolean(toolCtx.hiddenTurn),
+    // A reaction turn that reacted back, or ended empty, has said all it means to say.
+    quiet:
+      (!corrected && handedOffInTurn && Boolean(toolCtx.hiddenTurn)) ||
+      (Boolean(input.quietOk) && (!text.trim() || stepToolNames.some((names) => names.includes("react_to_message")))),
   };
 }
 

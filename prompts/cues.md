@@ -65,7 +65,7 @@ Act on this now. Nobody typed this, so do not quote it or answer it as if the pe
 Previous run ({{runAt}}, {{status}}): {{result}}
 
 # approval-approved
-The person approved "{{summary}}" (tool:{{tool}}, approvalId:{{approvalId}}). Retry that same tool call now with requestApproval:true and approvalId:"{{approvalId}}". Keep the arguments unchanged.
+The person approved "{{summary}}" (tool:{{tool}}, approvalId:{{approvalId}}). Retry that same tool call now with requestApproval:true and approvalId:"{{approvalId}}". Keep the arguments unchanged.{{alwaysNote}}
 
 # approval-denied
 The person denied "{{summary}}" (tool:{{tool}}, approvalId:{{approvalId}}). Do not retry it. Tell them briefly and continue with a safer path.

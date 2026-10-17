@@ -101,7 +101,7 @@ export function wrapToolExecute(
     await ctx.traceSession?.emit({ type: "tool.call.start", toolCallId, name, input });
     try {
       let reviewed = await reviewToolCall(ctx, name, input ?? {});
-      if (!reviewed.allow && ctx.waitOnApproval && reviewed.approvalId && /Auto-review blocked|still waiting/.test(reviewed.reason)) {
+      if (!reviewed.allow && ctx.waitOnApproval && reviewed.approvalId && /Auto-review blocked|still waiting|already waiting/.test(reviewed.reason)) {
         // The card is already in the chat. Pause here until the person answers,
         // then carry on with this same call: nothing the worker did is lost.
         await ctx.waitOnApproval.onState?.("waiting");
@@ -145,12 +145,17 @@ export function wrapToolExecute(
       const budgetMs =
         mode === "dispatcher" || mode === "delegate" ? dispatcherToolBudgetMs(name) : null;
       if (budgetMs != null) {
-        result = await Promise.race([
-          execute(input),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error(dispatcherToolBudgetError(budgetMs))), budgetMs),
-          ),
-        ]);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          result = await Promise.race([
+            execute(input),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error(dispatcherToolBudgetError(budgetMs))), budgetMs);
+            }),
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
       } else {
         result = await execute(input);
       }
