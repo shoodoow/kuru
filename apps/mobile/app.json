@@ -19,13 +19,13 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.kuru.app",
+      "bundleIdentifier": "com.kurubot.app",
       "infoPlist": {
         "NSPhotoLibraryAddUsageDescription": "Allow Kuru to save photos and videos from chats."
       }
     },
     "android": {
-      "package": "com.kuru.app",
+      "package": "com.kurubot.app",
       "softwareKeyboardLayoutMode": "resize",
       "intentFilters": [
         {
@@ -43,6 +43,7 @@
       "bundler": "metro"
     },
     "plugins": [
+      "./plugins/with-scene-lifecycle",
       "expo-router",
       [
         "expo-build-properties",
