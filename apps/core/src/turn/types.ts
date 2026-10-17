@@ -28,6 +28,8 @@ export type TurnOptions = {
   existingRunId?: string;
   kind?: "turn" | "routine";
   cue?: string;
+  /** The cue may end with no message at all (a reaction): the agent decides whether it has anything to say. */
+  quietOk?: boolean;
   speakerId?: string;
   acquireTimeoutMs?: number;
 };

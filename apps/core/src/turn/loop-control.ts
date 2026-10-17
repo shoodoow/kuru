@@ -111,7 +111,7 @@ export function claimsWorkInProgress(text: string): boolean {
 }
 
 const PROMISE =
-  /\b(let me|i['’]?ll|i will|i['’]?m going to|i am going to|i['’]?m about to|give me a (moment|sec|second|minute)|one moment|hang on|hold on|on it|right away|kicking off|getting (it|that|this) (going|started))\b/i;
+  /\b(let me|i['’]?ll|i will|i['’]?m going to|i am going to|i['’]?m about to|give me a (moment|sec|second|minute)|one moment|hang on|hold on|on it|right away|kicking off|getting (it|that|this) (going|started)|starting (the|a|my|on the)|(sweep|clean-?up|scan|pass|batch|job) (is |now )?(running|underway|going))\b/i;
 
 /**
  * Spots a reply that promises work the turn never started.

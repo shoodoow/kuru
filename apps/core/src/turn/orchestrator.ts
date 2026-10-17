@@ -134,6 +134,7 @@ export async function runTurn(
         spoken,
         // The private note is for whoever was woken by it, not the whole chain.
         cue: turnsTaken === 1 ? options?.cue : undefined,
+        quietOk: turnsTaken === 1 && Boolean(options?.quietOk),
         runKind: options?.kind,
         usage,
       });

@@ -122,7 +122,7 @@ async function gmail(tool: string, args: Args, token: string): Promise<unknown> 
     return { labels: ((listed.labels ?? []) as Json[]).map((label) => ({ name: label.name, type: label.type })) };
   }
   if (tool === "label") {
-    const ids = messageIds(args);
+    const ids = await targetIds(args, token);
     const add = labelList(args.add);
     const remove = labelList(args.remove);
     if (add.length === 0 && remove.length === 0) throw new Error("Name a label to add or remove.");
@@ -139,7 +139,7 @@ async function gmail(tool: string, args: Args, token: string): Promise<unknown> 
     return { changed: ids.length, added: add, removed: remove };
   }
   if (tool === "mark_read") {
-    const ids = messageIds(args);
+    const ids = await targetIds(args, token);
     const read = args.read !== false;
     await google("/gmail/v1/users/me/messages/batchModify", token, {
       method: "POST",
@@ -165,13 +165,18 @@ async function gmail(tool: string, args: Args, token: string): Promise<unknown> 
     return { id: sent.id, message: "Sent." };
   }
   if (tool === "archive") {
-    const ids = messageIds(args);
+    const ids = await targetIds(args, token);
     await google("/gmail/v1/users/me/messages/batchModify", token, { method: "POST", body: JSON.stringify({ ids, removeLabelIds: ["INBOX"] }) });
     return { archived: ids.length, message: "Archived. The messages are still in All Mail." };
   }
   if (tool === "delete") {
-    const ids = messageIds(args);
-    for (const id of ids) await google(`/gmail/v1/users/me/messages/${encodeURIComponent(id)}/trash`, token, { method: "POST" });
+    const ids = await targetIds(args, token);
+    // Ten at a time: a 500-message sweep finishes in seconds and stays under Gmail's rate limit.
+    for (let start = 0; start < ids.length; start += 10) {
+      await Promise.all(
+        ids.slice(start, start + 10).map((id) => google(`/gmail/v1/users/me/messages/${encodeURIComponent(id)}/trash`, token, { method: "POST" })),
+      );
+    }
     return { trashed: ids.length, message: "Moved to Trash. Gmail empties Trash after 30 days." };
   }
   throw new Error(`Unknown Gmail tool ${tool}.`);
@@ -210,12 +215,34 @@ async function labelId(token: string, name: string, create: boolean): Promise<st
   return String(made.id);
 }
 
-/** The message ids a tidy call names: `ids`, or a single `id`. At most 100, so one call cannot sweep a mailbox. */
-function messageIds(args: Args): string[] {
+const MAX_PER_CALL = 500;
+
+/**
+ * The messages a tidy call acts on: `ids` (or one `id`), or every message matching a Gmail `query`.
+ * Why a query: cleaning a mailbox of a thousand mails one page of ids at a time used up the
+ * whole turn. At most 500 per call; the caller runs the same query again for the rest.
+ */
+async function targetIds(args: Args, token: string): Promise<string[]> {
   const raw = Array.isArray(args.ids) ? args.ids : args.id ? [args.id] : [];
   const ids = [...new Set(raw.map(String).map((id) => id.trim()).filter(Boolean))];
-  if (ids.length === 0) throw new Error("Name at least one message id.");
-  if (ids.length > 100) throw new Error("At most 100 messages per call.");
+  const query = typeof args.query === "string" ? args.query.trim() : "";
+  if (ids.length > 0 && query) throw new Error("Give ids or a query, not both.");
+  if (query) {
+    const found: string[] = [];
+    let pageToken = "";
+    while (found.length < MAX_PER_CALL) {
+      const params = new URLSearchParams({ q: query, maxResults: String(Math.min(500, MAX_PER_CALL - found.length)) });
+      if (pageToken) params.set("pageToken", pageToken);
+      const listed = await google(`/gmail/v1/users/me/messages?${params}`, token);
+      for (const row of (listed.messages ?? []) as Json[]) found.push(String(row.id));
+      pageToken = listed.nextPageToken ?? "";
+      if (!pageToken) break;
+    }
+    if (found.length === 0) throw new Error(`No messages match "${query}".`);
+    return found;
+  }
+  if (ids.length === 0) throw new Error("Give message ids or a Gmail query.");
+  if (ids.length > MAX_PER_CALL) throw new Error(`At most ${MAX_PER_CALL} messages per call.`);
   return ids;
 }
 

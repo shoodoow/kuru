@@ -52,6 +52,8 @@ export async function speakOnce(
     queue: (string | undefined)[];
     spoken: Set<string>;
     cue?: string;
+    /** The cue may end with no message (a reaction). */
+    quietOk?: boolean;
     /** "routine" when a schedule woke the agent; turns the routines tool set on. */
     runKind?: "turn" | "routine";
     /**
@@ -62,7 +64,7 @@ export async function speakOnce(
     usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning: number; steps: number };
   },
 ): Promise<void> {
-  const { accountId, conversationId, agentId, memberRows, room, skillsRoot, generate, nextTime, runId, emit, saved, queue, spoken, cue, usage } =
+  const { accountId, conversationId, agentId, memberRows, room, skillsRoot, generate, nextTime, runId, emit, saved, queue, spoken, cue, quietOk, usage } =
     input;
   let [agent] = await db.select().from(agents).where(and(eq(agents.id, agentId), eq(agents.accountId, accountId)));
   if (!agent) throw new Error("Agent not found");
@@ -374,6 +376,7 @@ export async function speakOnce(
           emit,
           messages: modelMessages,
           hiddenTurn: Boolean(cue),
+          quietOk,
           toolSets,
           blockedTools: [
             ...(teamMember ? TEAM_MEMBER_BLOCKED : []),

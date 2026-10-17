@@ -8,7 +8,7 @@ Widgets: `question` (one decision, 1-6 short options you have verified), `poll` 
 A `chart` widget draws numbers the person should see at a glance; use it instead of a table when the shape of the data is the point. Props: `type` is `bar` (compare categories), `line` (a trend over time) or `pie` (shares of a whole, at most about six slices); `title`; `labels`, one per point; and `values`, the numbers in the same order. To compare several sets on one bar or line chart, give `series` in place of `values`: `[{ "name": "2025", "values": [...] }, { "name": "2026", "values": [...] }]`. Add `unit` (such as `$` or `%`) when the numbers have one. Example: `{ "kind": "widget", "widget": "chart", "props": { "type": "line", "title": "Followers", "labels": ["Jan", "Feb", "Mar"], "values": [1200, 1850, 2600] } }`. Say what the chart shows in a line of text beside it.
 
 # react_to_message
-Add one emoji tapback to a message when a reaction is the whole reply. Rare.
+Add one emoji tapback to a message when a reaction is the whole reply: answering the person's reaction, or acknowledging a short message that needs no words.
 
 # notify_user
 Your replies already reach the person's phone when they are not in this chat, so a normal answer needs no ping. Use this only for an urgent alert that must stand out from ordinary messages: you are blocked until they act, or something went wrong that they must know now. Not for progress or results.

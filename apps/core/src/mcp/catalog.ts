@@ -43,7 +43,7 @@ export const PLUGIN_CATALOG: CatalogPlugin[] = [
       {
         name: "gmail-tidy",
         description: "Organize mail: labels, read state, archive, delete.",
-        body: "Find messages with gmail_search; it returns up to 50 at a time, so follow nextPageToken until it is null before saying how many there are. Use gmail_label to file mail under labels (it creates a missing label) or star it, gmail_mark_read for read state, gmail_archive to take mail out of the inbox, and gmail_delete to move it to Trash. Only touch the messages the person asked about, and report counts from what the tools returned.",
+        body: "For a big cleanup, do not page through every message. Sample with gmail_search to see what kinds of mail there are, then act on whole groups with a query, for example gmail_archive with query \"in:inbox category:promotions older_than:30d\" or gmail_delete with query \"from:noreply@glassdoor.com\". Each call handles up to 500; run the same query again until it says nothing matches. To count, use estimatedTotal from gmail_search. Use gmail_label to file mail under labels (it creates a missing label) or star it, gmail_mark_read for read state, gmail_archive to take mail out of the inbox, and gmail_delete to move it to Trash. Only touch the messages the person asked about, and report counts from what the tools returned.",
       },
     ],
     scopes: [
@@ -56,7 +56,7 @@ export const PLUGIN_CATALOG: CatalogPlugin[] = [
       {
         name: "search",
         description:
-          "Search this account's Gmail with Gmail search syntax (in:inbox, is:unread, from:, label:, older_than:). Returns up to `limit` messages (default 20, at most 50) with date, sender, subject, unread and labels, an estimated total, and nextPageToken to fetch the next page.",
+          "Search this account's Gmail with Gmail search syntax (in:inbox, is:unread, from:, label:, older_than:). Returns up to `limit` messages (default 20, at most 50) with date, sender, subject, unread and labels, an estimated total, and nextPageToken to fetch the next page. For a big cleanup, sample a page or two, then act on whole groups by passing a query to gmail_archive, gmail_label, gmail_mark_read or gmail_delete instead of paging through every message.",
         inputSchema: {
           type: "object",
           properties: { query: { type: "string" }, limit: { type: "number" }, pageToken: { type: "string" } },
@@ -99,35 +99,34 @@ export const PLUGIN_CATALOG: CatalogPlugin[] = [
       {
         name: "label",
         description:
-          "Add or remove labels on Gmail messages by id, by label name. A missing label in `add` is created. STARRED and IMPORTANT work too. Trash and Spam are not set here." + confirm,
+          "Add or remove labels on Gmail messages, by label name. Target messages by `ids` or by a Gmail `query`. A missing label in `add` is created. STARRED and IMPORTANT work too. Trash and Spam are not set here." + confirm,
         inputSchema: {
           type: "object",
           properties: {
             ids: { type: "array", items: { type: "string" } },
+            query: { type: "string" },
             add: { type: "array", items: { type: "string" } },
             remove: { type: "array", items: { type: "string" } },
           },
-          required: ["ids"],
         },
       },
       {
         name: "mark_read",
-        description: "Mark Gmail messages read, or unread with read: false.",
+        description: "Mark Gmail messages read, or unread with read: false. Target them by `ids` or by a Gmail `query`.",
         inputSchema: {
           type: "object",
-          properties: { ids: { type: "array", items: { type: "string" } }, read: { type: "boolean" } },
-          required: ["ids"],
+          properties: { ids: { type: "array", items: { type: "string" } }, query: { type: "string" }, read: { type: "boolean" } },
         },
       },
       {
         name: "archive",
-        description: "Archive Gmail messages by id: they leave the inbox and stay in All Mail." + confirm,
-        inputSchema: { type: "object", properties: { ids: { type: "array", items: { type: "string" } } }, required: ["ids"] },
+        description: "Archive Gmail messages: they leave the inbox and stay in All Mail. Target them by `ids` or by a Gmail `query` (up to 500 per call)." + confirm,
+        inputSchema: { type: "object", properties: { ids: { type: "array", items: { type: "string" } }, query: { type: "string" } } },
       },
       {
         name: "delete",
-        description: "Move Gmail messages to Trash by id. Gmail empties Trash after 30 days. Auto-review holds this until the person approves.",
-        inputSchema: { type: "object", properties: { ids: { type: "array", items: { type: "string" } } }, required: ["ids"] },
+        description: "Move Gmail messages to Trash, by `ids` or by a Gmail `query` (up to 500 per call). Gmail empties Trash after 30 days. Auto-review holds this until the person approves.",
+        inputSchema: { type: "object", properties: { ids: { type: "array", items: { type: "string" } }, query: { type: "string" } } },
       },
     ],
   },

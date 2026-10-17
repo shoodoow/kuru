@@ -58,6 +58,8 @@ export async function runAgentLoop(
     askWithCards?: boolean;
     /** Hidden wake (worker result, routine): no ack owed, silence allowed. */
     hiddenTurn?: boolean;
+    /** Ending with no reply is a valid answer here (a reaction), so an empty ending is not retried. */
+    quietOk?: boolean;
     generate?: (input: TurnInput) => Promise<GenerateResult>;
   },
 ): Promise<GenerateResult> {
@@ -169,8 +171,9 @@ export async function runAgentLoop(
     shouldRetryStall({
       attempt: 0,
       text,
-      sentMessage: input.emittedMessages.length > 0,
-      ended: Boolean(toolCtx.endTurn) || (Boolean(toolCtx.handedOff) && Boolean(toolCtx.hiddenTurn)),
+      // An emoji back is a whole reply.
+      sentMessage: input.emittedMessages.length > 0 || stepToolNames.some((names) => names.includes("react_to_message")),
+      ended: Boolean(toolCtx.endTurn) || (Boolean(toolCtx.handedOff) && Boolean(toolCtx.hiddenTurn)) || Boolean(input.quietOk),
     })
   ) {
     // Continue the same transcript: tool work already done stays visible, so

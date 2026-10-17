@@ -205,3 +205,11 @@ describe("what the person is told when a turn fails", () => {
     expect(text).not.toContain("provider");
   });
 });
+
+describe("promisesUnstartedWork on status lines", () => {
+  it("counts a sweep said to be running as a promise", () => {
+    expect(promisesUnstartedWork({ text: "Full sweep running — all mail, noise out.", handedOff: false, hiddenTurn: false })).toBe(true);
+    expect(promisesUnstartedWork({ text: "Starting the full sweep — all 1000+ mails.", handedOff: false, hiddenTurn: false })).toBe(true);
+    expect(promisesUnstartedWork({ text: "The cleanup is done: 40 archived.", handedOff: false, hiddenTurn: false })).toBe(false);
+  });
+});

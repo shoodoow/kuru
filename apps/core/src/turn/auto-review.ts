@@ -160,6 +160,7 @@ export function classifyRisk(name: string, input: Record<string, unknown>, home?
     return `Send email to ${to}`.slice(0, 180);
   }
   if (name === "gmail_delete") {
+    if (typeof input.query === "string" && input.query.trim()) return `Move every email matching "${input.query.trim()}" to Trash (up to 500)`.slice(0, 180);
     const count = Array.isArray(input.ids) ? input.ids.length : 1;
     return count === 1 ? "Move an email to Trash" : `Move ${count} emails to Trash`;
   }

@@ -73,9 +73,9 @@ const APPROVAL_WAKE_WAIT_MS = 30 * 60 * 1000;
  */
 export async function startCueTurn(
   ctx: AppContext,
-  input: { accountId: string; conversationId: string; cue: string; speakerId: string; label: string },
+  input: { accountId: string; conversationId: string; cue: string; speakerId: string; label: string; quietOk?: boolean },
 ): Promise<boolean> {
-  const { accountId, conversationId, cue, speakerId, label } = input;
+  const { accountId, conversationId, cue, speakerId, label, quietOk } = input;
   let runId: string;
   try {
     runId = (await acquireRun(ctx.db, accountId, conversationId, "turn", 0)).id;
@@ -85,6 +85,7 @@ export async function startCueTurn(
   }
   void runTurn(ctx.db, accountId, conversationId, cue, ctx.generate, config.skillsDir(), {
     cue,
+    quietOk,
     speakerId,
     existingRunId: runId,
     onEvent: (event: StreamEvent) => publish(accountId, conversationId, event),

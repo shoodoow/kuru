@@ -152,10 +152,10 @@ export function conversationsRoutes(ctx: AppContext, guard: Guard): Router {
     // Why: reactions never became chat text, so without a cue turn the model never sees them.
     if (created && target.agentId) {
       const snippet = target.body.replace(/\s+/g, " ").trim().slice(0, 240);
-      const cue = prompt("cues", "reaction", { emoji: parsed.emoji, snippet });
+      const cue = prompt("cues", "reaction", { emoji: parsed.emoji, snippet, messageId: target.id });
       // A reaction while the agent is mid-turn is saved and shown; it just
       // does not start a second turn. The agent sees it in history next time.
-      await startCueTurn(ctx, { accountId, conversationId, cue, speakerId: target.agentId, label: "reaction" }).catch(
+      await startCueTurn(ctx, { accountId, conversationId, cue, speakerId: target.agentId, label: "reaction", quietOk: true }).catch(
         (error: unknown) => {
           logger.error({ err: error, conversationId }, "reaction turn acquire failed");
         },

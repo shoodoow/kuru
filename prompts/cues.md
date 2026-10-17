@@ -71,7 +71,12 @@ The person approved "{{summary}}" (tool:{{tool}}, approvalId:{{approvalId}}). Re
 The person denied "{{summary}}" (tool:{{tool}}, approvalId:{{approvalId}}). Do not retry it. Tell them briefly and continue with a safer path.
 
 # reaction
-[system] The user reacted {{emoji}} to this message: "{{snippet}}"
+[system] The person reacted {{emoji}} to your message (messageId {{messageId}}): "{{snippet}}"
+A reaction is not a question, so most need no message. Pick one:
+- Nothing to add (a like, thanks, ✅, 👀 on an update, 🎉 on good news): react back with one fitting emoji via `react_to_message`, or end the turn with no message. Do not write "Got it", "Thanks" or a recap.
+- It asks something of you (👎, ❌, 😡, 😢, 🤔 on an answer or a plan): say in a line or two what you will change, or ask what was wrong, then act on it.
+- It approves something you proposed and were waiting on (👍 or ✅ on "Should I…?"): do that thing now and say briefly that it is done or under way.
+Never redo or repeat work you already reported just because of a reaction.
 
 # team-ask
 [private note] {{lead}} just asked you for something in this team chat; their message is right above. Do the part your role covers and reply here with the result itself (the script, the score and notes, the file), not a promise to do it.
