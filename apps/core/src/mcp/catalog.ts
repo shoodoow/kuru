@@ -31,7 +31,7 @@ export const PLUGIN_CATALOG: CatalogPlugin[] = [
   {
     id: "gmail",
     name: "Gmail",
-    description: "Search, read, draft, send, archive, and delete email. Sending and deleting wait for your approval.",
+    description: "Search, read, label, archive, draft, send, and delete email. Sending and deleting wait for your approval.",
     section: "Featured",
     kind: "google",
     provider: "google",
@@ -42,8 +42,8 @@ export const PLUGIN_CATALOG: CatalogPlugin[] = [
       { name: "gmail-send", description: "Send mail after the person approves.", body: "Use gmail_send only after Auto-review approves that exact message." },
       {
         name: "gmail-tidy",
-        description: "Archive or delete messages the person names.",
-        body: "Find the messages with gmail_search, then use gmail_archive to take them out of the inbox or gmail_delete to move them to Trash. Only touch the messages the person asked about.",
+        description: "Organize mail: labels, read state, archive, delete.",
+        body: "Find messages with gmail_search; it returns up to 50 at a time, so follow nextPageToken until it is null before saying how many there are. Use gmail_label to file mail under labels (it creates a missing label) or star it, gmail_mark_read for read state, gmail_archive to take mail out of the inbox, and gmail_delete to move it to Trash. Only touch the messages the person asked about, and report counts from what the tools returned.",
       },
     ],
     scopes: [
@@ -55,12 +55,17 @@ export const PLUGIN_CATALOG: CatalogPlugin[] = [
     tools: [
       {
         name: "search",
-        description: "Search this account's Gmail." + confirm,
-        inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+        description:
+          "Search this account's Gmail with Gmail search syntax (in:inbox, is:unread, from:, label:, older_than:). Returns up to `limit` messages (default 20, at most 50) with date, sender, subject, unread and labels, an estimated total, and nextPageToken to fetch the next page.",
+        inputSchema: {
+          type: "object",
+          properties: { query: { type: "string" }, limit: { type: "number" }, pageToken: { type: "string" } },
+          required: ["query"],
+        },
       },
       {
         name: "read",
-        description: "Read one Gmail message by id." + confirm,
+        description: "Read one Gmail message by id: headers, labels and the plain-text body.",
         inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
       },
       {
@@ -84,6 +89,34 @@ export const PLUGIN_CATALOG: CatalogPlugin[] = [
             draftId: { type: "string" },
           },
           required: ["to", "subject", "body"],
+        },
+      },
+      {
+        name: "list_labels",
+        description: "List this account's Gmail labels.",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "label",
+        description:
+          "Add or remove labels on Gmail messages by id, by label name. A missing label in `add` is created. STARRED and IMPORTANT work too. Trash and Spam are not set here." + confirm,
+        inputSchema: {
+          type: "object",
+          properties: {
+            ids: { type: "array", items: { type: "string" } },
+            add: { type: "array", items: { type: "string" } },
+            remove: { type: "array", items: { type: "string" } },
+          },
+          required: ["ids"],
+        },
+      },
+      {
+        name: "mark_read",
+        description: "Mark Gmail messages read, or unread with read: false.",
+        inputSchema: {
+          type: "object",
+          properties: { ids: { type: "array", items: { type: "string" } }, read: { type: "boolean" } },
+          required: ["ids"],
         },
       },
       {

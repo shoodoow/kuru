@@ -73,18 +73,79 @@ function clip(value: unknown): string {
 
 async function gmail(tool: string, args: Args, token: string): Promise<unknown> {
   if (tool === "search") {
-    const listed = await google(`/gmail/v1/users/me/messages?maxResults=5&q=${encodeURIComponent(String(args.query ?? ""))}`, token);
-    const messages = [];
-    for (const row of (listed.messages ?? []) as Json[]) {
-      const full = await google(`/gmail/v1/users/me/messages/${row.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`, token);
-      const headers = Object.fromEntries(((full.payload?.headers ?? []) as Json[]).map((header) => [header.name, header.value]));
-      messages.push({ id: row.id, from: headers.From ?? "", subject: headers.Subject ?? "", snippet: full.snippet ?? "" });
-    }
-    return { messages };
+    const limit = Math.min(Math.max(Number(args.limit) || 20, 1), 50);
+    const params = new URLSearchParams({ maxResults: String(limit), q: String(args.query ?? "") });
+    if (args.pageToken) params.set("pageToken", String(args.pageToken));
+    const [listed, names] = await Promise.all([google(`/gmail/v1/users/me/messages?${params}`, token), labelNames(token)]);
+    const rows = (listed.messages ?? []) as Json[];
+    const messages = await Promise.all(
+      rows.map(async (row) => {
+        const full = await google(
+          `/gmail/v1/users/me/messages/${row.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+          token,
+        );
+        const headers = headerMap(full);
+        const labels = (full.labelIds ?? []) as string[];
+        return {
+          id: row.id,
+          date: headers.Date ?? "",
+          from: headers.From ?? "",
+          subject: headers.Subject ?? "",
+          snippet: String(full.snippet ?? "").slice(0, 120),
+          unread: labels.includes("UNREAD"),
+          labels: labels.filter((id) => !id.startsWith("CATEGORY_") && id !== "UNREAD").map((id) => names.get(id) ?? id),
+        };
+      }),
+    );
+    // Gmail's count is an estimate; nextPageToken says there are more to fetch.
+    return { messages, estimatedTotal: listed.resultSizeEstimate ?? messages.length, nextPageToken: listed.nextPageToken ?? null };
   }
   if (tool === "read") {
-    const full = await google(`/gmail/v1/users/me/messages/${encodeURIComponent(String(args.id ?? ""))}?format=full`, token);
-    return { id: full.id, snippet: full.snippet ?? "", body: clip(plainPart(full.payload) || full.snippet || "") };
+    const [full, names] = await Promise.all([
+      google(`/gmail/v1/users/me/messages/${encodeURIComponent(String(args.id ?? ""))}?format=full`, token),
+      labelNames(token),
+    ]);
+    const headers = headerMap(full);
+    return {
+      id: full.id,
+      threadId: full.threadId,
+      date: headers.Date ?? "",
+      from: headers.From ?? "",
+      to: headers.To ?? "",
+      subject: headers.Subject ?? "",
+      labels: ((full.labelIds ?? []) as string[]).map((id) => names.get(id) ?? id),
+      body: clip(plainPart(full.payload) || full.snippet || ""),
+    };
+  }
+  if (tool === "list_labels") {
+    const listed = await google("/gmail/v1/users/me/labels", token);
+    return { labels: ((listed.labels ?? []) as Json[]).map((label) => ({ name: label.name, type: label.type })) };
+  }
+  if (tool === "label") {
+    const ids = messageIds(args);
+    const add = labelList(args.add);
+    const remove = labelList(args.remove);
+    if (add.length === 0 && remove.length === 0) throw new Error("Name a label to add or remove.");
+    // Trash and spam go through gmail_delete, which waits for the person's approval.
+    if ([...add, ...remove].some((name) => ["TRASH", "SPAM"].includes(name.toUpperCase()))) {
+      throw new Error("Use gmail_delete to move mail to Trash. Spam and Trash cannot be set here.");
+    }
+    const addIds = await Promise.all(add.map((name) => labelId(token, name, true)));
+    const removeIds = await Promise.all(remove.map((name) => labelId(token, name, false)));
+    await google("/gmail/v1/users/me/messages/batchModify", token, {
+      method: "POST",
+      body: JSON.stringify({ ids, addLabelIds: addIds, removeLabelIds: removeIds.filter(Boolean) }),
+    });
+    return { changed: ids.length, added: add, removed: remove };
+  }
+  if (tool === "mark_read") {
+    const ids = messageIds(args);
+    const read = args.read !== false;
+    await google("/gmail/v1/users/me/messages/batchModify", token, {
+      method: "POST",
+      body: JSON.stringify(read ? { ids, removeLabelIds: ["UNREAD"] } : { ids, addLabelIds: ["UNREAD"] }),
+    });
+    return { changed: ids.length, read };
   }
   if (tool === "create_draft") {
     const raw = Buffer.from(`To: ${headerValue(args.to)}\r\nSubject: ${headerValue(args.subject)}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${args.body}`).toString("base64url");
@@ -114,6 +175,39 @@ async function gmail(tool: string, args: Args, token: string): Promise<unknown> 
     return { trashed: ids.length, message: "Moved to Trash. Gmail empties Trash after 30 days." };
   }
   throw new Error(`Unknown Gmail tool ${tool}.`);
+}
+
+function headerMap(message: Json): Record<string, string> {
+  return Object.fromEntries(((message.payload?.headers ?? []) as Json[]).map((header) => [header.name, header.value]));
+}
+
+/** Label id → name, so the agent reads "Receipts" and not "Label_12". */
+async function labelNames(token: string): Promise<Map<string, string>> {
+  const listed = await google("/gmail/v1/users/me/labels", token);
+  return new Map(((listed.labels ?? []) as Json[]).map((label) => [String(label.id), String(label.name)]));
+}
+
+function labelList(value: unknown): string[] {
+  const list = Array.isArray(value) ? value : value ? [value] : [];
+  return [...new Set(list.map(String).map((name) => name.trim()).filter(Boolean))];
+}
+
+/**
+ * The id of a label by its name, matched without case. System labels (INBOX, STARRED, IMPORTANT) work too.
+ * A missing label is created when create is set, and skipped (empty id) when it is not.
+ */
+async function labelId(token: string, name: string, create: boolean): Promise<string> {
+  const listed = await google("/gmail/v1/users/me/labels", token);
+  const found = ((listed.labels ?? []) as Json[]).find(
+    (label) => String(label.name).toLowerCase() === name.toLowerCase() || String(label.id) === name.toUpperCase(),
+  );
+  if (found) return String(found.id);
+  if (!create) return "";
+  const made = await google("/gmail/v1/users/me/labels", token, {
+    method: "POST",
+    body: JSON.stringify({ name, labelListVisibility: "labelShow", messageListVisibility: "show" }),
+  });
+  return String(made.id);
 }
 
 /** The message ids a tidy call names: `ids`, or a single `id`. At most 100, so one call cannot sweep a mailbox. */
