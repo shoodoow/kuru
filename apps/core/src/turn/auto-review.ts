@@ -159,6 +159,10 @@ export function classifyRisk(name: string, input: Record<string, unknown>, home?
     const to = String(input.to ?? input.draftId ?? "a recipient");
     return `Send email to ${to}`.slice(0, 180);
   }
+  if (name === "gmail_delete") {
+    const count = Array.isArray(input.ids) ? input.ids.length : 1;
+    return count === 1 ? "Move an email to Trash" : `Move ${count} emails to Trash`;
+  }
   const social = socialRisk(name, input);
   if (social) return social;
   if (name === "delete_routines") {
@@ -221,6 +225,7 @@ export async function allowForGood(db: Db, accountId: string, approval: { agentI
 const OTHER_ACTIONS: Record<string, string> = {
   bash: "Run a command on its computer",
   gmail_send: "Send an email",
+  gmail_delete: "Delete emails",
   fire_agent: "Remove an agent",
   delete_group: "Delete a team chat",
   delete_routine: "Delete a routine",

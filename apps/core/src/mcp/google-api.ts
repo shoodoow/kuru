@@ -103,7 +103,26 @@ async function gmail(tool: string, args: Args, token: string): Promise<unknown> 
     const sent = await google("/gmail/v1/users/me/messages/send", token, { method: "POST", body: JSON.stringify({ raw }) });
     return { id: sent.id, message: "Sent." };
   }
+  if (tool === "archive") {
+    const ids = messageIds(args);
+    await google("/gmail/v1/users/me/messages/batchModify", token, { method: "POST", body: JSON.stringify({ ids, removeLabelIds: ["INBOX"] }) });
+    return { archived: ids.length, message: "Archived. The messages are still in All Mail." };
+  }
+  if (tool === "delete") {
+    const ids = messageIds(args);
+    for (const id of ids) await google(`/gmail/v1/users/me/messages/${encodeURIComponent(id)}/trash`, token, { method: "POST" });
+    return { trashed: ids.length, message: "Moved to Trash. Gmail empties Trash after 30 days." };
+  }
   throw new Error(`Unknown Gmail tool ${tool}.`);
+}
+
+/** The message ids a tidy call names: `ids`, or a single `id`. At most 100, so one call cannot sweep a mailbox. */
+function messageIds(args: Args): string[] {
+  const raw = Array.isArray(args.ids) ? args.ids : args.id ? [args.id] : [];
+  const ids = [...new Set(raw.map(String).map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) throw new Error("Name at least one message id.");
+  if (ids.length > 100) throw new Error("At most 100 messages per call.");
+  return ids;
 }
 
 function plainPart(part: Json | undefined): string {

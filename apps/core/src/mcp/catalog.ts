@@ -31,7 +31,7 @@ export const PLUGIN_CATALOG: CatalogPlugin[] = [
   {
     id: "gmail",
     name: "Gmail",
-    description: "Search, read, draft, and send email. Sending waits for your approval.",
+    description: "Search, read, draft, send, archive, and delete email. Sending and deleting wait for your approval.",
     section: "Featured",
     kind: "google",
     provider: "google",
@@ -40,11 +40,17 @@ export const PLUGIN_CATALOG: CatalogPlugin[] = [
       { name: "gmail-search", description: "Look up and read messages in this account.", body: "Use gmail_search and gmail_read. Do not send mail from this skill." },
       { name: "gmail-draft", description: "Prepare a message without sending it.", body: "Use gmail_create_draft. Leave the message as a draft." },
       { name: "gmail-send", description: "Send mail after the person approves.", body: "Use gmail_send only after Auto-review approves that exact message." },
+      {
+        name: "gmail-tidy",
+        description: "Archive or delete messages the person names.",
+        body: "Find the messages with gmail_search, then use gmail_archive to take them out of the inbox or gmail_delete to move them to Trash. Only touch the messages the person asked about.",
+      },
     ],
     scopes: [
       "https://www.googleapis.com/auth/gmail.readonly",
       "https://www.googleapis.com/auth/gmail.compose",
       "https://www.googleapis.com/auth/gmail.send",
+      "https://www.googleapis.com/auth/gmail.modify",
     ],
     tools: [
       {
@@ -79,6 +85,16 @@ export const PLUGIN_CATALOG: CatalogPlugin[] = [
           },
           required: ["to", "subject", "body"],
         },
+      },
+      {
+        name: "archive",
+        description: "Archive Gmail messages by id: they leave the inbox and stay in All Mail." + confirm,
+        inputSchema: { type: "object", properties: { ids: { type: "array", items: { type: "string" } } }, required: ["ids"] },
+      },
+      {
+        name: "delete",
+        description: "Move Gmail messages to Trash by id. Gmail empties Trash after 30 days. Auto-review holds this until the person approves.",
+        inputSchema: { type: "object", properties: { ids: { type: "array", items: { type: "string" } } }, required: ["ids"] },
       },
     ],
   },
