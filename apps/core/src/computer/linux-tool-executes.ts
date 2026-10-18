@@ -87,6 +87,7 @@ export function linuxToolExecutes(
       if (drivesBrowserDirectly(command)) return BROWSER_SCRIPT_REFUSAL;
       return conciseOutput(await bash(accountId, profile, command));
     },
+    wait: async (input) => waitUntil(accountId, profile, String(input.until), Number(input.minutes) || 15, input.log ? String(input.log) : undefined),
     computer_screenshot: async () => {
       screenshots += 1;
       if (screenshots > SCREENSHOT_BUDGET) {
@@ -319,4 +320,39 @@ export function isSearchResultsPage(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** How often `wait` tries its check. */
+const WAIT_EVERY_SECONDS = 10;
+
+/**
+ * Waits in one step until a shell check passes or the time is up.
+ * Why: a worker waiting on a 7-minute voice-over checked on it with `sleep`,
+ * `ps` and `tail` 35 times; each check resent its whole conversation, about
+ * 1.5M tokens for nothing. One call now holds until the work is done.
+ * Input: account, Linux user, the check, the most minutes to wait, and an
+ * optional log file. Output: whether it finished, after how long, and the log's last lines.
+ */
+export async function waitUntil(accountId: string, profile: string, until: string, minutes: number, log?: string): Promise<string> {
+  const limit = Math.min(30, Math.max(1, Math.round(minutes))) * 60;
+  const quotedLog = log ? `'${log.replace(/'/g, `'\\''`)}'` : "";
+  const script = [
+    `start=$(date +%s)`,
+    `while :; do`,
+    `  if ( ${until} ) >/dev/null 2>&1; then echo "FINISHED $(( $(date +%s) - start ))"; break; fi`,
+    `  if [ $(( $(date +%s) - start )) -ge ${limit} ]; then echo "RUNNING ${limit}"; break; fi`,
+    `  sleep ${WAIT_EVERY_SECONDS}`,
+    `done`,
+    ...(log ? [`echo "--- last lines of ${log.replace(/["`$\\]/g, "")}:"`, `tail -n 15 ${quotedLog} 2>&1`] : []),
+  ].join("\n");
+  const out = await bash(accountId, profile, script);
+  const [first, ...rest] = out.split("\n");
+  const tail = rest.join("\n").trim();
+  const [state, seconds] = (first ?? "").trim().split(" ");
+  const took = `${Math.floor(Number(seconds) / 60)}m ${Number(seconds) % 60}s`;
+  const head =
+    state === "FINISHED"
+      ? `Done: the check passed after ${took}.`
+      : `Still not done after ${took}. Call wait again if it is still making progress, or look at why it is slow.`;
+  return tail ? `${head}\n${tail}` : head;
 }

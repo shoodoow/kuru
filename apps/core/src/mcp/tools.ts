@@ -145,7 +145,7 @@ export async function appendMcpTools(
     // tools would dominate every request, so it starts as one small "load"
     // tool and its real tools appear once the agent asks for them. A caller
     // with no gates (a test, a one-off) gets every tool.
-    const lazy = Boolean(ctx.pluginGates && ctx.pluginLoaders) && tools.length > LAZY_PLUGIN_TOOLS;
+    const lazy = Boolean(ctx.pluginGates && ctx.pluginLoaders) && (ctx.lazyEveryPlugin || tools.length > LAZY_PLUGIN_TOOLS);
     const pluginSet = `plugin:${row.slug}`;
     const pluginName = catalog?.name ?? row.slug;
     /** The name the model sees for each of the server's tools. */

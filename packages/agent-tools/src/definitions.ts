@@ -7,6 +7,7 @@ import {
   emptyToolInputSchema,
   listSkillsToolInputSchema,
   globInputSchema,
+  waitInputSchema,
   grepInputSchema,
   groupConversationInputSchema,
   groupCreateInputSchema,
@@ -407,6 +408,12 @@ export const allToolDefinitions: ToolDefinition[] = [
     surfaces: ["dispatcher", "worker"],
     requiresLinux: true,
     inputSchema: grepInputSchema,
+  },
+  {
+    name: "wait",
+    surfaces: ["worker"],
+    requiresLinux: true,
+    inputSchema: waitInputSchema,
   },
   {
     name: "browser_list_pages",

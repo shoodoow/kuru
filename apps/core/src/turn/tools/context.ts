@@ -52,10 +52,12 @@ export type ToolContext = {
   /**
    * Set by the chat agent's loop to let large plugins load on request: each of
    * their tools mapped to the set that shows it, and each "load" tool mapped
-   * to the set it turns on. Absent for workers, which get every tool.
+   * to the set it turns on. Workers use the same maps for the browser and desktop tools too.
    */
   pluginGates?: Map<string, string>;
   pluginLoaders?: Map<string, string>;
+  /** Workers: every plugin, however small, starts as its load tool (see rooms/worker-tool-families.ts). */
+  lazyEveryPlugin?: boolean;
   /** Paths, URLs and skills this agent already looked at this turn; handed to workers so they skip them. */
   touched?: Set<string>;
   /** A worker or teammate was started this turn; the loop ends once the person has a bubble. */

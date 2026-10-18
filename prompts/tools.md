@@ -139,7 +139,10 @@ Write one file by absolute path under your home or `/shared`. With `append: true
 Run one quick shell command on your own Linux computer: check something, run a script you wrote, convert a file, look at a result. You have about 20 seconds per call, and the output is cut if it is long. A job that takes longer, installs programs, builds, renders or needs many commands goes to `spawn_worker`. Never use it to start a browser.
 
 # bash.worker
-Run one shell command on your Linux computer. `DISPLAY` already points at your 1280x800 desktop, so `chromium` and `xterm` open on the screen the person can watch. Start long-running programs in the background so the command returns.
+Run one shell command on your Linux computer. `DISPLAY` already points at your 1280x800 desktop, so `chromium` and `xterm` open on the screen the person can watch. A command may run up to 30 minutes, so a render, a voice-over or an install can run in the foreground and you get the result in one step. Start a program in the background only when you need to do other work meanwhile, then use `wait`.
+
+# wait
+Wait for something running in the background to finish, in one step instead of many checks. `until` is a shell check that succeeds when it is done, such as `! pgrep -f render.mjs` or `test -s out/voice.wav`; it is tried every 10 seconds. `minutes` is the most to wait (up to 30, 15 if left out). `log` is a file whose last lines you get back. The answer says whether it finished or is still running.
 
 # ask_agent
 Ask the agent you work for one question, and wait for the answer. It knows the whole conversation with the person, their preferences and what was decided before, and it can ask the person if only they know. Use it when you are stuck on something you cannot find out yourself: which of two options they want, a detail the brief left out, a file or account you were not given, whether to go on after something unexpected. Give `question`, the `options` you see when there are a few, and your `pick`. If no answer comes within a few minutes you carry on with your pick. Two questions per job. Do not ask how to do the work: looking things up, reading a tool's help and trying are your job.

@@ -21,6 +21,8 @@ export type AgentSkillContext = {
  */
 export async function skillCatalogForAgent(ctx: AgentSkillContext): Promise<SkillSummary[]> {
   if (ctx.skillsRoot) await adoptHostSkills(ctx.skillsRoot, ctx.accountId);
+  // Brings the computer's copies up to date first, which also removes skills the server dropped.
+  if (ctx.skillsRoot && ctx.linuxProfile) await publishHostSkills(ctx.skillsRoot, ctx.accountId);
   const host = ctx.skillsRoot ? skillCatalogForAccount(ctx.skillsRoot, ctx.accountId) : [];
   const local = ctx.linuxProfile ? await localSkillCatalog(ctx.accountId, ctx.linuxProfile) : [];
   // The product's own skills win over an agent's install of the same name, description and all.

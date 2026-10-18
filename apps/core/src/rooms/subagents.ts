@@ -8,8 +8,9 @@ import {
 } from "./worker-kinds.js";
 
 import { workerToolNames as agentWorkerToolNames } from "@kuru/agent-tools";
-import { generateText, isStepCount, type ModelMessage } from "ai";
-import { activeWorkerTools } from "../turn/tools/tool-sets.js";
+import { generateText, isStepCount, NoSuchToolError, type ModelMessage } from "ai";
+import { activeWorkerTools, pluginToolKey } from "../turn/tools/tool-sets.js";
+import { gateToolFamilies, startNamedPlugins, startingFamilies } from "./worker-tool-families.js";
 import { isNoImageInputError, learnCapability, modelCapabilities } from "../model/capabilities.js";
 import { imageDescriber, type ImageDescriber } from "../turn/describe-image.js";
 import { budgetReachedMessage, budgetState, warnAboutBudget } from "../turn/usage/budget.js";
@@ -363,8 +364,11 @@ const WORKER_RESULT_MAX = 20_000;
 const PRELOADED_SKILL_CHARS = 16_000;
 // All preloaded skills together; every worker step resends them.
 const PRELOADED_SKILLS_TOTAL_CHARS = 40_000;
-/** The other installed skills, listed for a worker; smaller than the chat list since a worker resends it every step. */
-const WORKER_CATALOG_TOKENS = 1_200;
+/**
+ * The other installed skills, listed for a worker; smaller than the chat list since a worker resends it every step.
+ * A worker is on one job: names with a short line are enough, and `list_skills` finds the rest.
+ */
+const WORKER_CATALOG_TOKENS = 600;
 /** One cheap text-only pass when a worker spent its budget on tools and wrote nothing. No tools attached. */
 const workerReportRetryInstructions = (): string => prompt("worker-rules", "report-retry");
 export const WORKER_STALE_MS = 4 * 60 * 60 * 1000;
@@ -1193,10 +1197,11 @@ export async function runWorker(
       },
       linuxProfile: profile,
       voiceAgentId: input.parentAgentId,
-      // Large plugins start as one "load" tool; the worker loads only what the job needs.
+      // Plugins, the browser and the desktop start as one "load" tool each; the worker loads only what the job needs.
       enabledToolSets: new Set<string>(),
       pluginGates: new Map<string, string>(),
       pluginLoaders: new Map<string, string>(),
+      lazyEveryPlugin: true,
       waitOnApproval: {
         signal: controller.signal,
         onState: async (state) => {
@@ -1262,6 +1267,9 @@ export async function runWorker(
     }
     const roleLine = prompt("worker-rules", "role-line", { label: child.label, role: child.role });
     const kindMeta = unpackWorkerJobDescription(child.jobDescription);
+    const jobText = [input.task, input.context ?? ""].join("\n");
+    const screenOn = gateToolFamilies(tools, review, startingFamilies(kindMeta.kind, jobText));
+    startNamedPlugins(review, jobText);
     const home = profile ? accountHome(input.accountId, profile) : "";
     // Continuing: the same worker picks its earlier conversation back up, so
     // it keeps what it read, built and learned instead of rediscovering it.
@@ -1282,6 +1290,8 @@ export async function runWorker(
     }
     const standing = [
       workerPreambleFor(kindMeta.kind, kindMeta.instructions),
+      // How to work a page or the desktop, only for a job that starts with those tools; a load hands it over later.
+      screenOn.size > 0 ? prompt("worker-rules", "screen-guide") : "",
       home ? prompt("worker-rules", "workspace", { home }) : "",
     ]
       .filter(Boolean)
@@ -1527,7 +1537,13 @@ export async function runWorker(
             ...(runOn.provider === "anthropic" ? { messages: withCacheMark(stepMessages) } : {}),
           }),
           // One free fix for inputs that are wrong in shape but clear in meaning.
-          repairToolCall: async ({ toolCall }) => {
+          repairToolCall: async ({ toolCall, error }) => {
+            // A tool the worker has not loaded yet: it turns on for the next step instead of failing again.
+            const gate = review.pluginGates?.get(toolCall.toolName);
+            if (gate && NoSuchToolError.isInstance(error)) {
+              review.enabledToolSets?.add(gate.startsWith("family:") ? gate : pluginToolKey(toolCall.toolName));
+              return null;
+            }
             const repaired = repairToolInput(toolCall.toolName, toolCall.input);
             return repaired ? { ...toolCall, input: repaired } : null;
           },

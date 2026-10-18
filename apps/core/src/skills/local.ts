@@ -98,11 +98,25 @@ export async function publishHostSkills(skillsRoot: string, accountId: string): 
     const seen = await exec(accountId, [
       "sh",
       "-c",
-      `for name in "$@"; do d=${shellQuote(shared)}/"$name"; if [ -f "$d/${SERVER_SKILL_MARK}" ]; then echo "$name $(cat "$d/${SERVER_SKILL_MARK}")"; elif [ -e "$d" ]; then echo "$name own"; fi; done`,
+      `for name in "$@"; do d=${shellQuote(shared)}/"$name"; if [ -f "$d/${SERVER_SKILL_MARK}" ]; then echo "$name $(cat "$d/${SERVER_SKILL_MARK}")"; elif [ -e "$d" ]; then echo "$name own"; fi; done; ` +
+        `for d in ${shellQuote(shared)}/*/; do [ -f "$d${SERVER_SKILL_MARK}" ] && echo "@marked $(basename "$d")"; done; true`,
       "sh",
       ...folders.map((entry) => entry.folder),
     ]);
-    const onComputer = new Map(seen.stdout.split("\n").map((line) => line.trim().split(" ") as [string, string]));
+    const lines = seen.stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+    const onComputer = new Map(lines.filter((line) => !line.startsWith("@marked ")).map((line) => line.split(" ") as [string, string]));
+    // A copy of a skill the server no longer has stays listed to every agent
+    // until it is removed: a retired video skill kept being offered and loaded.
+    // Never with an empty server list, which would mean a misread, not a removal.
+    const current = new Set(folders.map((entry) => entry.folder));
+    const retired = lines
+      .filter((line) => line.startsWith("@marked "))
+      .map((line) => line.slice(8))
+      .filter((name) => /^[A-Za-z0-9._-]+$/.test(name) && !current.has(name));
+    if (folders.length > 0 && retired.length > 0) {
+      await exec(accountId, ["rm", "-rf", ...retired.map((name) => `${shared}/${name}`)]);
+      forgetSkillCatalog(accountId);
+    }
     for (const { folder, signature } of folders) {
       const found = onComputer.get(folder);
       if (found === signature) continue;

@@ -509,6 +509,13 @@ export const grepInputSchema = z.object({
   include: z.string().optional(),
 });
 
+/** wait: block until a shell check passes (a background job finished), up to 30 minutes, in one step. */
+export const waitInputSchema = z.object({
+  until: z.string().trim().min(1).max(2000),
+  minutes: z.number().int().min(1).max(30).optional(),
+  log: z.string().max(1000).optional(),
+});
+
 /** open_on_screen: one http(s) page shown in the visible browser on the agent's desktop. */
 export const openOnScreenInputSchema = z.object({
   url: z.string().trim().min(4).max(2000),

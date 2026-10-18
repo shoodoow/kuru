@@ -78,6 +78,7 @@ import { readAgentFile } from "../../routines/routine-worker.js";
 import { clipDescription, FULL_DESCRIPTION_CHARS, searchSkills, SHORT_DESCRIPTION_CHARS } from "../../skills/catalog-budget.js";
 import { bumpAccountPromptVersions } from "../../skills/install.js";
 import { publishLocalSkills } from "../../skills/local.js";
+import { mentionedToUse } from "./mentions.js";
 import {
   createOwnRoutine,
   deleteOwnRoutine,
@@ -1079,21 +1080,24 @@ const MAX_WORKER_SKILLS = 5;
  * Picks the skills a worker starts with.
  * Why: the chat agent reads skills to plan, then forgets to pass them on, so
  * the worker builds from a summary and guesses the rest (a wrong CLI flag, a
- * composition that renders blank). Whatever the agent named, mentioned in the
- * brief, or read lately travels with the job.
+ * composition that renders blank). When the agent names none, what the brief
+ * mentions or it read lately travels with the job. When it names some, only
+ * those do: every preloaded skill is resent on every step, and a brief saying
+ * "no HyperFrames" had loaded the whole HyperFrames playbook beside the one
+ * skill the job was for.
  * Input: the brief and the names the model passed. Output: skill names, best first.
  */
 async function workerSkills(ctx: ToolContext, task: string, named: string[]): Promise<string[]> {
   const picked = new Set(named);
-  const readNow = [...(ctx.touched ?? [])].filter((item) => item.startsWith("skill ")).map((item) => item.slice(6));
   const catalog = await skillCatalogForAgent({
     skillsRoot: ctx.skillsRoot,
     accountId: ctx.accountId,
     linuxProfile: ctx.linuxProfile ?? undefined,
   }).catch(() => []);
   const known = new Set(catalog.map((skill) => skill.name));
-  const lower = task.toLowerCase();
-  const mentioned = catalog.filter((skill) => skill.name.length >= 4 && lower.includes(skill.name.toLowerCase()));
+  if (named.length > 0) return [...picked].filter((name) => known.size === 0 || known.has(name)).slice(0, MAX_WORKER_SKILLS);
+  const readNow = [...(ctx.touched ?? [])].filter((item) => item.startsWith("skill ")).map((item) => item.slice(6));
+  const mentioned = catalog.filter((skill) => skill.name.length >= 4 && mentionedToUse(task, skill.name));
   // A brief that lists many skills is talking about them, not asking to follow them.
   if (mentioned.length <= 3) for (const skill of mentioned) picked.add(skill.name);
   for (const name of readNow) picked.add(name);

@@ -20,8 +20,12 @@ export type ImageToDescribe = { path: string; base64: string; mediaType: string 
 export type DescribeUsage = { inputTokens: number; outputTokens: number };
 export type ImageDescriber = (image: ImageToDescribe) => Promise<string>;
 
-/** Longest description; enough for every line of text in a frame and what is wrong with it. */
-const DESCRIPTION_TOKENS = 900;
+/**
+ * Most tokens a description may use. Room for a thinking model's reasoning
+ * as well: at 900, a model that thinks first spent them all thinking and
+ * returned nothing, and 6 of a job's 8 looks came back empty.
+ */
+const DESCRIPTION_TOKENS = 3_000;
 
 const INSTRUCTION = [
   "You are the eyes of a colleague who cannot see this image. Describe it so they can check their work without seeing it.",
@@ -73,6 +77,8 @@ export async function imageDescriber(
         ],
       });
       onUsage?.({ inputTokens: result.usage.inputTokens ?? 0, outputTokens: result.usage.outputTokens ?? 0 });
+      // An empty answer is a failed look, not a picture with nothing in it.
+      if (!result.text.trim()) throw new Error(`${candidate.modelId} returned no description`);
       return `Image ${image.path}, described by ${candidate.modelId} because your model cannot see pictures:\n${result.text.trim()}`;
     };
   }
