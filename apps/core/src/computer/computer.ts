@@ -118,12 +118,12 @@ export async function readImage(
  * Input: the account id, the Linux username, an absolute path, and the text.
  * Output: nothing. The file is created or replaced.
  */
-export async function writeFile(accountId: string, profile: string, path: string, body: string): Promise<void> {
+export async function writeFile(accountId: string, profile: string, path: string, body: string, append = false): Promise<void> {
   path = expandHome(accountId, profile, path);
   assertPath(accountId, path, profile);
   // The body goes in on stdin: one argument is capped near 128KB by Linux, so a
   // file passed on the command line failed once it grew past that.
-  const result = await execStdin(accountId, ["sh", "-c", 'cat > "$1"', "sh", path], Buffer.from(body), profile);
+  const result = await execStdin(accountId, ["sh", "-c", append ? 'cat >> "$1"' : 'cat > "$1"', "sh", path], Buffer.from(body), profile);
   if (result.code !== 0) {
     throw new Error(result.stdout.toString("utf8") || "The file could not be written.");
   }

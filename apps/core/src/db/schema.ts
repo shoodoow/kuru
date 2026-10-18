@@ -1,4 +1,4 @@
-import { boolean, bigserial, check, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid, vector } from "drizzle-orm/pg-core";
+import { boolean, bigserial, check, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { MessageBlock } from "@kuru/shared";
 
@@ -24,6 +24,10 @@ export const accounts = pgTable("accounts", {
   // spent. Chat agents keep their own model. Null: unused.
   cheapProvider: text("cheap_provider"),
   cheapModelId: text("cheap_model_id"),
+  // Most the agents may spend in one day, in estimated dollars. When reached,
+  // background jobs and scheduled runs stop until the next day or a higher
+  // limit; chats still answer. Null: no limit.
+  dailyBudgetUsd: doublePrecision("daily_budget_usd"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

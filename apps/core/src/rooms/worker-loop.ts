@@ -26,6 +26,48 @@ export const LOOK_ONLY_NUDGES_BEFORE_STOP = 2;
 const COLLAPSED_RESULT_CHARS = 160;
 /** Steps left when the worker is warned the ceiling is near. */
 export const WRAP_UP_WARNING_STEPS = 8;
+/**
+ * Longest answer one worker step may write, in tokens.
+ * Why: with no limit the provider reserves credit for the model's maximum
+ * (65,536 on one model) on every step, and refused steps the account could
+ * easily pay for. Too low, and a long file was cut off mid-call. This fits
+ * a file of several hundred lines plus the model's thinking; a step that is
+ * cut off anyway is told to write in parts, and the limit is raised.
+ */
+export const WORKER_OUTPUT_TOKENS = 24_000;
+/** Never ask for less than this, even when credit is short: below it most steps cannot finish. */
+export const MIN_OUTPUT_TOKENS = 4_096;
+
+/** The output limit for a model, from its own maximum when known. */
+export function workerOutputCap(modelMax: number | null | undefined): number {
+  return modelMax && modelMax > 0 ? Math.max(Math.min(modelMax, WORKER_OUTPUT_TOKENS), Math.min(modelMax, MIN_OUTPUT_TOKENS)) : WORKER_OUTPUT_TOKENS;
+}
+
+/**
+ * The tokens a provider said it can still pay for, from its refusal.
+ * Input: the error. Output: the number, or null for any other error.
+ * OpenRouter: "You requested up to 65536 tokens, but can only afford 21083."
+ */
+export function affordableTokens(error: unknown): number | null {
+  const text = error instanceof Error ? `${error.message} ${String((error as { responseBody?: unknown }).responseBody ?? "")}` : String(error);
+  const match = /can only afford (\d+)/i.exec(text);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Most input tokens one worker run may send, cached or not, before it must report.
+ * Why: a run used to be stopped only by its step count, so when something
+ * made every step huge (a plugin's 137 tool definitions), one job spent
+ * 23 million tokens. At a normal 30,000 to 50,000 tokens a step this is far
+ * beyond the step ceiling; it only bites when steps are abnormally large.
+ * The job can be continued from its report.
+ */
+export const WORKER_RUN_INPUT_TOKENS = 8_000_000;
+/** Average input per step above which the person is told something is off. Normal is 30,000 to 50,000. */
+export const STEP_INPUT_ALARM = 90_000;
+/** Steps averaged before the alarm is judged, so one large page does not set it off. */
+export const STEP_ALARM_AFTER = 6;
+
 /** Largest conversation kept for a later continuation, as JSON characters. */
 export const TRANSCRIPT_STORE_CHARS = 600_000;
 
@@ -378,6 +420,33 @@ export function compactionThreshold(contextWindow?: number | null): number {
   // The ceiling was 90,000. A long job then resent up to that much at every one of its steps, which
   // is most of what such a job costs; the old output it kept is rarely read again and can be rerun.
   return Math.max(24_000, Math.min(Math.floor(window * 0.55), 48_000));
+}
+
+/** Below this size (estimated tokens) old page views are left alone, so the cached prefix stays the same. */
+export const STALE_VIEWS_AT = 16_000;
+
+/**
+ * The conversation with a cache mark on its newest message (Anthropic).
+ * Why: Anthropic caches a prompt only up to a marked point. Without a mark on
+ * the messages, every worker step paid full price for the whole conversation.
+ * Only the newest message is marked; earlier marks are taken off, since a
+ * request may carry only four.
+ */
+export function withCacheMark(messages: ModelMessage[]): ModelMessage[] {
+  return messages.map((message, index) => {
+    const options = (message as { providerOptions?: Record<string, Record<string, unknown>> }).providerOptions;
+    if (index === messages.length - 1) {
+      return { ...message, providerOptions: { ...options, anthropic: { ...options?.anthropic, cacheControl: { type: "ephemeral" } } } } as ModelMessage;
+    }
+    if (!options?.anthropic?.cacheControl) return message;
+    const { cacheControl: _dropped, ...rest } = options.anthropic;
+    return { ...message, providerOptions: { ...options, anthropic: rest } } as ModelMessage;
+  });
+}
+
+/** The conversation with every picture replaced by a short note; nothing else changes. */
+export function withoutImages(messages: ModelMessage[]): ModelMessage[] {
+  return messages.map((message) => trimMessage(message, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, true));
 }
 
 /**

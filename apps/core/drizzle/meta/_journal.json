@@ -386,6 +386,13 @@
       "when": 1791501500000,
       "tag": "0054_google-sign-in-per-plugin",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1791587900000,
+      "tag": "0055_daily-budget",
+      "breakpoints": true
     }
   ]
 }

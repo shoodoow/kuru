@@ -15,6 +15,8 @@ import { inboxStatus } from "../../rooms/inbox.js";
 import { deleteAccount } from "../../roster/delete-account.js";
 import { createRoom, listConversations } from "../../rooms/rooms.js";
 import { accountUsage, usagePeriod } from "../../turn/usage/account-usage.js";
+import { budgetState, setDailyBudget } from "../../turn/usage/budget.js";
+import { creditReport } from "../../turn/usage/provider-credit.js";
 import {
   cheapModelFor,
   createAgent,
@@ -134,6 +136,12 @@ export function accountsRoutes(ctx: AppContext, guard: Guard): Router {
   accounts.get("/:accountId/usage", guard, async (req, res) => {
     res.json(await accountUsage(ctx.db, pathParam(req, "accountId"), usagePeriod(req.query.period, req.query.days)));
   });
+  // What is left at each model provider, whether web search works, and the daily limit.
+  accounts.get("/:accountId/credits", guard, async (req, res) => {
+    const accountId = pathParam(req, "accountId");
+    const [report, budget] = await Promise.all([creditReport(ctx.db, accountId), budgetState(ctx.db, accountId)]);
+    res.json({ ...report, budget });
+  });
   accounts.post("/:accountId/conversations", guard, async (req, res) => {
     const accountId = pathParam(req, "accountId");
     const created = await createRoom(ctx.db, accountId, req.body);
@@ -186,11 +194,13 @@ export function accountsRoutes(ctx: AppContext, guard: Guard): Router {
     res.json(saved);
   });
   accounts.patch("/:accountId/settings", guard, async (req, res) => {
-    const body = (req.body ?? {}) as { autoReview?: unknown; timezone?: unknown };
+    const body = (req.body ?? {}) as { autoReview?: unknown; timezone?: unknown; dailyBudgetUsd?: unknown };
     const hasReview = typeof body.autoReview === "boolean";
     const hasZone = typeof body.timezone === "string" && body.timezone.trim().length > 0;
-    if (!hasReview && !hasZone) {
-      res.status(400).json({ error: "autoReview must be a boolean." });
+    // A number sets the daily spending limit; null clears it.
+    const hasBudget = body.dailyBudgetUsd === null || (typeof body.dailyBudgetUsd === "number" && Number.isFinite(body.dailyBudgetUsd) && body.dailyBudgetUsd >= 0);
+    if (!hasReview && !hasZone && !hasBudget) {
+      res.status(400).json({ error: "Send autoReview (a boolean), timezone, or dailyBudgetUsd (dollars, or null for no limit)." });
       return;
     }
     if (hasZone && !isTimeZone(body.timezone as string)) {
@@ -198,6 +208,10 @@ export function accountsRoutes(ctx: AppContext, guard: Guard): Router {
       return;
     }
     const accountId = pathParam(req, "accountId");
+    if (hasBudget && !(await setDailyBudget(ctx.db, accountId, body.dailyBudgetUsd as number | null))) {
+      res.status(404).json({ error: "Account not found." });
+      return;
+    }
     if (hasReview) {
       const updated = await setAutoReview(ctx.db, accountId, body.autoReview as boolean);
       if (!updated) {

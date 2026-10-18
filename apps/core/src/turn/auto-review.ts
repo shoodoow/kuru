@@ -501,7 +501,7 @@ export async function getAutoReview(db: Db, accountId: string): Promise<boolean>
 
 export async function getAccountSettings(db: Db, accountId: string) {
   const [row] = await db
-    .select({ autoReview: accounts.autoReview, timezone: accounts.timezone })
+    .select({ autoReview: accounts.autoReview, timezone: accounts.timezone, dailyBudgetUsd: accounts.dailyBudgetUsd })
     .from(accounts)
     .where(eq(accounts.id, accountId));
   return row ?? null;

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Alert, KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type ViewStyle } from "react-native";
 import type { ProviderSetting } from "../api";
-import type { AccountUsage, PluginList, RosterAgent, UsagePeriod } from "../api";
+import type { AccountCredits, AccountUsage, PluginList, RosterAgent, UsagePeriod } from "../api";
 import type { SavedAccount } from "../auth";
 import { UsagePage } from "./UsagePage";
 import { ModelsPage, providerLabel } from "./ModelsPage";
@@ -47,6 +47,8 @@ export function MenuSheet({
   serverUrl,
   onChangeServer,
   onLoadUsage,
+  onLoadCredits,
+  onSaveLimit,
   onPage,
   approvalsPage,
   onNotifications,
@@ -91,6 +93,8 @@ export function MenuSheet({
   /** The roster, for the faces on the usage page. */
   agents: RosterAgent[];
   onLoadUsage: (period: UsagePeriod) => Promise<AccountUsage>;
+  onLoadCredits?: () => Promise<AccountCredits>;
+  onSaveLimit?: (usd: number | null) => Promise<unknown>;
   onPage: (page: MenuPage) => void;
   /**
    * The Approvals page, drawn inside this sheet.
@@ -181,7 +185,7 @@ export function MenuSheet({
       ) : null}
       {page === "approvals" ? approvalsPage : null}
       {page === "appearance" ? <AppearancePage scrollStyle={scrollStyle} /> : null}
-      {page === "usage" ? <UsagePage agents={agents} onLoad={onLoadUsage} scrollStyle={scrollStyle} /> : null}
+      {page === "usage" ? <UsagePage agents={agents} onLoad={onLoadUsage} onLoadCredits={onLoadCredits} onSaveLimit={onSaveLimit} scrollStyle={scrollStyle} /> : null}
       {page === "providers" ? (
         <ProviderPage providers={providers} onSave={onSaveProvider} onModels={() => onPage("models")} onError={onError} scrollStyle={scrollStyle} />
       ) : null}

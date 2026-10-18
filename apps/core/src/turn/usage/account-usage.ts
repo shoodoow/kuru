@@ -8,6 +8,7 @@
 import { eq, sql } from "drizzle-orm";
 import type { getDb } from "../../db/client.js";
 import { accounts, agents } from "../../db/schema.js";
+import { estimateCost, modelCapabilities } from "../../model/capabilities.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -21,6 +22,10 @@ export type UsageTotals = {
   turns: number;
   /** Background jobs they ran. */
   jobs: number;
+  /** Estimated dollars at list prices; usage on a model with unknown prices is left out (see `unpricedTokens`). */
+  estimatedUsd?: number;
+  /** Tokens on models whose prices are unknown, so not in `estimatedUsd`. */
+  unpricedTokens?: number;
 };
 
 /** The windows the Usage page offers: today, the last seven days, this calendar month. */
@@ -167,6 +172,22 @@ export async function accountUsage(db: Db, accountId: string, period: UsagePerio
     const count = period === "week" ? 7 : Number(parts.day);
     for (let index = count - 1; index >= 0; index--) keys.push(new Date(end - index * 86_400_000).toISOString().slice(0, 10));
   }
+  // Dollars, per model and in total, from list prices; a model with no known prices is counted apart.
+  let estimatedUsd = 0;
+  let unpricedTokens = 0;
+  for (const used of byModel.values()) {
+    const pricing = used.modelId ? (await modelCapabilities(used.provider, used.modelId).catch(() => null))?.pricing : null;
+    const cost = estimateCost(pricing, used);
+    if (cost === null) {
+      used.unpricedTokens = used.inputTokens + used.outputTokens;
+      unpricedTokens += used.unpricedTokens;
+    } else {
+      used.estimatedUsd = cost;
+      estimatedUsd += cost;
+    }
+  }
+  totals.estimatedUsd = estimatedUsd;
+  totals.unpricedTokens = unpricedTokens;
   const heaviest = (left: UsageTotals, right: UsageTotals) => right.inputTokens + right.outputTokens - (left.inputTokens + left.outputTokens);
   return {
     period,

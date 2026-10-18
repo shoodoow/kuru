@@ -3,6 +3,7 @@ import { getDb } from "../../db/client.js";
 import { conversations, delegations, members, runs } from "../../db/schema.js";
 import { createAccount, createAgent } from "../../roster/roster.js";
 import { accountUsage, usagePeriod } from "./account-usage.js";
+import { __setCapabilitiesForTests, parseOpenRouterCatalog } from "../../model/capabilities.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
@@ -10,8 +11,11 @@ const db = getDb(databaseUrl);
 /** Locks the account usage page's numbers: what counts, whose it is, and which days it covers. */
 describe("account usage", () => {
   afterAll(async () => {
+    __setCapabilitiesForTests(null);
     await db.$client.end();
   });
+  // Fixed prices, so the dollar figures do not follow the live catalog. Only gpt-5 is priced.
+  __setCapabilitiesForTests(parseOpenRouterCatalog({ data: [{ id: "openai/gpt-5", pricing: { prompt: "0.000001", completion: "0.00001" } }] }));
 
   it("adds turns and background jobs by day, by agent and by model, inside the period only", async () => {
     const account = await createAccount(db, { name: "Usage" });
@@ -40,7 +44,8 @@ describe("account usage", () => {
 
     const week = await accountUsage(db, account.id, "week");
     expect(week.bucket).toBe("day");
-    expect(week.totals).toEqual({ inputTokens: 13_700, outputTokens: 1370, cacheReadTokens: 400, turns: 3, jobs: 2 });
+    // Dollars: gpt-5's 1,000 in and 100 out at the fixed prices; the rest is on models with no known price.
+    expect(week.totals).toEqual({ inputTokens: 13_700, outputTokens: 1370, cacheReadTokens: 400, turns: 3, jobs: 2, estimatedUsd: 0.002, unpricedTokens: 13_970 });
     expect(week.series).toHaveLength(7);
     expect(week.series.at(-1)).toMatchObject({ inputTokens: 13_000, turns: 1, jobs: 2, models: { "openai/gpt-5": 1100, unknown: 9900, "anthropic/claude-haiku-5-5": 3300 } });
     expect(week.agents.map((row) => [row.name, row.inputTokens, row.turns, row.jobs])).toEqual([
@@ -69,7 +74,7 @@ describe("account usage", () => {
   it("returns zeros for an account that has done nothing", async () => {
     const account = await createAccount(db, { name: "Quiet" });
     const usage = await accountUsage(db, account.id, "week");
-    expect(usage.totals).toEqual({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, turns: 0, jobs: 0 });
+    expect(usage.totals).toEqual({ estimatedUsd: 0, unpricedTokens: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, turns: 0, jobs: 0 });
     expect(usage.agents).toEqual([]);
     expect(usage.series).toHaveLength(7);
     expect(usage.models).toEqual([]);

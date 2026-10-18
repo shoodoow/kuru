@@ -11,6 +11,7 @@ import type { ToolContext } from "./context.js";
 import { dispatcherExecutors, executeDelegate, executeListSkills, executeRefreshSkills } from "./executors.js";
 import { wrapToolExecute } from "./wrap-tool-execute.js";
 import { optionalPrompt, prompt } from "../../prompt/prompts.js";
+import { cannotSeeNote, type ImageDescriber } from "../describe-image.js";
 
 /** OpenAI-compatible empty tool input (avoids Zod→JSON Schema propertyNames warnings). */
 const NO_PARAMETERS_TOOLS = new Set([
@@ -48,7 +49,34 @@ export type WorkerToolBuildContext = {
   kind?: WorkerKind;
   /** Asks the agent this worker works for; left out, the worker has nobody to ask. */
   ask?: (question: WorkerQuestion) => Promise<string>;
+  /**
+   * Whether the worker's model can see pictures, checked on every call (it can
+   * change mid-run when a provider refuses one), and who describes a picture
+   * when it cannot. Left out, pictures go to the model as they are.
+   */
+  vision?: { canSee: () => boolean; describe: ImageDescriber | null };
 };
+
+/** Tools whose result can be a picture. */
+const PICTURE_TOOLS = new Set(["read", "browser_screenshot", "computer_screenshot"]);
+
+/**
+ * Turns a picture result into words when the model cannot see.
+ * Why: a picture sent to a text-only model makes the provider refuse the whole request.
+ */
+export async function pictureAsText(output: unknown, vision: NonNullable<WorkerToolBuildContext["vision"]>): Promise<unknown> {
+  if (vision.canSee() || !output || typeof output !== "object") return output;
+  const shot = output as { path?: string; jpegBase64?: string; pngBase64?: string; width?: number; height?: number };
+  const base64 = shot.jpegBase64 ?? shot.pngBase64;
+  if (!base64) return output;
+  const path = shot.path ?? "the screenshot";
+  if (!vision.describe) return cannotSeeNote(path);
+  try {
+    return await vision.describe({ path, base64, mediaType: shot.jpegBase64 ? "image/jpeg" : "image/png" });
+  } catch (error) {
+    return `${cannotSeeNote(path)} (Describing it failed: ${error instanceof Error ? error.message.slice(0, 200) : "unknown error"}.)`;
+  }
+}
 
 /** Wording lives in prompts/tools.md: `# name`, with an optional `# name.worker` variant. */
 function descriptionFor(def: ToolDefinition, surface: "dispatcher" | "worker"): string {
@@ -164,7 +192,9 @@ export function buildWorkerToolSet(workerCtx: WorkerToolBuildContext): ToolSet {
   const set: Record<string, unknown> = {};
   const defs = toolsForSurface("worker", { hasLinux: !!workerCtx.profile }).filter((def) => kindHasTool(workerCtx.kind, def.name));
   for (const def of defs) {
-    const raw = workerExecute(def, workerCtx);
+    const plain = workerExecute(def, workerCtx);
+    const vision = workerCtx.vision;
+    const raw = vision && PICTURE_TOOLS.has(def.name) ? async (input: Record<string, unknown>) => pictureAsText(await plain(input), vision) : plain;
     const execute = workerCtx.review
       ? wrapToolExecute(workerCtx.review, "worker", def.name, raw)
       : raw;

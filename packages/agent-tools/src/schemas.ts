@@ -440,6 +440,8 @@ export const pathInputSchema = z.object({
 export const readWriteInputSchema = z.object({
   path: z.string().min(1),
   body: z.string(),
+  /** Adds the body to the end of the file instead of replacing it: how a long file is written in parts. */
+  append: z.boolean().optional(),
 });
 
 export const bashInputSchema = z.object({

@@ -253,3 +253,24 @@ function isAppCard(payload: unknown): boolean {
       (block as { kind?: string })?.kind === "widget" && !REPLAYED_WIDGETS.has(String((block as { widget?: unknown }).widget)),
   );
 }
+
+const PICTURE_NOTE = "[A picture was attached here, but your model cannot see pictures. If it matters, say so and ask what it shows.]";
+
+/**
+ * Replaces every picture in a chat prompt with a short note.
+ * Why: a text-only model given a picture makes the provider refuse the whole turn.
+ */
+export function picturesAsNotes<T>(messages: T[]): T[] {
+  return messages.map((message) => {
+    const content = (message as { content?: unknown }).content;
+    if (!Array.isArray(content)) return message;
+    let changed = false;
+    const next = content.map((part: { type?: string; mediaType?: string }) => {
+      const picture = part?.type === "image" || (part?.type === "file" && typeof part.mediaType === "string" && part.mediaType.startsWith("image/"));
+      if (!picture) return part;
+      changed = true;
+      return { type: "text", text: PICTURE_NOTE };
+    });
+    return changed ? ({ ...message, content: next } as T) : message;
+  });
+}

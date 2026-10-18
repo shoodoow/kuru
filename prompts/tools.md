@@ -133,7 +133,7 @@ Delete several of your routines in one call: `all: true`, or `routineIds`. One a
 List your routines with ids, schedules, next and last run, and recent results.
 
 # write
-Write one file by absolute path under your home or `/shared`.
+Write one file by absolute path under your home or `/shared`. With `append: true` the body is added to the end instead: write a long file in parts of a few hundred lines each.
 
 # bash
 Run one quick shell command on your own Linux computer: check something, run a script you wrote, convert a file, look at a result. You have about 20 seconds per call, and the output is cut if it is long. A job that takes longer, installs programs, builds, renders or needs many commands goes to `spawn_worker`. Never use it to start a browser.

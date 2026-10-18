@@ -1,7 +1,9 @@
 import { chartValue } from "@kuru/shared";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, type ViewStyle } from "react-native";
-import type { AccountUsage, RosterAgent, UsagePeriod } from "../api";
+import type { AccountCredits, AccountUsage, RosterAgent, UsagePeriod } from "../api";
+import { SpendingCard } from "./SpendingCard";
+import { dollars } from "./spending";
 import { modelColor, modelName, UsageChart } from "./UsageChart";
 import { providerLabel } from "./ModelsPage";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
@@ -19,17 +21,22 @@ const PERIODS: { id: UsagePeriod; label: string }[] = [
  * or day, by model and by agent.
  * Why: the ring in a chat covers one conversation. This is the whole account,
  * so the person can see how much is being spent, on which model and by which
- * agent. Money is not shown: prices differ by provider and model and are not
- * known here; the split by model is what lets them work it out.
- * Input: the roster (for faces) and a loader for one period. Output: the page.
+ * agent. Dollars are estimates from list prices; balances and the daily limit
+ * sit at the top, when the server offers them.
+ * Input: the roster (for faces), a loader for one period, and optionally the
+ * balance loader and the limit setter. Output: the page.
  */
 export function UsagePage({
   agents,
   onLoad,
+  onLoadCredits,
+  onSaveLimit,
   scrollStyle,
 }: {
   agents: RosterAgent[];
   onLoad: (period: UsagePeriod) => Promise<AccountUsage>;
+  onLoadCredits?: () => Promise<AccountCredits>;
+  onSaveLimit?: (usd: number | null) => Promise<unknown>;
   scrollStyle: ViewStyle;
 }) {
   const [period, setPeriod] = useState<UsagePeriod>("week");
@@ -59,6 +66,7 @@ export function UsagePage({
   const label = PERIODS.find((entry) => entry.id === period)!.label.toLowerCase();
   return (
     <ScrollView style={scrollStyle} contentInsetAdjustmentBehavior="automatic" nestedScrollEnabled contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      {onLoadCredits && onSaveLimit ? <SpendingCard onLoad={onLoadCredits} onSaveLimit={onSaveLimit} /> : null}
       <View style={styles.periods}>
         {PERIODS.map((entry) => (
           <Pressable
@@ -80,6 +88,13 @@ export function UsagePage({
         <>
           <View style={styles.tiles}>
             <Tile label="Tokens" value={chartValue(total)} hint={`${chartValue(shown.totals.inputTokens)} in · ${chartValue(shown.totals.outputTokens)} out`} />
+            {shown.totals.estimatedUsd !== undefined ? (
+              <Tile
+                label="Estimated cost"
+                value={dollars(shown.totals.estimatedUsd)}
+                hint={shown.totals.unpricedTokens ? `${chartValue(shown.totals.unpricedTokens)} tokens not priced` : "at list prices"}
+              />
+            ) : null}
             <Tile
               label="From cache"
               value={shown.totals.inputTokens > 0 ? `${Math.round((shown.totals.cacheReadTokens / shown.totals.inputTokens) * 100)}%` : "0%"}
@@ -113,6 +128,7 @@ export function UsagePage({
                         {[
                           row.provider ? providerLabel(row.provider) : "",
                           `${chartValue(row.inputTokens)} in · ${chartValue(row.outputTokens)} out`,
+                          row.estimatedUsd !== undefined ? `≈ ${dollars(row.estimatedUsd)}` : "",
                           row.inputTokens > 0 ? `${Math.round((row.cacheReadTokens / row.inputTokens) * 100)}% cached` : "",
                           row.turns > 0 ? `${row.turns} ${row.turns === 1 ? "turn" : "turns"}` : "",
                           row.jobs > 0 ? `${row.jobs} ${row.jobs === 1 ? "job" : "jobs"}` : "",

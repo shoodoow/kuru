@@ -257,3 +257,44 @@ describe("StuckWatch", () => {
     expect(stepFailed([])).toBe(false);
   });
 });
+
+describe("output limit and credit", () => {
+  it("asks for a sensible answer length, never the model's whole maximum", async () => {
+    const { workerOutputCap, WORKER_OUTPUT_TOKENS } = await import("./worker-loop.js");
+    expect(workerOutputCap(235_929)).toBe(WORKER_OUTPUT_TOKENS);
+    expect(workerOutputCap(8_192)).toBe(8_192);
+    expect(workerOutputCap(null)).toBe(WORKER_OUTPUT_TOKENS);
+  });
+
+  it("reads what the provider can still pay for", async () => {
+    const { affordableTokens } = await import("./worker-loop.js");
+    expect(affordableTokens(new Error("This request requires more credits, or fewer max_tokens. You requested up to 65536 tokens, but can only afford 21083."))).toBe(21083);
+    expect(affordableTokens(new Error("Invalid JSON response"))).toBeNull();
+  });
+
+  it("knows a credit refusal in any wording and marks the account for a while", async () => {
+    const { isOutOfCreditError, noteCreditOutage, creditOutage, clearCreditOutage, OutOfCreditError } = await import("../model/credit.js");
+    expect(isOutOfCreditError(Object.assign(new Error("Payment Required"), { statusCode: 402 }))).toBe(true);
+    expect(isOutOfCreditError(new Error("Insufficient credits"))).toBe(true);
+    expect(isOutOfCreditError(new Error("No endpoints found that support image input"))).toBe(false);
+    expect(new OutOfCreditError().message).toMatch(/Do not restart/);
+    noteCreditOutage("acct-credit", "openrouter", 1_000);
+    expect(creditOutage("acct-credit", 2_000)).not.toBeNull();
+    clearCreditOutage("acct-credit");
+    expect(creditOutage("acct-credit", 2_000)).toBeNull();
+  });
+});
+
+describe("withCacheMark", () => {
+  it("marks only the newest message for Anthropic's cache", async () => {
+    const { withCacheMark } = await import("./worker-loop.js");
+    const marked = withCacheMark([
+      { role: "user", content: "brief" },
+      { role: "user", content: "old", providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } },
+      { role: "user", content: "new" },
+    ] as ModelMessage[]) as { providerOptions?: { anthropic?: { cacheControl?: unknown } } }[];
+    expect(marked[0]!.providerOptions).toBeUndefined();
+    expect(marked[1]!.providerOptions?.anthropic?.cacheControl).toBeUndefined();
+    expect(marked[2]!.providerOptions?.anthropic?.cacheControl).toEqual({ type: "ephemeral" });
+  });
+});

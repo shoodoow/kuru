@@ -11,6 +11,9 @@ import { runTurn, type GenerateResult, type TurnInput } from "../rooms/turn.js";
 import type { StreamEvent } from "../rooms/stream.js";
 import { nextCronRun } from "./cron.js";
 import { routineNotesPath, startRoutineWorker } from "./routine-worker.js";
+import { budgetState, warnAboutBudget } from "../turn/usage/budget.js";
+import { creditOutage } from "../model/credit.js";
+import { noted } from "../log/logger.js";
 
 type Database = Pick<ReturnType<typeof getDb>, "insert" | "select" | "update" | "transaction">;
 
@@ -163,6 +166,21 @@ export async function runDue(
       runAt: upcoming,
     });
   };
+  // Over the day's spending limit, or out of provider credit: this run is
+  // skipped, not queued, so a backlog does not all fire at once afterwards.
+  const budget = await budgetState(db, routine.accountId).catch(() => null);
+  const skipped = budget?.reached
+    ? `Skipped: the account's daily spending limit ($${(budget.limitUsd ?? 0).toFixed(2)}) was reached.`
+    : creditOutage(routine.accountId)
+      ? "Skipped: the model provider has no credit left on this account."
+      : null;
+  if (skipped) {
+    if (budget?.reached) await warnAboutBudget(db, routine.accountId, routine.conversationId, budget).catch(noted("Warning about the daily limit"));
+    await db.update(jobs).set({ status: "failed", result: skipped }).where(eq(jobs.id, job.id));
+    await db.update(routines).set({ lastRunAt: new Date(), lastRunStatus: "failed" }).where(eq(routines.id, routine.id));
+    await reschedule();
+    return [];
+  }
   // A worker routine starts its worker and returns: no chat turn, and the
   // room stays free. The worker's report settles the job when it finishes.
   if (routine.runsAs === "worker") {

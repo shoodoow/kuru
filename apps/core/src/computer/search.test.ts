@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  clearSearchOutage,
+  isDuckBotCheck,
+  noteSearchOutage,
+  searchOutage,
   parseApiError,
   parseExaResponse,
   parseBraveResponse,
@@ -51,5 +55,29 @@ describe("web search providers", () => {
   it("surfaces provider API errors", () => {
     expect(parseApiError('{"error":"Invalid API key"}')).toBe("Invalid API key");
     expect(parseBraveResponse('{"web":{"results":[{"title":"A","url":"https://a.com","description":"hi"}]}}')).toHaveLength(1);
+  });
+
+  it("recognises DuckDuckGo's bot check, so it is never reported as no results", () => {
+    const botCheck = '<form id="challenge-form" action="//duckduckgo.com/anomaly.js?sv=lite"><div class="anomaly-modal__title">Unfortunately, bots use DuckDuckGo too.</div></form>';
+    expect(isDuckBotCheck(botCheck)).toBe(true);
+    expect(isDuckBotCheck('<a rel="nofollow" href="https://a.com">A</a>')).toBe(false);
+  });
+
+  it("remembers a search outage for a while, then forgets it", () => {
+    clearSearchOutage("acct");
+    expect(searchOutage("acct")).toBeNull();
+    noteSearchOutage("acct", "blocked", 1_000, 10_000);
+    expect(searchOutage("acct", 10_500)?.reason).toBe("blocked");
+    expect(searchOutage("acct", 11_001)).toBeNull();
+  });
+
+  it("knows a search engine's results page when a worker tries to fetch one", async () => {
+    const { isSearchResultsPage } = await import("./linux-tool-executes.js");
+    expect(isSearchResultsPage("https://www.google.com/search?q=magnaflow+ceo")).toBe(true);
+    expect(isSearchResultsPage("https://search.brave.com/search?q=x")).toBe(true);
+    expect(isSearchResultsPage("https://html.duckduckgo.com/html/?q=x")).toBe(true);
+    expect(isSearchResultsPage("https://www.mojeek.com/search?q=x")).toBe(true);
+    expect(isSearchResultsPage("https://www.google.com/maps/place/x")).toBe(false);
+    expect(isSearchResultsPage("https://magnaflow.com/pages/about?ref=1")).toBe(false);
   });
 });

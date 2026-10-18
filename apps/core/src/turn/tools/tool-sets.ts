@@ -14,6 +14,7 @@ import {
 } from "@kuru/agent-tools";
 import { prompt } from "../../prompt/prompts.js";
 
+
 const gatedBy = new Map<string, ToolSetName>(
   toolsForSurface("dispatcher")
     .filter((def) => def.set)
@@ -45,14 +46,46 @@ export function activeDispatcherTools(
   return allNames.filter((name) => {
     if (blocked.has(name)) return false;
     if (name === "enable_tools") return !allOn;
-    // A large plugin shows one "load" tool until it is loaded, then its real tools.
-    const loads = plugins?.loaders?.get(name);
-    if (loads) return !enabled.has(loads);
-    const plugin = plugins?.gates?.get(name);
-    if (plugin) return enabled.has(plugin);
+    const plugin = pluginToolActive(name, enabled, plugins);
+    if (plugin !== undefined) return plugin;
     const set = gatedBy.get(name);
     return !set || enabled.has(set);
   });
+}
+
+/** The enabled-set entry that turns on one tool of a lazy plugin. */
+export function pluginToolKey(fullName: string): string {
+  return `tool:${fullName}`;
+}
+
+/**
+ * Whether one tool of a lazy plugin is offered now, or undefined for a tool that is not a plugin's.
+ * A large plugin shows one "load" tool until it is loaded whole; its real
+ * tools appear when the whole plugin, or that one tool, was loaded.
+ */
+function pluginToolActive(
+  name: string,
+  enabled: ReadonlySet<string>,
+  plugins?: { gates?: ReadonlyMap<string, string>; loaders?: ReadonlyMap<string, string> },
+): boolean | undefined {
+  const loads = plugins?.loaders?.get(name);
+  if (loads) return !enabled.has(loads);
+  const plugin = plugins?.gates?.get(name);
+  if (plugin) return enabled.has(plugin) || enabled.has(pluginToolKey(name));
+  return undefined;
+}
+
+/**
+ * Picks a worker's tools for one step: everything except plugin tools it has not loaded.
+ * Why: a worker used to carry every tool of every connected plugin on every
+ * step. One email plugin with 137 tools added about 110,000 tokens to each.
+ */
+export function activeWorkerTools(
+  allNames: string[],
+  enabled: ReadonlySet<string>,
+  plugins: { gates?: ReadonlyMap<string, string>; loaders?: ReadonlyMap<string, string> },
+): string[] {
+  return allNames.filter((name) => pluginToolActive(name, enabled, plugins) ?? true);
 }
 
 /** How to use one set: returned by enable_tools and added to the prompt when the set starts on. */

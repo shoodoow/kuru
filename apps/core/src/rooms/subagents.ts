@@ -9,6 +9,12 @@ import {
 
 import { workerToolNames as agentWorkerToolNames } from "@kuru/agent-tools";
 import { generateText, isStepCount, type ModelMessage } from "ai";
+import { activeWorkerTools } from "../turn/tools/tool-sets.js";
+import { isNoImageInputError, learnCapability, modelCapabilities } from "../model/capabilities.js";
+import { imageDescriber, type ImageDescriber } from "../turn/describe-image.js";
+import { budgetReachedMessage, budgetState, warnAboutBudget } from "../turn/usage/budget.js";
+import { saveNotification } from "../notify/notify.js";
+import { creditOutage, isOutOfCreditError, noteCreditOutage, OutOfCreditError, clearCreditOutage } from "../model/credit.js";
 import { and, count, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 import type { Store } from "../db/client.js";
 import type { getDb } from "../db/client.js";
@@ -40,6 +46,16 @@ import {
   WRAP_UP_WARNING_STEPS,
   collapseOldSteps,
   compactTranscript,
+  withoutImages,
+  withCacheMark,
+  STALE_VIEWS_AT,
+  affordableTokens,
+  WORKER_RUN_INPUT_TOKENS,
+  STEP_INPUT_ALARM,
+  STEP_ALARM_AFTER,
+  workerOutputCap,
+  MIN_OUTPUT_TOKENS,
+  WORKER_OUTPUT_TOKENS,
   dropStaleViews,
   compactionThreshold,
   estimateTokens,
@@ -49,7 +65,7 @@ import {
   transcriptForStorage,
 } from "./worker-loop.js";
 import { RoomCapacityError } from "./rooms.js";
-import { noted } from "../log/logger.js";
+import { logger, noted } from "../log/logger.js";
 
 /** Visible teammates from hire_subagent (hidden background workers do not count). */
 export const MAX_TEAMMATES_PER_PARENT = 10;
@@ -1114,6 +1130,18 @@ export async function runWorker(
       await finish("done", await input.generate());
       return;
     }
+    // Out of credit a moment ago: failing now costs nothing, failing after ten steps costs ten steps.
+    if (creditOutage(input.accountId)) {
+      await finish("failed", new OutOfCreditError().message);
+      return;
+    }
+    // The day's spending limit is reached: background work waits for tomorrow or a higher limit.
+    const budgetAtStart = await budgetState(db, input.accountId).catch(() => null);
+    if (budgetAtStart?.reached) {
+      await warnAboutBudget(db, input.accountId, input.conversationId, budgetAtStart).catch(noted("Warning about the daily limit"));
+      await finish("failed", budgetReachedMessage(budgetAtStart));
+      return;
+    }
     // The person's computer is the chatting agent's screen. A hidden worker
     // must drive that same desktop, or Chrome opens on a screen they cannot see.
     const [parent] = await db
@@ -1165,6 +1193,10 @@ export async function runWorker(
       },
       linuxProfile: profile,
       voiceAgentId: input.parentAgentId,
+      // Large plugins start as one "load" tool; the worker loads only what the job needs.
+      enabledToolSets: new Set<string>(),
+      pluginGates: new Map<string, string>(),
+      pluginLoaders: new Map<string, string>(),
       waitOnApproval: {
         signal: controller.signal,
         onState: async (state) => {
@@ -1180,9 +1212,27 @@ export async function runWorker(
         },
       },
     };
+    const usage: Usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, modelSteps: 0 };
+    // A text-only model gets pictures as words, from a model of the account that can see.
+    const capabilities = await modelCapabilities(runOn.provider, runOn.modelId).catch(() => ({ vision: null, maxOutputTokens: null }));
+    /** Output limit per step; raised when steps are cut off, lowered when credit is short. */
+    let outputCap = workerOutputCap(capabilities.maxOutputTokens);
+    const vision = {
+      canSee: capabilities.vision !== false,
+      describe: null as ImageDescriber | null,
+    };
+    const [parentModel] = await db
+      .select({ provider: agents.provider, modelId: agents.modelId })
+      .from(agents)
+      .where(eq(agents.id, input.parentAgentId));
+    vision.describe = await imageDescriber(db, input.accountId, parentModel ? [parentModel] : [], (spent) => {
+      usage.inputTokens = (usage.inputTokens ?? 0) + spent.inputTokens;
+      usage.outputTokens = (usage.outputTokens ?? 0) + spent.outputTokens;
+    }).catch(() => null);
     const tools = buildWorkerToolSet({
       db,
       accountId: input.accountId,
+      vision: { canSee: () => vision.canSee, describe: vision.describe },
       conversationId: input.conversationId,
       profile,
       skillsRoot: input.skillsRoot,
@@ -1373,7 +1423,6 @@ export async function runWorker(
       transcript = collapseOldSteps(compactTranscript(transcript));
     }
     const startedAt = Date.now();
-    const usage: Usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, modelSteps: 0 };
     /** Slim copies of finished steps: enough to write a report from, without holding every screenshot. */
     const stepLog: { text?: string; reasoningText?: string; toolCalls?: unknown[]; toolResults?: never[] }[] = [];
     let recentToolResults: unknown[] = [];
@@ -1390,6 +1439,11 @@ export async function runWorker(
     let narrationNudges = 0;
     let challengedPaths = false;
     let warnedWrapUp = false;
+    let cutOff = false;
+    let cutOffs = 0;
+    /** Set when this run's token budget or the account's daily limit is spent: the next step is the report. */
+    let spendStop: string | null = null;
+    let alarmed = false;
     let cutShort = false;
     let finalText = "";
     /** Messages of the segment in flight, so a stop mid-segment still saves what was done. */
@@ -1407,13 +1461,38 @@ export async function runWorker(
     const say = (note: string): void => {
       transcript.push({ role: "user", content: note });
     };
+    /**
+     * Checks spending between segments. Returns the note that ends the run, or null.
+     * Also raises the alarm once when steps are abnormally large: that is how
+     * a plugin flooding every step would have been caught within the hour.
+     */
+    const spendingStop = async (): Promise<string | null> => {
+      const sent = usage.inputTokens ?? 0;
+      if (!alarmed && totalSteps >= STEP_ALARM_AFTER && sent / totalSteps > STEP_INPUT_ALARM) {
+        alarmed = true;
+        const perStep = Math.round(sent / totalSteps / 1000);
+        logger.warn({ accountId: input.accountId, delegationId: input.delegationId, perStep }, "worker steps are abnormally large");
+        await saveNotification(db, {
+          accountId: input.accountId,
+          conversationId: input.conversationId,
+          title: "A background job is unusually expensive",
+          body: `A job is sending about ${perStep}K tokens per step, two to three times the usual. A connected plugin or a very long brief is the usual cause. Usage shows which agent it is.`,
+          urgency: "info",
+        }).catch(noted("Raising the step-size alarm"));
+      }
+      if (sent >= WORKER_RUN_INPUT_TOKENS) return prompt("worker-rules", "budget-stop", { tokens: Math.round(sent / 1_000_000) });
+      const budget = await budgetState(db, input.accountId).catch(() => null);
+      if (budget) await warnAboutBudget(db, input.accountId, input.conversationId, budget).catch(noted("Warning about the daily limit"));
+      if (budget?.reached) return prompt("worker-rules", "daily-limit-stop");
+      return null;
+    };
     try {
       for (;;) {
         const remaining = WORKER_STEP_CEILING - totalSteps;
-        const closing = remaining <= 1 || Date.now() - startedAt > WORKER_WALL_MS || loopStrikes >= 2;
+        const closing = remaining <= 1 || Date.now() - startedAt > WORKER_WALL_MS || loopStrikes >= 2 || spendStop !== null;
         if (closing) {
           cutShort = true;
-          say(prompt("worker-rules", "last-step"));
+          say(spendStop ?? prompt("worker-rules", "last-step"));
         }
         const segmentSteps = closing ? 1 : Math.min(WORKER_SEGMENT_STEPS, remaining - 1);
         let segmentCount = 0;
@@ -1421,16 +1500,32 @@ export async function runWorker(
         const result = await generateText({
           model,
           abortSignal: controller.signal,
-          instructions: [{ role: "system" as const, content: workerInstructions }],
+          instructions: [
+            runOn.provider === "anthropic"
+              ? { role: "system" as const, content: workerInstructions, providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } }
+              : { role: "system" as const, content: workerInstructions },
+          ],
           messages: transcript,
           tools,
+          maxOutputTokens: outputCap,
           stopWhen: [
             isStepCount(segmentSteps),
-            // A note from the agent, or a repeat loop, is handled between steps.
-            () => loopFlag || (workerInboxes.get(input.delegationId)?.length ?? 0) > 0,
+            // A note from the agent, a repeat loop, or an answer cut off at the limit is handled between steps.
+            () => loopFlag || cutOff || (workerInboxes.get(input.delegationId)?.length ?? 0) > 0,
           ],
-          // The closing step is for the report: no tools on offer.
-          prepareStep: closing ? () => ({ activeTools: [] as never }) : undefined,
+          // The closing step is for the report: no tools on offer. Otherwise
+          // every tool, except plugin tools the worker has not loaded.
+          prepareStep: ({ messages: stepMessages }) => ({
+            activeTools: (closing
+              ? []
+              : activeWorkerTools(Object.keys(tools), review.enabledToolSets ?? new Set(), {
+                  gates: review.pluginGates,
+                  loaders: review.pluginLoaders,
+                })) as never,
+            // Anthropic caches only up to a marked point: mark the newest message, so
+            // each step reads everything before it from the cache at a tenth of the price.
+            ...(runOn.provider === "anthropic" ? { messages: withCacheMark(stepMessages) } : {}),
+          }),
           // One free fix for inputs that are wrong in shape but clear in meaning.
           repairToolCall: async ({ toolCall }) => {
             const repaired = repairToolInput(toolCall.toolName, toolCall.input);
@@ -1439,6 +1534,7 @@ export async function runWorker(
           onStepEnd: async (step) => {
             totalSteps += 1;
             segmentCount += 1;
+            if (step.finishReason === "length") cutOff = true;
             const currentCalls = (step.toolCalls ?? []).map((call) => ({
               name: (call as { toolName?: string }).toolName ?? "",
               input: (call as { input?: unknown }).input ?? (call as { args?: unknown }).args,
@@ -1517,13 +1613,64 @@ export async function runWorker(
               }),
             });
           },
+        }).catch((error: unknown) => {
+          // Credit is short for this limit: ask for what can be paid, once per
+          // level, instead of failing a job that needs far less than the limit.
+          const afford = affordableTokens(error);
+          if (afford === null && isOutOfCreditError(error)) throw new OutOfCreditError(error);
+          if (afford !== null) {
+            const lower = Math.floor(afford * 0.9);
+            if (lower < MIN_OUTPUT_TOKENS || lower >= outputCap) throw new OutOfCreditError(error);
+            outputCap = lower;
+            if (inFlight.length > 0) transcript.push(...inFlight);
+            inFlight = [];
+            return null;
+          }
+          // The provider says this model takes no pictures: remember it, keep
+          // what was done, take the pictures out, and go on in words. Before
+          // this, the job failed here and the agent paid for it all again.
+          if (!vision.canSee || !isNoImageInputError(error)) throw error;
+          vision.canSee = false;
+          learnCapability(runOn.provider, runOn.modelId, { vision: false });
+          if (inFlight.length > 0) transcript.push(...inFlight);
+          inFlight = [];
+          transcript = withoutImages(transcript);
+          say(prompt("worker-rules", "no-vision"));
+          return null;
         });
+        if (!result) continue;
+        clearCreditOutage(input.accountId);
         inFlight = [];
         transcript.push(...(result.responseMessages as ModelMessage[]));
         await saveTranscript();
+        // What it has cost so far, saved now: the usage page and the daily limit see a job while it runs.
+        await db
+          .update(delegations)
+          .set({
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            cacheWriteTokens: usage.cacheWriteTokens,
+            reasoningTokens: usage.reasoningTokens,
+            modelSteps: totalSteps,
+          })
+          .where(and(eq(delegations.id, input.delegationId), eq(delegations.status, "running")))
+          .catch(noted("Saving a running worker's usage"));
+        if (!closing) spendStop = await spendingStop();
         if (closing) {
           finalText = result.text;
           break;
+        }
+        if (cutOff) {
+          // The answer hit the output limit mid-way, usually a whole file in one call.
+          // The broken call did nothing; say so, raise the limit if the model allows, and go on.
+          cutOff = false;
+          cutOffs += 1;
+          const ceiling = capabilities.maxOutputTokens ?? WORKER_OUTPUT_TOKENS * 2;
+          const was = outputCap;
+          if (cutOffs >= 2) outputCap = Math.min(ceiling, outputCap * 2);
+          say(prompt("worker-rules", "output-cut", { tokens: was }));
+          continue;
         }
         const notes = workerInboxes.get(input.delegationId)?.splice(0) ?? [];
         const lastStep = result.steps.at(-1);
@@ -1580,8 +1727,9 @@ export async function runWorker(
           warnedWrapUp = true;
           say(prompt("worker-rules", "wrap-up", { steps: WORKER_STEP_CEILING - totalSteps }));
         }
-        // Old views of a page are dropped after every segment, whatever the size: they are stale and large.
-        transcript = dropStaleViews(transcript);
+        // Old views of a page are stale and large, but rewriting old messages makes the
+        // provider resend everything after them uncached. Drop them only once they weigh something.
+        if (estimateTokens(transcript) > STALE_VIEWS_AT) transcript = dropStaleViews(transcript);
         if (lastInputTokens > compactAt || estimateTokens(transcript) > compactAt) {
           transcript = compactTranscript(transcript);
           if (estimateTokens(transcript) > compactAt) {
@@ -1647,6 +1795,7 @@ export async function runWorker(
           model,
           abortSignal: controller.signal,
           instructions: [{ role: "system" as const, content: workerReportRetryInstructions() }],
+          maxOutputTokens: Math.min(outputCap, 8_000),
           messages: [
             { role: "user" as const, content: prompt("worker-rules", "report-retry-user", { task: input.task, digest }) },
           ],
@@ -1674,6 +1823,12 @@ export async function runWorker(
     // report | needs_person: deliver as-is (needs_person triggers the sign-in handover).
     await finish("done", `${cutShortNote}${missingNote}${ending.result}`, usage);
   } catch (error) {
+    if (isOutOfCreditError(error)) {
+      // Every job of this account would fail the same way: stop starting them for a while.
+      noteCreditOutage(input.accountId, "the model provider");
+      await finish("failed", (error instanceof OutOfCreditError ? error : new OutOfCreditError(error)).message);
+      return;
+    }
     await finish("failed", error instanceof Error ? error.message : "The worker failed.");
   } finally {
     if (activeWorkerRuns.get(input.delegationId) === controller) {

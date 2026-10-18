@@ -171,3 +171,15 @@ Your last {{steps}} steps only read and searched again, after being asked twice 
 
 # wrap-up
 You have about {{steps}} steps left in this run. Finish the piece you are on, check it, and write the report. The job can be continued afterwards, so say exactly where you stopped.
+
+# no-vision
+Your model cannot see pictures; the provider refused the last request because it carried one. Nothing you did is lost. From now on, when you open a picture or take a screenshot, you get a written description of it instead, or a note on how to check it another way. Carry on from where you were.
+
+# output-cut
+Your last answer was cut off at the output limit ({{tokens}} tokens), so the tool call in it did nothing. Do not send the same thing again in one piece. Write long files in parts: `write` the first few hundred lines, then add the rest with `write` and `append: true`, one part per call. Keep what you say between calls short.
+
+# budget-stop
+This run has sent about {{tokens}} million tokens to the model, its limit for one run. Stop working now and write your report: what is done, exactly where you stopped, and what is left. The job can be continued from your report; say if something made the steps unusually large.
+
+# daily-limit-stop
+The account has reached its daily spending limit. Stop working now and write your report: what is done, exactly where you stopped, and what is left. The job can be continued tomorrow or when the person raises the limit.

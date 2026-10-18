@@ -73,6 +73,8 @@ export default function AccountRoute() {
         serverUrl={session.serverUrl}
         onChangeServer={session.changeServer}
         onLoadUsage={(period) => core.usage(session.accountId.trim(), period)}
+        onLoadCredits={() => core.credits(session.accountId.trim())}
+        onSaveLimit={(usd) => core.setDailyBudget(session.accountId.trim(), usd)}
         onPage={(page) => {
           session.setMenu(page);
           if (page === "plugins") void session.refreshPlugins().catch(session.show);

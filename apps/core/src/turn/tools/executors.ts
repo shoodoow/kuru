@@ -3,6 +3,8 @@
  * DB: per tool — messages, delegations, agents, routines, notifications.
  */
 import { deleteAgent, FireAgentError } from "../../roster/delete-agent.js";
+import { creditOutage, OutOfCreditError } from "../../model/credit.js";
+import { budgetReachedMessage, budgetState } from "../usage/budget.js";
 import { removeAgentHome } from "../../linux/linux.js";
 import { answerWorkerQuestion } from "../../rooms/worker-questions.js";
 import { connectSocial } from "../../social/connect.js";
@@ -876,6 +878,9 @@ const roundsSpent = (): string =>
   `This work has been started ${MAX_STARTS_PER_ASK} times since the person last wrote, and it is not started again without them. Tell them plainly where it stands and what went wrong, in one message, then stop.`;
 
 export async function executeSpawnWorker(ctx: ToolContext, input: Record<string, unknown>) {
+  if (creditOutage(ctx.accountId)) return { error: new OutOfCreditError().message };
+  const budget = await budgetState(ctx.db, ctx.accountId).catch(() => null);
+  if (budget?.reached) return { error: budgetReachedMessage(budget) };
   if ((ctx.spawnCount ?? 0) >= MAX_SPAWNS_PER_TURN) {
     return {
       error: "Already spawned several workers this turn. send_message what you started, then stop — results arrive on their own.",
@@ -1218,6 +1223,12 @@ export async function executeRedirectWorker(ctx: ToolContext, input: Record<stri
     .limit(1);
   if (!latest) return { error: "No work found for that worker id. Use check_worker to list your workers." };
   if (latest.parentAgentId !== ctx.agentId) return { error: "That worker does not belong to you." };
+  // A note to a running worker costs nothing; continuing a finished one starts a run.
+  if (latest.status !== "running" && creditOutage(ctx.accountId)) return { error: new OutOfCreditError().message };
+  if (latest.status !== "running") {
+    const budget = await budgetState(ctx.db, ctx.accountId).catch(() => null);
+    if (budget?.reached) return { error: budgetReachedMessage(budget) };
+  }
   if (latest.status === "running") {
     // A worker waiting on a question gets this as its answer, at once, instead of as a note before its next step.
     if (answerWorkerQuestion(latest.id, parsed.instruction)) {

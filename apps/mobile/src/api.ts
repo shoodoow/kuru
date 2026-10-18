@@ -270,7 +270,37 @@ export type PendingNotification = {
   createdAt: string;
 };
 
-type UsageTotals = { inputTokens: number; outputTokens: number; cacheReadTokens: number; turns: number; jobs: number };
+type UsageTotals = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  turns: number;
+  jobs: number;
+  /** Estimated dollars at list prices; absent from servers before 0.6. */
+  estimatedUsd?: number;
+  /** Tokens on models whose prices are unknown, so not in `estimatedUsd`. */
+  unpricedTokens?: number;
+};
+
+/** One model provider's balance, as far as it publishes one. Dollars throughout. */
+export type ProviderCredit = {
+  provider: string;
+  service: string;
+  balanceUsd: number | null;
+  keyLimitUsd: number | null;
+  keyRemainingUsd: number | null;
+  usedTodayUsd: number | null;
+  usedMonthUsd: number | null;
+  note: string | null;
+};
+
+/** What is left to spend, whether search works, and the daily limit. */
+export type AccountCredits = {
+  providers: ProviderCredit[];
+  search: { provider: "exa" | "brave" | "none"; down: string | null };
+  outOfCredit: boolean;
+  budget: { limitUsd: number | null; spentUsd: number; reached: boolean };
+};
 /** The windows the Usage page offers. */
 export type UsagePeriod = "today" | "week" | "month";
 /** What the account's agents used in a period: by hour (today) or day, by agent and by model. */
@@ -349,6 +379,10 @@ export type CoreClient = {
   deleteAccount: (accountId: string) => Promise<void>;
   /** Tokens, turns and background jobs for the last 7, 30 or 90 days. */
   usage: (accountId: string, period: UsagePeriod) => Promise<AccountUsage>;
+  /** Provider balances, search status and the daily spending limit. */
+  credits: (accountId: string) => Promise<AccountCredits>;
+  /** Sets the daily spending limit in dollars; null removes it. */
+  setDailyBudget: (accountId: string, usd: number | null) => Promise<unknown>;
   /** Unread counts and busy agents for the inbox list. */
   inboxStatus: (accountId: string) => Promise<InboxStatus>;
   /** Tells the server the person has this chat open, so its messages count as seen. */
@@ -463,6 +497,9 @@ function buildCore(baseUrl: string, fetchImpl: typeof fetch): CoreClient {
       await readJson<unknown>(fetchImpl, `${baseUrl}/accounts/${accountId}`, { method: "DELETE" });
     },
     usage: (accountId, period) => readJson<AccountUsage>(fetchImpl, `${baseUrl}/accounts/${accountId}/usage?period=${period}`),
+    credits: (accountId) => readJson<AccountCredits>(fetchImpl, `${baseUrl}/accounts/${accountId}/credits`),
+    setDailyBudget: (accountId, usd) =>
+      readJson<unknown>(fetchImpl, `${baseUrl}/accounts/${accountId}/settings`, { method: "PATCH", body: JSON.stringify({ dailyBudgetUsd: usd }) }),
     inboxStatus: (accountId) => readJson<InboxStatus>(fetchImpl, `${baseUrl}/accounts/${accountId}/inbox`),
     markRead: (accountId, conversationId) =>
       readJson<unknown>(fetchImpl, `${baseUrl}/conversations/${conversationId}/read?accountId=${accountId}`, { method: "POST" }),

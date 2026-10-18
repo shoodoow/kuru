@@ -9,6 +9,9 @@ import { getModel, usesOfficialOpenAiEndpoint } from "../../model/get-model.js";
 import { keyFor } from "../../keys/keys.js";
 import type { getDb } from "../../db/client.js";
 import { toModelPrompt } from "../prompt-model.js";
+import { picturesAsNotes } from "../prompt-media.js";
+import { isNoImageInputError, learnCapability, modelCapabilities } from "../../model/capabilities.js";
+import { isOutOfCreditError, noteCreditOutage } from "../../model/credit.js";
 import type { TurnInput } from "../types.js";
 import { DISPATCHER_MAX_OUTPUT_TOKENS, MAX_MODEL_STEPS_DISPATCHER, MAX_MODEL_STEPS_HARD } from "../constants.js";
 import { createTraceSession, type TraceSession } from "./plugins.js";
@@ -83,6 +86,9 @@ export async function runModelHarness(
   stepToolNames: string[][];
 }> {
   const credential = await keyFor(input.db, input.accountId, input.provider);
+  // A model known to read only text never gets the pictures in the chat.
+  const canSee = (await modelCapabilities(input.provider, input.modelId).catch(() => ({ vision: null }))).vision !== false;
+  if (!canSee) input = { ...input, messages: picturesAsNotes(input.messages as unknown[]) as never };
   const prompt = toModelPrompt(input);
   const traceId = randomUUID();
   const session =
@@ -248,6 +254,13 @@ export async function runModelHarness(
       },
     };
   } catch (error) {
+    // The provider says this model takes no pictures: remember that and answer again without them.
+    if (canSee && isNoImageInputError(error)) {
+      learnCapability(input.provider, input.modelId, { vision: false });
+      return runModelHarness(input);
+    }
+    // No credit: background jobs of this account stop starting until it is back.
+    if (isOutOfCreditError(error)) noteCreditOutage(input.accountId, input.provider);
     const message = error instanceof Error ? error.message : "Model failed.";
     await session.emit({ type: "run.error", phase: "model", message });
     throw error;

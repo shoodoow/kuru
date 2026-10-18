@@ -120,9 +120,9 @@ describe("a signed-in MCP server, end to end", () => {
     expect(after).toHaveLength(TOOL_COUNT);
     expect(after).not.toContain("tracker_load_tools");
 
-    // A worker has no such gate and gets every tool.
-    const workerSet: Record<string, unknown> = {};
-    await appendMcpTools({ db, accountId: account.id } as unknown as ToolContext, workerSet, (_name, execute) => execute);
-    expect(Object.keys(workerSet)).toHaveLength(TOOL_COUNT);
+    // A caller with no gates (a one-off) gets every tool.
+    const ungated: Record<string, unknown> = {};
+    await appendMcpTools({ db, accountId: account.id } as unknown as ToolContext, ungated, (_name, execute) => execute);
+    expect(Object.keys(ungated)).toHaveLength(TOOL_COUNT);
   });
 });

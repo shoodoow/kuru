@@ -9,7 +9,47 @@ export type WebSearchOutcome = {
   /** Set when the primary provider returned nothing useful. */
   error?: string;
   fallbackFrom?: SearchProvider;
+  /** Search cannot work right now (a bot check, a refused key): rewording will not help. */
+  blocked?: boolean;
 };
+
+/** How long search stays off for an account after the free fallback was blocked. */
+export const SEARCH_BLOCKED_MS = 15 * 60 * 1000;
+/** How long after a keyed provider refused the request (bad key, no credit, rate limit). */
+export const SEARCH_REFUSED_MS = 5 * 60 * 1000;
+
+/**
+ * Accounts whose search is known to be down, and until when.
+ * Why: a blocked search used to look like "no results", so every worker,
+ * on every step, reworded the query, then tried other engines by hand, each
+ * try a full model step. Remembering the outage makes the next call free.
+ */
+const outages = new Map<string, { until: number; reason: string }>();
+
+/** The account's search outage, if one is in force. */
+export function searchOutage(accountId: string, now = Date.now()): { until: number; reason: string } | null {
+  const outage = outages.get(accountId);
+  if (!outage) return null;
+  if (outage.until <= now) {
+    outages.delete(accountId);
+    return null;
+  }
+  return outage;
+}
+
+export function noteSearchOutage(accountId: string, reason: string, forMs: number, now = Date.now()): void {
+  outages.set(accountId, { until: now + forMs, reason });
+}
+
+/** Clears an outage (a key was added, or a search worked). */
+export function clearSearchOutage(accountId: string): void {
+  outages.delete(accountId);
+}
+
+/** True when DuckDuckGo answered with its bot check instead of results. */
+export function isDuckBotCheck(html: string): boolean {
+  return /anomaly-modal|anomaly\.js|challenge-form|Unfortunately, bots use DuckDuckGo too/i.test(html);
+}
 
 const MAX_RESULTS = 10;
 const SEARCH_TIMEOUT = 20;
@@ -49,8 +89,13 @@ export async function webSearch(
   if (!clean) throw new Error("A search query is required.");
   const count = Math.min(Math.max(input.numResults ?? 8, 1), MAX_RESULTS);
   const primary = selectSearchProvider(input);
+  const outage = searchOutage(accountId);
+  if (outage) return { provider: primary, results: [], error: outage.reason, blocked: true };
   const first = await runProvider(accountId, profile, primary, clean, count, input);
-  if (first.results.length > 0) return first;
+  if (first.results.length > 0) {
+    clearSearchOutage(accountId);
+    return first;
+  }
 
   const alternate = alternateKeyedProvider(primary, input);
   if (alternate) {
@@ -65,6 +110,17 @@ export async function webSearch(
     if (ddg.results.length > 0) {
       return { ...ddg, fallbackFrom: primary, error: first.error };
     }
+    // The key was refused and the free fallback gave nothing: rewording will not help for a while.
+    if (first.error) {
+      const reason = `the ${primary} search key was refused (${first.error})${ddg.blocked ? " and the free fallback is blocked by a bot check" : ""}`;
+      noteSearchOutage(accountId, reason, SEARCH_REFUSED_MS);
+      return { ...first, error: reason, blocked: true };
+    }
+  }
+  if (first.blocked) {
+    const reason = "no search key is set on this server, and the free fallback (DuckDuckGo) answers automated searches with a bot check";
+    noteSearchOutage(accountId, reason, SEARCH_BLOCKED_MS);
+    return { ...first, error: reason };
   }
 
   return first;
@@ -105,7 +161,11 @@ async function runProvider(
     return { provider, results: parseExaResponse(raw).slice(0, count), error };
   }
   const raw = await curlGet(accountId, profile, `${DUCK_URL}?q=${encodeURIComponent(query)}`);
-  return { provider, results: parseDuckLite(raw).slice(0, count) };
+  const results = parseDuckLite(raw).slice(0, count);
+  if (results.length === 0 && isDuckBotCheck(raw)) {
+    return { provider, results, error: "DuckDuckGo answered with a bot check", blocked: true };
+  }
+  return { provider, results };
 }
 
 /**

@@ -94,7 +94,9 @@ export async function runAgentLoop(
     voiceAgentId: input.agentId,
     hiddenTurn: input.hiddenTurn ?? false,
     enabledToolSets: new Set(input.toolSets ?? []),
-    ...(mode === "dispatcher" ? { pluginGates: new Map<string, string>(), pluginLoaders: new Map<string, string>() } : {}),
+    // Large plugins load on request in every mode: their schemas are resent on each step.
+    pluginGates: new Map<string, string>(),
+    pluginLoaders: new Map<string, string>(),
   };
   const tools = await buildFullToolSet(mode, toolCtx);
   if (input.allowedTools) {

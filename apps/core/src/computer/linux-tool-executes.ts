@@ -78,8 +78,9 @@ export function linuxToolExecutes(
       return conciseOutput(await readFile(accountId, profile, path));
     },
     write: async (input) => {
-      await writeFile(accountId, profile, String(input.path), String(input.body));
-      return "Wrote the file.";
+      const append = input.append === true;
+      await writeFile(accountId, profile, String(input.path), String(input.body), append);
+      return append ? "Added to the end of the file." : "Wrote the file.";
     },
     bash: async (input) => {
       const command = String(input.command);
@@ -102,6 +103,9 @@ export function linuxToolExecutes(
     computer_type: async (input) => typeText(accountId, profile, String(input.text)),
     computer_key: async (input) => pressKeys(accountId, profile, String(input.key)),
     web_fetch: async (input) => {
+      if (isSearchResultsPage(String(input.url))) {
+        return "That is a search engine's results page. They answer scripted fetches with a captcha or junk, so this would waste a step. Use web_search; if search is unavailable, see what it said.";
+      }
       const parentPeek = opts?.fetchChars != null;
       const page = await webFetch(accountId, profile, String(input.url), parentPeek ? { dispatcherPeek: true } : undefined);
       const byline = [page.siteName, page.byline].filter((part) => part.length > 0).join(" · ");
@@ -138,11 +142,12 @@ export function linuxToolExecutes(
       if (searched.results.length === 0) {
         consecutiveEmpty += 1;
         const via = searched.fallbackFrom ? `${searched.fallbackFrom} then ${searched.provider}` : searched.provider;
+        if (searched.blocked) return searchUnavailable(searched.error ?? "the search provider refused the request");
         if (searched.error) return `Search failed (${via}): ${searched.error}`;
         const stopHint =
           consecutiveEmpty >= 2
-            ? " Two empty searches in a row — do not reword again. web_fetch the closest URL you have or report partial findings."
-            : " If a reword also comes back empty, stop searching: web_fetch the closest URL you have or report partial findings.";
+            ? " Two empty searches in a row — do not reword again. web_fetch a page you already know (not a search engine page) or report partial findings."
+            : " If a reword also comes back empty, stop searching: web_fetch a page you already know (not a search engine page) or report partial findings.";
         return `No results (${via}).${stopHint}`;
       }
       consecutiveEmpty = 0;
@@ -279,4 +284,39 @@ export function isSkillPath(path: string): boolean {
 function conciseOutput(text: string, limit = WORKER_OUTPUT_CHARS): string {
   if (text.length <= limit) return text;
   return `${text.slice(0, limit)}\n\n[truncated to ${limit} chars — rerun with a narrower command, range, or filter]`;
+}
+
+/**
+ * What a worker is told when search itself is down.
+ * Why: told only "no results", workers reworded the query, then fetched
+ * Google, Brave, Mojeek and others by hand, met a captcha on each, and spent
+ * dozens of full model steps on it. Search pages block scripted requests;
+ * only the real browser gets through.
+ */
+export function searchUnavailable(reason: string): string {
+  return [
+    `Web search is unavailable right now: ${reason}. Asking again will not help; it stays off for this account for a few minutes.`,
+    "Do not fetch search engine pages with web_fetch or curl: they answer scripted requests with a captcha, and each try costs a full step.",
+    "Work from addresses you already know or can guess (a company's own site and its /about, /team, /contact pages).",
+    "If the job cannot go on without search, one browser_navigate to https://html.duckduckgo.com/html/?q=<words> in the real browser usually works; otherwise report it under Blockers so the person can add a search key.",
+  ].join(" ");
+}
+
+/** Search result pages of the big engines, which block scripted fetches. */
+const SEARCH_PAGES: { host: RegExp; path: RegExp }[] = [
+  { host: /(^|\.)google\.[a-z.]+$/, path: /^\/search/ },
+  { host: /(^|\.)bing\.com$/, path: /^\/search/ },
+  { host: /^search\.brave\.com$/, path: /^\/search/ },
+  { host: /(^|\.)duckduckgo\.com$/, path: /^\/(html|lite)?\/?$/ },
+  { host: /(^|\.)(mojeek\.com|ecosia\.org|startpage\.com|search\.yahoo\.com|search\.aol\.com|yandex\.[a-z]+)$/, path: /./ },
+];
+
+/** True for a URL that is a search engine's results page. */
+export function isSearchResultsPage(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return SEARCH_PAGES.some((page) => page.host.test(parsed.hostname) && page.path.test(parsed.pathname) && parsed.search.length > 1);
+  } catch {
+    return false;
+  }
 }

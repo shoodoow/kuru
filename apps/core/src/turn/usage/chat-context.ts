@@ -17,7 +17,7 @@ import { RECENT_WINDOW, SUMMARY_WINDOW } from "../constants.js";
 import { modelInfoFor } from "./model-info.js";
 import { catalogPlugin } from "../../mcp/catalog.js";
 import { mcpRowsForAccount } from "../../mcp/store.js";
-import { LAZY_PLUGIN_TOOLS } from "../../mcp/tools.js";
+import { LAZY_PLUGIN_TOOLS, LOAD_WHOLE_PLUGIN_MAX } from "../../mcp/tools.js";
 import type { McpToolCacheEntry } from "../../mcp/types.js";
 import { optionalPrompt } from "../../prompt/prompts.js";
 import { skillCatalogForAgent } from "../../skills/agent-skills.js";
@@ -60,7 +60,7 @@ async function toolSizes(
     if (tools.length > LAZY_PLUGIN_TOOLS) {
       // A large plugin is one small "load" tool until the agent asks for the rest.
       mcpToolCount += 1;
-      mcpToolChars += 120 + Math.min(900, tools.map((entry) => entry.name).join(", ").length);
+      mcpToolChars += 120 + Math.min(tools.length <= LOAD_WHOLE_PLUGIN_MAX ? 900 : 400, tools.map((entry) => entry.name).join(", ").length);
       continue;
     }
     for (const entry of tools) {
