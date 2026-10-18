@@ -89,3 +89,10 @@ async function writeSkill(directory: string, folder: string, name: string, descr
     `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`,
   );
 }
+
+describe("skill checkpoint flag", () => {
+  it("reads checkpoint: true from the frontmatter and leaves it off otherwise", () => {
+    expect(parseSkillFrontmatter("---\nname: reel\ndescription: Make a reel.\ncheckpoint: true\n---\nBody").checkpoint).toBe(true);
+    expect(parseSkillFrontmatter("---\nname: docx\ndescription: Word files.\n---\nBody").checkpoint).toBeUndefined();
+  });
+});

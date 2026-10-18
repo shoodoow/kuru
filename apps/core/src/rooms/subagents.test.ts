@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { and, count, eq } from "drizzle-orm";
 import { getDb } from "../db/client.js";
-import { agents, conversations, delegations, members, messages } from "../db/schema.js";
+import { agents, conversations, delegations, members, messages, workerTranscripts } from "../db/schema.js";
 import { exec } from "../linux/linux.js";
 import { createAccount, createAgent } from "../roster/roster.js";
 import { executeRedirectWorker, executeSpawnWorker } from "../turn/tools/executors.js";
@@ -709,6 +709,61 @@ describe("subagents and teams", () => {
     expect(out.workerId).toBe(spawned.workerId);
     const rows = await db.select().from(delegations).where(eq(delegations.childAgentId, spawned.workerId));
     expect(rows.find((row) => row.id === out.delegationId)?.task).toContain("pricing page");
+  });
+
+  it("gives unfinished work back to its worker, unless the person asked to start over", async () => {
+    const account = await createAccount(db, { name: "ContinueOrFresh" });
+    const parent = await createAgent(db, account.id, agent("Boss"));
+    const [room] = await db
+      .insert(conversations)
+      .values({ accountId: account.id, kind: "direct", ownerAgentId: parent.id, title: "job" })
+      .returning();
+    await db.insert(members).values({ conversationId: room!.id, accountId: account.id, agentId: parent.id });
+    const cutOff = async () => {
+      const first = await spawnWorker(db, {
+        accountId: account.id,
+        conversationId: room!.id,
+        parentAgentId: parent.id,
+        label: "Reel",
+        role: "executor worker",
+        jobDescription: "Builds a reel.",
+        kind: "executor",
+        task: "Build the 60 second reel and render it.",
+      });
+      await stopWorker(db, account.id, first.workerId);
+      await db.insert(workerTranscripts).values({ delegationId: first.delegationId, accountId: account.id, childAgentId: first.workerId, messages: [], steps: 150 });
+      return first;
+    };
+    const ctx = () => ({
+      db,
+      store: db,
+      accountId: account.id,
+      conversationId: room!.id,
+      agentId: parent.id,
+      runId: randomUUID(),
+      nextTime: () => new Date(),
+      emittedMessages: [],
+      emit: async () => {},
+    });
+    const first = await cutOff();
+    const again = (await executeSpawnWorker(ctx() as never, { task: "Build the 60 second reel from scratch in a new project and render it." })) as {
+      continued?: boolean;
+      workerId?: string;
+    };
+    expect(again.continued).toBe(true);
+    expect(again.workerId).toBe(first.workerId);
+    await stopWorker(db, account.id, first.workerId);
+
+    const second = await cutOff();
+    const fresh = (await executeSpawnWorker(ctx() as never, { task: "Start the reel over: build a new 60 second reel.", fresh: true })) as {
+      continued?: boolean;
+      workerId?: string;
+      delegationId?: string;
+    };
+    // A worker row may be reused from the pool, but the job starts without the earlier conversation.
+    expect(fresh.continued).toBeUndefined();
+    expect(fresh.delegationId).not.toBe(second.delegationId);
+    await stopWorker(db, account.id, fresh.workerId!);
   });
   });
 });

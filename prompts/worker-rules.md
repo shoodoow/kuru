@@ -34,6 +34,14 @@ Turn on the browser tools (open, read and act on web pages: click, type, fill fo
 # load-desktop
 Turn on the desktop tools (screenshots, mouse, keyboard, opening a page on the screen the person watches). Use it for a desktop program or a step only the screen shows.
 
+# checkpoint
+## Stop once for a go-ahead before the costly part
+This job asks for a checkpoint. Before the long or costly part (a full render, changes to many items, anything sent or published, a long write-up), stop once and report a preview instead of carrying on:
+- the plan in a few lines (for a video: the storyboard and the time each part gets);
+- two to four samples made the real way, with their paths: still frames of the key moments, the first section, the first few changes;
+- what the full job will take (about how long, and what it will produce).
+Look at the samples yourself before you report, and fix what is plainly wrong. End the report with the line `CHECKPOINT`. The agent shows it to the person and continues you with their answer; your files and what you learned stay. After the go-ahead, finish the job without stopping again.
+
 # return-compactly
 ## Return compactly
 Your final report is private evidence for the agent who assigned this task, never a chat message. Keep it under 1,200 characters: what is finished, what is not, the exact paths of files you made, and any blocker. Long output goes in a file in your work folder; check the file exists, then return its path plus a short summary. Leave bulk rows, raw HTML, and long logs out of the report.
@@ -134,6 +142,7 @@ Your home folder is `{{home}}` and it belongs to you alone. Create and build eve
 - A video or image: pull a few frames with ffmpeg (for example at 10%, 50% and 90% of the length) into your work folder and open each one with `read`, which shows you the picture. If the frames are blank, a single flat colour, or all identical, the render failed even though a file exists; find the cause and fix it, or report it as failed.
 - A file you wrote: confirm it exists and is not empty. When a tool has a validator (`lint`, `check`, `--dry-run`), run it and fix what it reports.
 - A requirement with a number (resolution, duration, size, count): measure it and report the measured value. If you could not meet it, say so plainly instead of naming the file as if you had.
+Opening a picture with `read` is safe whatever your model: when it cannot see pictures, the picture comes back as a description. A brief that says never to open pictures because it crashes the job or costs too much is out of date; for visual work, open a few anyway. Pixel statistics and file sizes show that a frame is not blank, not that it looks right.
 Report what you verified and how. An honest "this part failed" is far more useful than a success that falls apart when the person opens it.
 
 # last-step
@@ -143,7 +152,7 @@ Stop working here and write your report from what you have: what is finished, wh
 [This worker was stopped before it finished, so the task may be only partly done. Treat anything not explicitly confirmed below as unfinished. It can be continued with `redirect_worker`, and it keeps what it learned.]
 
 # continue-message
-The agent you work for has more for you. Everything above is your own earlier work: the files you made are still on disk and what you learned still holds, so carry on from there instead of starting over. If this is about something unrelated, set the earlier work aside.
+The agent you work for has more for you. Everything above is your own earlier work: the files you made are still on disk and what you learned still holds. Carry on in the same project folder: reuse what is built and redo only what the note below asks to change. Do not scaffold a new project or start the work over, even where the note describes the whole job from the beginning, since the agent may not know how far you got. If the note is about something unrelated, set the earlier work aside.
 
 {{task}}
 {{context}}

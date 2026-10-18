@@ -349,6 +349,10 @@ export const spawnWorkerToolInputSchema = z
     briefFile: briefFileField,
     instructions: spawnWorkerFields.instructions,
     maxSteps: spawnWorkerFields.maxSteps,
+    /** Stop once with a preview (plan and samples) before the long or costly part, for the person to approve. */
+    checkpoint: z.boolean().optional(),
+    /** Start over with a new worker even when earlier work on this was cut off; only when the person asked to start over. */
+    fresh: z.boolean().optional(),
   })
   .superRefine(refineCustomWorkerKind);
 

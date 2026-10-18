@@ -114,6 +114,8 @@ export async function startRoutineWorker(db: Db, routine: Routine, job: Job, opt
     task,
     skills: routine.workerSkills,
     context,
+    // A scheduled run has nobody watching to approve a preview; it runs through.
+    checkpoint: false,
     skillsRoot: opts.skillsRoot,
     onSettled: (settled) => {
       void emitTurnBus({

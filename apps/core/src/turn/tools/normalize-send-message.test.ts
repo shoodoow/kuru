@@ -81,3 +81,25 @@ describe("dropRepeatedQuestion", () => {
     expect(dropRepeatedQuestion(blocks)).toEqual(blocks);
   });
 });
+
+describe("file blocks in the shapes models send", () => {
+  const fileOf = (block: Record<string, unknown>) => (normalizeSendMessageInput({ blocks: [block] }).blocks as unknown[])[0];
+
+  it("takes path for url and names the file after it", () => {
+    expect(fileOf({ kind: "file", path: "/home/u1/work/renders/video.mp4" })).toEqual({ kind: "file", url: "/home/u1/work/renders/video.mp4", name: "video.mp4" });
+  });
+
+  it("turns file:// urls, with or without the third slash, into paths", () => {
+    expect(fileOf({ kind: "file", url: "file://home/u1/work/video.mp4", name: "video.mp4" })).toMatchObject({ url: "/home/u1/work/video.mp4" });
+    expect(fileOf({ kind: "file", url: "file:///home/u1/work/video.mp4", name: "video.mp4" })).toMatchObject({ url: "/home/u1/work/video.mp4" });
+  });
+
+  it("sends a picture on the computer as a file, and leaves web pictures alone", () => {
+    expect(fileOf({ kind: "image", url: "/home/u1/work/cover.jpg", alt: "Cover" })).toEqual({ kind: "file", url: "/home/u1/work/cover.jpg", name: "Cover" });
+    expect(fileOf({ kind: "image", url: "https://example.com/a.png" })).toEqual({ kind: "image", url: "https://example.com/a.png" });
+  });
+
+  it("passes the schema once repaired", () => {
+    expect(sendMessageInputSchema.safeParse(normalizeSendMessageInput({ blocks: [{ kind: "file", path: "/shared/out/report.pdf" }] })).success).toBe(true);
+  });
+});

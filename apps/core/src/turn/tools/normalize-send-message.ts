@@ -37,6 +37,9 @@ export function normalizeSendMessageInput(input: Record<string, unknown>): { blo
       if (row.kind === "text" && typeof row.markdown === "string") {
         return { ...row, markdown: stripInternalChatMarks(row.markdown) };
       }
+      if (row.kind === "file" || ((row.kind === "image" || row.kind === undefined) && localPathOf(block as Record<string, unknown>))) {
+        return fileBlockFrom(block as Record<string, unknown>);
+      }
       if (
         row.kind === "widget" &&
         row.widget === "approval" &&
@@ -57,6 +60,38 @@ export function normalizeSendMessageInput(input: Record<string, unknown>): { blo
   }
 
   return { blocks, replyTo: replyTo ?? null };
+}
+
+/** Keys a model uses for a file's location instead of `url`. */
+const PATH_KEYS = ["url", "path", "file", "filePath", "src", "href", "savedPath"] as const;
+
+/** The file location a block names, as a plain path: `file://` and `computer:` prefixes removed. */
+function locationOf(row: Record<string, unknown>): string {
+  for (const key of PATH_KEYS) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim().replace(/^computer:/, "").replace(/^file:\/\/(?=[^/])/, "/").replace(/^file:\/\//, "");
+  }
+  return "";
+}
+
+/** A path on the agent's computer named by an image or untyped block, or "" when it names none. */
+function localPathOf(row: Record<string, unknown>): string {
+  const location = locationOf(row);
+  return location.startsWith("/") || location.startsWith("~/") ? location : "";
+}
+
+/**
+ * Puts a file block into the one shape the server accepts: `url` and `name`.
+ * Why: a model sent `path` for `url`, left out `name`, or wrote
+ * `file://home/...`; each was refused as a whole message, and after ten
+ * tries the person had ten bubbles of file names and no video.
+ * Input: a block the model sent as a file. Output: `{ kind: "file", url, name }`.
+ */
+function fileBlockFrom(row: Record<string, unknown>): Record<string, unknown> {
+  const url = locationOf(row);
+  const given = typeof row.name === "string" && row.name.trim() ? row.name.trim() : typeof row.alt === "string" && row.alt.trim() ? row.alt.trim() : "";
+  const name = given || url.split("/").filter(Boolean).pop() || "file";
+  return { kind: "file", url, name, ...(typeof row.mime === "string" ? { mime: row.mime } : {}) };
 }
 
 /**

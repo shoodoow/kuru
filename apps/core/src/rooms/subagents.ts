@@ -1074,6 +1074,8 @@ export async function runWorker(
     skills?: string[];
     /** Background lines appended to the task the worker reads (not stored as the task). */
     context?: string;
+    /** Stop once with a preview before the costly part. Left out, a named skill can ask for it; false never (scheduled runs). */
+    checkpoint?: boolean;
     generate?: WorkerGenerate;
     onSettled?: (settled: WorkerSettled) => void;
   },
@@ -1358,9 +1360,14 @@ export async function runWorker(
     // out to need another (a press-and-hold check, a file type) it rebuilt the
     // method by hand over dozens of steps. It loads one with read_skill when needed.
     const named = new Set(meta.skills ?? []);
-    const others = (
-      await skillCatalogForAgent({ skillsRoot: input.skillsRoot, accountId: input.accountId, linuxProfile: profile }).catch(() => [])
-    ).filter((skill) => !named.has(skill.name));
+    const installed = await skillCatalogForAgent({ skillsRoot: input.skillsRoot, accountId: input.accountId, linuxProfile: profile }).catch(() => []);
+    const others = installed.filter((skill) => !named.has(skill.name));
+    // A preview before the costly part: when the agent asks for one, or a skill of this job does.
+    // Why: a 60-second video was rendered whole, 150 steps at a time, and only then
+    // seen; a wrong direction cost the full job and a restart instead of a few stills.
+    if (input.checkpoint === true || (input.checkpoint !== false && installed.some((skill) => named.has(skill.name) && skill.checkpoint))) {
+      preloaded.push(prompt("worker-rules", "checkpoint"));
+    }
     // Only the product's skills and this agent's own by name; the rest of the account's are a search away.
     const relevant = skillsForAgent(others, new Set<string>());
     if (relevant.shown.length > 0 || relevant.hidden > 0) {

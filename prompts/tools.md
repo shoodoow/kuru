@@ -19,6 +19,9 @@ The worker sees only `task`, plus what is attached for you: the person's recent 
 Each new job starts with a fresh worker, except work that was cut off unfinished, which goes back to the worker that started it; the result says `continued` when that happened. To change or fix something a worker already finished, use `redirect_worker` with its id instead.
 `kind`: `executor` general work (default) · `shell` commands and installs · `explore` find and read files · `browser` live web pages that need clicking or reading · `computer` desktop GUI apps · `docs` read public documentation · `debug` evidence-based debugging · `vm_setup` set up a project · `watch_video` / `video_review` media.
 `skills`: a list of skill names the worker should follow, for example `["docx"]`. Their main text is loaded for it, so you do not read them first. The worker also sees the other installed skills by name and can load one itself.
+`checkpoint`: true for work the person will judge by eye or that is costly to redo (a video, a design, a long document, changes to many emails or records, anything sent or published). The worker stops once with the plan and a few samples before the costly part; you show them and continue it with `redirect_worker`. A skill can ask for this itself.
+`fresh`: true only when the person asked to start over. Otherwise unfinished work goes back to the worker that started it, which then carries on in the same files; write only what is left to do, not the whole job again, and never ask it for a new project.
+Never tell a worker not to open pictures or frames: looking is how it checks visual work, and it is safe for every model.
 `briefFile`: a file holding the full brief, for a long brief or one you will reuse: write it with `write`, then pass its path; its text goes to the worker with `task`, so keep `task` to the goal in a line or two. Your saved procedures and the person's brief are attached for you; do not copy them.
 
 # stop_worker

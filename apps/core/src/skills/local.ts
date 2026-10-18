@@ -258,7 +258,7 @@ export async function localSkillCatalog(accountId: string, profile: string): Pro
       const source = chunk.slice(0, newline).trim() === "own" ? "own" : "shared";
       try {
         const parsed = parseSkillFrontmatter(`${chunk.slice(newline + 1).trimStart()}\n`);
-        byName.set(parsed.name, { name: parsed.name, description: parsed.description, source });
+        byName.set(parsed.name, { name: parsed.name, description: parsed.description, source, ...(parsed.checkpoint ? { checkpoint: true } : {}) });
       } catch {
         // Skip broken SKILL.md files so one bad install cannot hide the rest.
       }

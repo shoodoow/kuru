@@ -11,9 +11,11 @@ export type SkillSummary = {
   description: string;
   /** Where it comes from: shipped with the product, installed for the whole account, or installed by this agent. */
   source?: "core" | "shared" | "own";
+  /** `checkpoint: true` in the frontmatter: a job on this skill stops once with a preview before its costly part. */
+  checkpoint?: boolean;
 };
 
-export type ParsedSkill = { name: string; description: string; body: string };
+export type ParsedSkill = { name: string; description: string; body: string; checkpoint?: boolean };
 
 /**
  * Parses Agent Skills frontmatter from a SKILL.md body.
@@ -31,7 +33,8 @@ export function parseSkillFrontmatter(text: string): ParsedSkill {
   if (!name || !description) {
     throw new Error("SKILL.md needs a name and a description.");
   }
-  return { name, description, body: (match[2] ?? "").trim() };
+  const checkpoint = fields.get("checkpoint")?.trim().toLowerCase() === "true";
+  return { name, description, body: (match[2] ?? "").trim(), ...(checkpoint ? { checkpoint } : {}) };
 }
 
 /** YAML block indicators: folded `>`, literal `|`, with optional chomping (`-` / `+`). */
@@ -106,7 +109,7 @@ export function skillCatalog(directory: string): SkillSummary[] {
     .filter((path) => existsSync(path));
   return names
     .map((path) => parseSkillFrontmatter(readFileSync(path, "utf8")))
-    .map((skill) => ({ name: skill.name, description: skill.description }))
+    .map((skill) => ({ name: skill.name, description: skill.description, ...(skill.checkpoint ? { checkpoint: true } : {}) }))
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 

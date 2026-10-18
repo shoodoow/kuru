@@ -161,6 +161,15 @@ async function executeCorrectMemory(ctx: ToolContext, input: Record<string, unkn
   return { memoryId: saved.id, scope: saved.scope, body: saved.body };
 }
 
+/** Most bubbles one turn may send; past it, the turn is retrying rather than talking. */
+const MAX_BUBBLES_PER_TURN = 5;
+
+/** True for a file url the server can deliver: https, a data URI, or a path in the agent's home or /shared. */
+function deliverableFileUrl(url: string, home?: string): boolean {
+  if (url.startsWith("https://") || url.startsWith("data:")) return true;
+  return url.startsWith("/shared/") || (Boolean(home) && url.startsWith(`${home}/`));
+}
+
 export async function executeSendMessage(ctx: ToolContext, input: Record<string, unknown>) {
   let parsed: ReturnType<typeof sendMessageInputSchema.parse>;
   const normalized = normalizeSendMessageInput(input);
@@ -171,12 +180,34 @@ export async function executeSendMessage(ctx: ToolContext, input: Record<string,
     });
   } catch (error) {
     if (error instanceof ZodError) {
+      // Say which block was wrong and how: a bare example of a text block
+      // sent a model trying to attach a file into ten retries in other shapes.
+      const issue = error.issues[0];
+      const where = issue ? `${issue.path.join(".") || "blocks"}: ${issue.message}. ` : "";
       return {
         error:
-          'Invalid send_message blocks. Use blocks: [{ "kind": "text", "markdown": "your message" }]. Each block must include kind (text | image | code | file | widget).',
+          `Nothing was sent. ${where}Each block is one of: { "kind": "text", "markdown": "..." } · { "kind": "file", "url": "/full/path/on/your/computer.mp4", "name": "video.mp4" } · ` +
+          '{ "kind": "image", "url": "https://..." } · { "kind": "code", "code": "..." } · { "kind": "widget", ... }. Fix that block and send once.',
       };
     }
     throw error;
+  }
+  const home = ctx.linuxProfile ? accountHome(ctx.accountId, ctx.linuxProfile) : undefined;
+  parsed.blocks = parsed.blocks.map((block) => (block.kind === "file" && home && block.url.startsWith("~/") ? { ...block, url: `${home}${block.url.slice(1)}` } : block));
+  const undeliverable = parsed.blocks.find((block) => block.kind === "file" && !deliverableFileUrl(block.url, home));
+  if (undeliverable && undeliverable.kind === "file") {
+    return {
+      error: undeliverable.url.startsWith("/")
+        ? `Nothing was sent. ${undeliverable.url} is outside the folders a file can be sent from (${home ?? "your home"} and /shared). Copy it into one of them and send that path.`
+        : `Nothing was sent. "${undeliverable.url}" is not a file location. Give the file's full path on your computer, such as ${home ?? "/home/you"}/work/video.mp4.`,
+    };
+  }
+  // Each bubble reaches the person's phone. A turn that keeps resending is
+  // retrying something that does not work; more bubbles only add noise.
+  if (ctx.emittedMessages.length >= MAX_BUBBLES_PER_TURN) {
+    return {
+      error: `You already sent ${ctx.emittedMessages.length} messages this turn, and nothing more was sent. If something did not arrive as you meant, say so in your final reply in one line instead of sending again.`,
+    };
   }
   // A chart with nothing to draw would reach the person as an empty card.
   const emptyChart = parsed.blocks.some((block) => block.kind === "widget" && block.widget === "chart" && !chartData(block.props));
@@ -195,11 +226,7 @@ export async function executeSendMessage(ctx: ToolContext, input: Record<string,
   }
   let deliverableBlocks = parsed.blocks;
   try {
-    deliverableBlocks = await inlineSharedOutputBlocks(
-      ctx.accountId,
-      parsed.blocks,
-      ctx.linuxProfile ? accountHome(ctx.accountId, ctx.linuxProfile) : undefined,
-    );
+    deliverableBlocks = await inlineSharedOutputBlocks(ctx.accountId, parsed.blocks, home);
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Could not attach the shared file." };
   }
@@ -954,7 +981,8 @@ export async function executeSpawnWorker(ctx: ToolContext, input: Record<string,
   // A follow-up to work that just ran goes back to the worker that did it,
   // with its conversation intact, instead of to a blank one that has to
   // rediscover the project before it can change a line.
-  const earlier = (ctx.spawnCount ?? 0) === 0 ? await workerToContinue(ctx, parsed.kind) : null;
+  // `fresh`: the person asked to start over, so cut-off work is not picked back up.
+  const earlier = (ctx.spawnCount ?? 0) === 0 && !parsed.fresh ? await workerToContinue(ctx, parsed.kind) : null;
   if (earlier) {
     try {
       const continued = await continueWorker(ctx.store, {
@@ -970,6 +998,7 @@ export async function executeSpawnWorker(ctx: ToolContext, input: Record<string,
           skills: await workerSkills(ctx, parsed.task, parsed.skills ?? []),
           context: await workerContext(ctx, parsed.task),
           resumeFrom: continued.resumeFrom,
+          checkpoint: parsed.checkpoint,
         });
         return {
           workerId: continued.workerId,
@@ -984,6 +1013,7 @@ export async function executeSpawnWorker(ctx: ToolContext, input: Record<string,
       launchDetachedWorker(ctx, continued, parsed.task, undefined, {
         skills: await workerSkills(ctx, parsed.task, parsed.skills ?? []),
         context: await workerContext(ctx, parsed.task),
+        checkpoint: parsed.checkpoint,
       });
       return { workerId: continued.workerId, delegationId: continued.delegationId, status: continued.status };
     } catch {
@@ -1016,6 +1046,7 @@ export async function executeSpawnWorker(ctx: ToolContext, input: Record<string,
   launchDetachedWorker(ctx, spawned, parsed.task, parsed.maxSteps, {
     skills: await workerSkills(ctx, parsed.task, parsed.skills ?? []),
     context: await workerContext(ctx, parsed.task),
+    checkpoint: parsed.checkpoint,
   });
   return spawned;
 }
@@ -1180,10 +1211,11 @@ function launchDetachedWorker(
   spawned: { workerId: string; delegationId: string },
   task: string,
   maxSteps?: number,
-  extra?: { skills?: string[]; context?: string; resumeFrom?: string },
+  extra?: { skills?: string[]; context?: string; resumeFrom?: string; checkpoint?: boolean },
 ): void {
   void runWorker(ctx.db, {
     skills: extra?.skills,
+    checkpoint: extra?.checkpoint,
     context: extra?.context,
     resumeFrom: extra?.resumeFrom,
     accountId: ctx.accountId,
