@@ -33,6 +33,14 @@ describe("OpenRouter routing", () => {
     expect((await sent({ model: "x/y", provider: { order: ["DeepInfra"] } })).provider).toEqual({ order: ["DeepInfra"] });
   });
 
+  it("keeps half the output limit free of thinking, unless the request sets its own", async () => {
+    expect((await sent({ model: "x/y", max_output_tokens: 24_000 })).reasoning).toEqual({ max_tokens: 12_000 });
+    expect((await sent({ model: "x/y", max_tokens: 8_000, reasoning: { exclude: true } })).reasoning).toEqual({ exclude: true, max_tokens: 4_000 });
+    expect((await sent({ model: "x/y", max_output_tokens: 24_000, reasoning: { effort: "high" } })).reasoning).toEqual({ effort: "high" });
+    expect((await sent({ model: "x/y", max_tokens: 500 })).reasoning).toBeUndefined();
+    expect((await sent({ model: "x/y" })).reasoning).toBeUndefined();
+  });
+
   it("knows OpenRouter by its address", () => {
     expect(isOpenRouter("https://openrouter.ai/api/v1")).toBe(true);
     expect(isOpenRouter("https://integrate.api.nvidia.com/v1")).toBe(false);

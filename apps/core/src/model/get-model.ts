@@ -36,15 +36,16 @@ export const MIN_PROVIDER_TOKENS_PER_SECOND = 50;
  * the prompt cache, which lives with one provider. Sorting by price keeps
  * fallbacks when that provider is down. A model id with its own routing
  * suffix (`:nitro`, `:floor`) or a request that already says how to route is left alone.
+ * It also keeps hidden thinking to half the output limit (withThinkingRoom).
  */
 export function cheapestProviderFetch(fetchImpl: typeof fetch = fetch): typeof fetch {
   return (input, init) => {
     if (typeof init?.body === "string") {
       try {
         const body = JSON.parse(init.body) as Record<string, unknown>;
-        const model = typeof body.model === "string" ? body.model : "";
-        if (body && typeof body === "object" && !("provider" in body) && !model.includes(":")) {
-          return fetchImpl(input, { ...init, body: JSON.stringify({ ...body, provider: { sort: "price", preferred_min_throughput: MIN_PROVIDER_TOKENS_PER_SECOND } }) });
+        if (body && typeof body === "object" && !Array.isArray(body)) {
+          const next = withThinkingRoom(withProviderRouting(body));
+          if (next !== body) return fetchImpl(input, { ...init, body: JSON.stringify(next) });
         }
       } catch {
         // Not JSON: send it as it is.
@@ -52,6 +53,27 @@ export function cheapestProviderFetch(fetchImpl: typeof fetch = fetch): typeof f
     }
     return fetchImpl(input, init);
   };
+}
+
+/** The request with OpenRouter routing added, unless the model id or the request already routes itself. */
+function withProviderRouting(body: Record<string, unknown>): Record<string, unknown> {
+  const model = typeof body.model === "string" ? body.model : "";
+  if ("provider" in body || model.includes(":")) return body;
+  return { ...body, provider: { sort: "price", preferred_min_throughput: MIN_PROVIDER_TOKENS_PER_SECOND } };
+}
+
+/**
+ * The request with hidden thinking held to half its output limit, so there is always room left to act.
+ * Why: a showreel worker thought through the whole 24K limit four times and did nothing
+ * (21 to 39 minutes each). With half the limit for thinking the same request wrote its file.
+ * Normal steps think far less (median ~140 tokens), so this only stops a runaway.
+ * A request that sets its own thinking (effort or a token limit) is left alone.
+ */
+function withThinkingRoom(body: Record<string, unknown>): Record<string, unknown> {
+  const limit = [body.max_output_tokens, body.max_tokens, body.max_completion_tokens].find((value) => typeof value === "number") as number | undefined;
+  const reasoning = (body.reasoning && typeof body.reasoning === "object" ? body.reasoning : {}) as Record<string, unknown>;
+  if (!limit || limit < 2_000 || "max_tokens" in reasoning || "effort" in reasoning) return body;
+  return { ...body, reasoning: { ...reasoning, max_tokens: Math.floor(limit / 2) } };
 }
 
 function openAiCompatibleModel(modelId: string, apiKey: string, baseUrl?: string | null, placeholderKey = ""): LanguageModel {
