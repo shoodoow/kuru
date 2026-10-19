@@ -36,7 +36,7 @@ export function NewRoomSheet({
   onAskSupport?: (agent: RosterAgent, name: string) => Promise<void>;
 }) {
   const support = agents.find((agent) => agent.kind === "support");
-  const [kind, setKind] = useState<"chat" | "group">("chat");
+  const [kind, _setKind] = useState<"chat" | "group">("chat");
   const [name, setName] = useState("");
   const [look, setLook] = useState<AgentMark>(() => randomSurpriseMark());
   const [title, setTitle] = useState("");

@@ -4,7 +4,7 @@
  */
 import { parseDataUri } from "../rooms/uploads.js";
 import { MAX_VISION_CHARS, MAX_VISION_IMAGES } from "./constants.js";
-import { historyBody, tailSlice } from "./util.js";
+import { historyBody } from "./util.js";
 
 export type TurnImagePart =
   | { type: "file"; data: string; mediaType: string }

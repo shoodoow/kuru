@@ -52,7 +52,7 @@ function world() {
     }
     if (url === MCP && method === "GET") return new Response(null, { status: 401 });
     if (url === MCP && method === "POST") {
-      const token = (init?.headers as Record<string, string>).authorization?.replace("Bearer ", "") ?? "";
+      const token = (init?.headers as Record<string, string> | undefined)?.authorization?.replace("Bearer ", "") ?? "";
       const body = JSON.parse(String(init?.body)) as { id?: number; method: string; params?: { name?: string } };
       if (!valid.has(token)) return json({ jsonrpc: "2.0", id: body.id, error: { code: -32001, message: "Token expired." } }, 401);
       if (body.method === "notifications/initialized") return new Response(null, { status: 202 });

@@ -355,9 +355,15 @@ export async function reflectAgent(
   // With an embedder, lines that mean nearly the same are pointed out; the model decides.
   // Without one the model still sees every line and merges what it finds.
   const keyOf = new Map<string, string>();
-  rules.forEach((row, index) => keyOf.set(row.id, `R${index + 1}`));
-  facts.forEach((row, index) => keyOf.set(row.id, `F${index + 1}`));
-  shared.forEach((row, index) => keyOf.set(row.id, `S${index + 1}`));
+  rules.forEach((row, index) => {
+    keyOf.set(row.id, `R${index + 1}`);
+  });
+  facts.forEach((row, index) => {
+    keyOf.set(row.id, `F${index + 1}`);
+  });
+  shared.forEach((row, index) => {
+    keyOf.set(row.id, `S${index + 1}`);
+  });
   const alike: string[] = [];
   for (const list of [rules, facts, shared]) {
     const pairs = await alikePairs(db, accountId, list.map((row) => row.id)).catch(() => null);

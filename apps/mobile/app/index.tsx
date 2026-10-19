@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { useNavigation } from "expo-router";
 import { InboxScreen } from "../src/inbox/InboxScreen";
 import { SetupGuide } from "../src/inbox/SetupGuide";
@@ -48,7 +48,7 @@ export default function InboxRoute() {
       headerRight: () => (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           {/* The red "unread pings" count is off: each chat shows its own unread count. */}
-          {false && sessionRef.current.pendingCount > 0 ? (
+          {/* sessionRef.current.pendingCount > 0 ? (
             <View
               accessibilityLabel={`${sessionRef.current.pendingCount} unread pings`}
               style={{
@@ -65,7 +65,7 @@ export default function InboxRoute() {
                 {sessionRef.current.pendingCount > 99 ? "99+" : String(sessionRef.current.pendingCount)}
               </Text>
             </View>
-          ) : null}
+          ) : null */}
           <Pressable
             accessibilityLabel="Search"
             accessibilityRole="button"

@@ -10,7 +10,7 @@ import {
   DESKTOP_WIDTH,
   DESKTOP_HEIGHT,
 } from "../desktop/desktop.js";
-import { accountHome, accountShared, exec, execBytes, execStdin } from "../linux/linux.js";
+import { accountHome, exec, execBytes, execStdin } from "../linux/linux.js";
 import { machinePlan } from "../linux/linux.js";
 import { inGb, largestGrant } from "../linux/memory-plan.js";
 import { expandHome, assertInside } from "./find.js";

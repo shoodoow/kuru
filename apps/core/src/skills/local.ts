@@ -331,7 +331,7 @@ function withSkillDirectory(skillFile: string, body: string): string {
   return `Skill directory: ${directory} (relative links in this skill resolve from here; sibling skills sit next to it)\n\n${body}`;
 }
 
-async function listLocalSkillPaths(accountId: string, profile: string): Promise<string[]> {
+async function _listLocalSkillPaths(accountId: string, profile: string): Promise<string[]> {
   return listSkillPaths(accountId, profile, agentLocalSkillsRoot(accountId, profile));
 }
 
