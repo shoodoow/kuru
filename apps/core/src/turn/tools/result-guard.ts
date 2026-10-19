@@ -107,12 +107,20 @@ export function writtenPaths(name: string, input: Record<string, unknown>): stri
   return out;
 }
 
-/** The text of a tool result, when it is text or plain data; null for pictures and other shapes. */
+/** Keys under which a tool result carries a picture's bytes. */
+const PICTURE_KEYS = ["jpegBase64", "pngBase64", "base64", "data", "image"];
+
+/**
+ * The text of a tool result, when it is text or plain data; null for pictures and other shapes.
+ * Why null for pictures: a screenshot is {path, jpegBase64}. Cut as text it reached
+ * the model as 36,000 characters of image bytes (about 23,000 tokens) instead of a picture.
+ */
 export function resultText(result: unknown): string | null {
   if (typeof result === "string") return result;
   if (result && typeof result === "object" && !Array.isArray(result)) {
-    const shaped = result as { type?: unknown; content?: unknown };
+    const shaped = result as Record<string, unknown>;
     if (shaped.type === "image" || Array.isArray(shaped.content)) return null;
+    if (PICTURE_KEYS.some((key) => typeof shaped[key] === "string" && (shaped[key] as string).length > 1_000)) return null;
   }
   try {
     return JSON.stringify(result);

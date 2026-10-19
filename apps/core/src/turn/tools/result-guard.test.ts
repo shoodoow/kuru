@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ReadCounter, RESULT_INLINE_CHARS, cutResult, sourceKeys, writtenPaths } from "./result-guard.js";
+import { ReadCounter, RESULT_INLINE_CHARS, cutResult, resultText, sourceKeys, writtenPaths } from "./result-guard.js";
 
 const home = "/home/ucba539d570a1427d/work/octessa-leads";
 
@@ -50,6 +50,16 @@ describe("ReadCounter", () => {
 describe("writtenPaths", () => {
   it("finds redirect, tee and sed -i targets", () => {
     expect(writtenPaths("bash", { command: "echo hi > out.md 2>/dev/null; sort a | tee -a log.txt; sed -i 's/a/b/' notes.md" })).toEqual(["out.md", "log.txt", "notes.md"]);
+  });
+});
+
+describe("resultText", () => {
+  it("never treats a picture as text, so it is not cut into image bytes", () => {
+    const jpeg = "/9j/".padEnd(120_000, "A");
+    expect(resultText({ path: "/home/u/.cache/kuru/page.png", jpegBase64: jpeg })).toBeNull();
+    expect(resultText({ path: "/home/u/shot.png", pngBase64: jpeg, width: 1280 })).toBeNull();
+    expect(resultText({ rows: ["a"] })).toBe('{"rows":["a"]}');
+    expect(resultText("plain")).toBe("plain");
   });
 });
 
