@@ -6,8 +6,10 @@ import { accounts, memories, messages, type MemoryKind } from "../db/schema.js";
 type Database = Pick<ReturnType<typeof getDb>, "insert" | "select" | "delete" | "update">;
 
 const pageSize = 5;
-/** Newest current facts shown every turn; the rest come back through recall and entity lookup. */
-const standingMemoryLimit = 12;
+/** Rules an agent sees on every turn; matches the reflection's rule budget. */
+const standingRuleLimit = 12;
+/** Shared facts about the person every agent sees on every turn. */
+const standingSharedLimit = 10;
 /** Current facts pulled in for subjects named in the incoming message. */
 const entityFactLimit = 12;
 /** Longest brief stored for an account. */
@@ -149,19 +151,31 @@ function visibleTo(accountId: string, agentId: string) {
 }
 
 /**
- * Lists the newest current facts one agent is allowed to see.
- * Input: database, account id, and agent id.
- * Output: that agent's private facts plus the account's user facts, oldest
- * first. Replaced facts, the profile, and another account's facts are absent.
+ * The facts that stand in front of an agent on every turn: its own rules, then
+ * what is shared about the person.
+ * Why: this used to be the 12 newest facts of any kind. Whatever was saved
+ * last pushed out the rules that matter; 19 "removed" markers once filled
+ * the whole slot and the agent lost track of its role. Rules from the person
+ * come before rules a job taught; ordinary facts are not here at all, they
+ * arrive when the conversation names them or recall finds them relevant.
+ * Input: database, account id, agent id. Output: rules then shared facts, most trusted first.
  */
 export async function memoriesFor(db: Database, accountId: string, agentId: string) {
-  const rows = await db
-    .select()
-    .from(memories)
-    .where(and(visibleTo(accountId, agentId), ne(memories.kind, "profile")))
-    .orderBy(desc(memories.createdAt))
-    .limit(standingMemoryLimit);
-  return rows.reverse();
+  const [rules, shared] = await Promise.all([
+    db
+      .select()
+      .from(memories)
+      .where(and(visibleTo(accountId, agentId), eq(memories.scope, "agent"), eq(memories.kind, "procedure")))
+      .orderBy(asc(memories.tentative), desc(memories.confirmed), desc(memories.createdAt))
+      .limit(standingRuleLimit),
+    db
+      .select()
+      .from(memories)
+      .where(and(visibleTo(accountId, agentId), eq(memories.scope, "user"), ne(memories.kind, "profile")))
+      .orderBy(desc(memories.createdAt))
+      .limit(standingSharedLimit),
+  ]);
+  return [...rules, ...shared];
 }
 
 /**

@@ -43,8 +43,8 @@ import { publish } from "../../rooms/stream.js";
 import { resolveMention } from "../../rooms/mentions.js";
 import { recentWorkLogs } from "../work-log.js";
 import { accountHome } from "../../linux/linux.js";
-import { and, desc, eq, gt, isNull, ne } from "drizzle-orm";
-import { agents, conversations, delegations, members, messages, workerTranscripts } from "../../db/schema.js";
+import { and, count, desc, eq, gt, isNull, ne } from "drizzle-orm";
+import { agents, conversations, delegations, members, memories, messages, workerTranscripts } from "../../db/schema.js";
 import { agentFacts, briefFor, correct, readHistory, remember, saveBrief } from "../../memory/memory.js";
 import { embedSummaryBacklog } from "../../memory/recall.js";
 import { todoList, todoWrite } from "../../memory/todos.js";
@@ -134,8 +134,23 @@ async function memorySourceId(ctx: ToolContext, given?: string): Promise<string>
   return any.id;
 }
 
+/** Facts every agent on an account shares; past it, one must be corrected or kept by one agent instead. */
+export const SHARED_FACT_BUDGET = 15;
+
 async function executeRememberFact(ctx: ToolContext, input: Record<string, unknown>) {
   const parsed = rememberFactToolInputSchema.parse(input);
+  if (parsed.scope === "user") {
+    // Every agent reads every shared fact, so the shared list stays short.
+    const [row] = await ctx.store
+      .select({ value: count() })
+      .from(memories)
+      .where(and(eq(memories.accountId, ctx.accountId), eq(memories.scope, "user"), isNull(memories.supersededBy), ne(memories.kind, "profile")));
+    if ((row?.value ?? 0) >= SHARED_FACT_BUDGET) {
+      return {
+        error: `Shared memory is full (${SHARED_FACT_BUDGET} facts every agent reads). Save this in your own memory with scope "agent", or replace an outdated shared fact with correct_memory.`,
+      };
+    }
+  }
   const saved = await remember(ctx.db, ctx.accountId, {
     ...parsed,
     messageId: await memorySourceId(ctx, parsed.messageId),

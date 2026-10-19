@@ -54,9 +54,16 @@ export function localHour(timezone: string, now = new Date()): number {
     return now.getUTCHours();
   }
 }
-/** What one agent keeps for itself before it must merge or retire. */
-export const RULE_BUDGET = 25;
-export const FACT_BUDGET = 40;
+/**
+ * What one agent keeps for itself before it must merge or retire.
+ * Why: Nora reached 25 rules and 66 facts. Only a few fit in front of her at
+ * once, so the ones that did were whichever were newest, and old rules from
+ * earlier directions contradicted the current one. A small set she can hold
+ * whole beats a large set she sees a slice of. Enforced, not just advised:
+ * over budget, a new line is turned down unless the same reflection frees room.
+ */
+export const RULE_BUDGET = 12;
+export const FACT_BUDGET = 30;
 const CONVERSATION_CHARS = 24_000;
 const JOB_CHARS = 8_000;
 const BODY_CHARS = 300;
@@ -87,22 +94,38 @@ export type JournaledEdit = ReflectionEdit & {
   counted?: { id: string; by: number };
 };
 
+/** Soft-clips body text at sentence or word boundary to stay within max chars without being dropped. */
+export function clipBody(text: string, max = BODY_CHARS): string {
+  if (text.length <= max) return text;
+  const sliced = text.slice(0, max);
+  const sentenceMatch = sliced.match(/^([\s\S]*[.!?])\s+/);
+  if (sentenceMatch && sentenceMatch[1] && sentenceMatch[1].length >= 30) {
+    return sentenceMatch[1].trim();
+  }
+  const lastSpace = sliced.lastIndexOf(" ");
+  if (lastSpace >= 30) {
+    const cut = sliced.slice(0, lastSpace).trim();
+    return /[.!?]$/.test(cut) ? cut : `${cut}.`;
+  }
+  return sliced.trim();
+}
+
 /** Reads the model's lines into edits; anything not in the format is ignored. */
 export function parseReflection(text: string): ReflectionEdit[] {
   const edits: ReflectionEdit[] = [];
   const evidenceOf = (tail: string): string[] =>
-    [...(/\[([^\]]*)\]\s*$/.exec(tail)?.[1] ?? "").matchAll(/M\d{1,4}/gi)].map((match) => match[0].toUpperCase());
+    [...(/\[([^\]]*)\]\s*$/.exec(tail)?.[1] ?? "").matchAll(/[MJ]\d{1,4}/gi)].map((match) => match[0].toUpperCase());
   const withoutEvidence = (tail: string): string => tail.replace(/\s*\[[^\]]*\]\s*$/, "").trim();
   for (const raw of text.split("\n")) {
     const line = raw.replace(/^[-*\s]+/, "").trim();
     if (!line || /^nothing\.?$/i.test(line)) continue;
     let match: RegExpExecArray | null;
     if ((match = /^(rule|fact):\s*(.+)$/i.exec(line))) {
-      edits.push({ op: match[1]!.toLowerCase() as "rule" | "fact", body: withoutEvidence(match[2]!), evidence: evidenceOf(match[2]!) });
+      edits.push({ op: match[1]!.toLowerCase() as "rule" | "fact", body: clipBody(withoutEvidence(match[2]!)), evidence: evidenceOf(match[2]!) });
     } else if ((match = /^replace\s+([RFS]\d{1,3}):\s*(.+)$/i.exec(line))) {
-      edits.push({ op: "replace", target: match[1]!.toUpperCase(), body: withoutEvidence(match[2]!), evidence: evidenceOf(match[2]!) });
+      edits.push({ op: "replace", target: match[1]!.toUpperCase(), body: clipBody(withoutEvidence(match[2]!)), evidence: evidenceOf(match[2]!) });
     } else if ((match = /^merge\s+((?:[RFS]\d{1,3}\s*){2,4}):\s*(.+)$/i.exec(line))) {
-      edits.push({ op: "merge", targets: match[1]!.trim().toUpperCase().split(/\s+/), body: withoutEvidence(match[2]!) });
+      edits.push({ op: "merge", targets: match[1]!.trim().toUpperCase().split(/\s+/), body: clipBody(withoutEvidence(match[2]!)) });
     } else if ((match = /^(confirm|contradict|retire)\s+([RFS]\d{1,3})\b(.*)$/i.exec(line))) {
       edits.push({ op: match[1]!.toLowerCase() as "confirm" | "contradict" | "retire", target: match[2]!.toUpperCase(), evidence: evidenceOf(match[3]!) });
     }
@@ -238,12 +261,49 @@ async function ownMemory(db: Db, accountId: string, agentId: string): Promise<Ro
     .from(memories)
     .where(and(eq(memories.accountId, accountId), eq(memories.scope, "agent"), eq(memories.agentId, agentId), isNull(memories.supersededBy)))
     .orderBy(desc(memories.createdAt))
-    .limit(120);
+    .limit(200);
 }
+
+const STANDARD_CONTAINER_TOOLS = [
+  "ffmpeg",
+  "ffprobe",
+  "kokoro",
+  "af_heart",
+  "node",
+  "python",
+  "python3",
+  "git",
+  "docker",
+  "curl",
+  "wget",
+  "jq",
+  "bash",
+  "sh",
+  "three",
+  "canvas",
+  "webaudio",
+  "playwright",
+  "chrome",
+  "chromium",
+  "h264",
+  "aac",
+  "mp4",
+  "mp3",
+  "wav",
+  "npm",
+  "pnpm",
+  "pip",
+  "tar",
+  "zip",
+  "unzip",
+  "grep",
+  "sed",
+  "awk",
+];
 
 /** Names an edit may mention: the agent's skills and every tool. */
 async function knownNames(accountId: string, profile: string | null): Promise<Set<string>> {
-  const names = new Set<string>();
+  const names = new Set<string>(STANDARD_CONTAINER_TOOLS);
   for (const surface of ["dispatcher", "worker"] as const) for (const def of toolsForSurface(surface, { hasLinux: true })) names.add(def.name.toLowerCase());
   const skills = await skillCatalogForAgent({ skillsRoot: config.skillsDir(), accountId, linuxProfile: profile }).catch(() => []);
   for (const skill of skills) names.add(skill.name.toLowerCase());
@@ -332,7 +392,7 @@ export async function reflectAgent(
 
   const own = await ownMemory(db, accountId, agentId);
   const rules = own.filter((row) => row.kind === "procedure");
-  const facts = own.filter((row) => row.kind !== "procedure" && row.kind !== "profile").slice(0, 60);
+  const facts = own.filter((row) => row.kind !== "procedure" && row.kind !== "profile").slice(0, 100);
   // Only the Chief of Staff tends what every agent shares.
   const tendsShared = agent.kind === "support";
   const shared: Row[] = tendsShared
@@ -384,7 +444,7 @@ export async function reflectAgent(
     conversation: fitFromEnd(lines, CONVERSATION_CHARS) || "(none)",
     jobs:
       fitFromEnd(
-        jobs.map((job) => `- [${job.status}] ${job.task.replace(/\s+/g, " ").slice(0, 200)} → ${(job.result ?? "no report").replace(/\s+/g, " ").slice(0, 600)}`),
+        jobs.map((job, index) => `- J${index + 1} [${job.status}] ${job.task.replace(/\s+/g, " ").slice(0, 200)} → ${(job.result ?? "no report").replace(/\s+/g, " ").slice(0, 600)}`),
         JOB_CHARS,
       ) || "(none)",
     decisions: decided.map((row) => `- ${row.status}: ${row.summary.slice(0, 160)}`).join("\n") || "(none)",
@@ -393,7 +453,8 @@ export async function reflectAgent(
 
   // Code checks every proposal before anything is saved.
   const names = await knownNames(accountId, agent.linuxProfile);
-  const validRefs = new Set(numbered.map((row) => row.ref));
+  const jobRefs = jobs.map((_, index) => `J${index + 1}`);
+  const validRefs = new Set([...numbered.map((row) => row.ref), ...jobRefs]);
   const personRefs = new Set(numbered.filter((row) => !row.agentId).map((row) => row.ref));
   const pick = (target: string): Row | undefined => {
     const list = target.startsWith("R") ? rules : target.startsWith("F") ? facts : shared;
@@ -450,6 +511,21 @@ export async function reflectAgent(
     near?.forEach((hit, index) => {
       if (hit && hit.distance < ALIKE_DISTANCE) left[index]!.dropped = `means nearly the same as ${keyOf.get(hit.id)}; confirm or replace that instead`;
     });
+  }
+
+  // Over budget, a new line needs room made in the same pass: a retire, or a merge of several into one.
+  for (const kind of ["rule", "fact"] as const) {
+    const prefix = kind === "rule" ? "R" : "F";
+    const kept = journal.filter((entry) => !entry.dropped);
+    const freed =
+      kept.filter((entry) => entry.op === "retire" && entry.target.startsWith(prefix)).length +
+      kept.reduce((sum, entry) => sum + (entry.op === "merge" ? Math.max(0, entry.targets.filter((target) => target.startsWith(prefix)).length - 1) : 0), 0);
+    let room = (kind === "rule" ? RULE_BUDGET : FACT_BUDGET) - (kind === "rule" ? rules : facts).length + freed;
+    for (const entry of kept) {
+      if (entry.op !== kind) continue;
+      if (room <= 0) entry.dropped = `over the budget of ${kind === "rule" ? RULE_BUDGET : FACT_BUDGET} ${kind}s; merge or retire one first`;
+      else room -= 1;
+    }
   }
 
   // What the person's words meant is the model's reading, held to their own messages.

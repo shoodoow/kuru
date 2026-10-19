@@ -4,7 +4,7 @@ import { getDb } from "../db/client.js";
 import { agentReflections, conversations, delegations, memories, messages, reactions } from "../db/schema.js";
 import { createAccount, createAgent } from "../roster/roster.js";
 import { remember } from "./memory.js";
-import { localHour, measureHealth, parseReflection, parseSignals, reflectAgent, textProblem, undoReflection } from "./reflection.js";
+import { clipBody, RULE_BUDGET, localHour, measureHealth, parseReflection, parseSignals, reflectAgent, textProblem, undoReflection } from "./reflection.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
@@ -29,18 +29,26 @@ describe("reflection", () => {
     await db.$client.end();
   });
 
-  it("reads its line format with the evidence each edit rests on", () => {
+  it("reads its line format with the evidence each edit rests on, including jobs", () => {
     expect(
       parseReflection(
-        "Here you go:\nrule: keep text at least 32px [M3, M7]\nconfirm R2 [M5]\nreplace F1: launch moved to Monday [M9]\nmerge R1 R4: one rule\nretire F2 [M11]\nnothing\nchatter",
+        "Here you go:\nrule: keep text at least 32px [M3, M7]\nrule: cap ffmpeg concurrency [J1]\nconfirm R2 [M5]\nreplace F1: launch moved to Monday [M9]\nmerge R1 R4: one rule\nretire F2 [M11]\nnothing\nchatter",
       ),
     ).toEqual([
       { op: "rule", body: "keep text at least 32px", evidence: ["M3", "M7"] },
+      { op: "rule", body: "cap ffmpeg concurrency", evidence: ["J1"] },
       { op: "confirm", target: "R2", evidence: ["M5"] },
       { op: "replace", target: "F1", body: "launch moved to Monday", evidence: ["M9"] },
       { op: "merge", targets: ["R1", "R4"], body: "one rule" },
       { op: "retire", target: "F2", evidence: ["M11"] },
     ]);
+  });
+
+  it("soft-clips oversized rule bodies at sentence or word boundaries", () => {
+    const long = "Always check audio levels before export. When rendering launch videos, make sure the video bitrate is set properly to 12Mbps so that mobile playback is smooth and there are no compression artifacts on high-resolution displays. " + "Extra sentence that runs far over the limit.".repeat(5);
+    const clipped = clipBody(long, 300);
+    expect(clipped.length).toBeLessThanOrEqual(300);
+    expect(clipped.endsWith(".")).toBe(true);
   });
 
   it("tells the person's hour from their zone, falling back to UTC", () => {
@@ -51,12 +59,31 @@ describe("reflection", () => {
   });
 
   it("turns down text that names a skill the agent lacks, holds a secret, or runs long", () => {
-    const names = new Set(["hyperframes", "browser_click"]);
+    const names = new Set(["hyperframes", "browser_click", "ffmpeg", "kokoro"]);
     expect(textProblem("For launch videos use `hyperframes` and its creative guide.", names)).toBeNull();
+    expect(textProblem("Process audio using `ffmpeg` and voice with `kokoro`.", names)).toBeNull();
     expect(textProblem("Use /product-launch-video for every launch video.", names)).toMatch(/product-launch-video/);
     expect(textProblem("The api_key: abcdef is stored here.", names)).toMatch(/secret/);
     expect(textProblem("x".repeat(400), names)).toMatch(/longer/);
     expect(parseSignals("correction M2 M4\npraise [M5]\n- correction: M4\nrule: x [M1]")).toEqual({ corrections: ["M2", "M4"], praise: ["M5"] });
+  });
+
+  it("turns down a new rule over budget unless the same pass retires one", async () => {
+    const { account, nora, say } = await setUp("reflect-budget");
+    const said = await say("Use the new recipe file for every reel.");
+    for (let i = 0; i < RULE_BUDGET; i++) {
+      await remember(db, account.id, { scope: "agent", agentId: nora.id, kind: "procedure", body: `Old rule number ${i} about reels.`, messageId: said.id });
+    }
+    const full = await reflectAgent(db, account.id, nora.id, {
+      since: new Date(Date.now() - 60_000),
+      think: async () => "rule: for every reel, follow REEL-RECIPE.md exactly [M1]",
+    });
+    expect(full.edits.find((edit) => edit.op === "rule")?.dropped).toMatch(/budget/);
+    const freed = await reflectAgent(db, account.id, nora.id, {
+      since: new Date(Date.now() - 60_000),
+      think: async () => "retire R1 [M1]\nrule: for every reel, follow REEL-RECIPE.md exactly [M1]",
+    });
+    expect(freed.edits.find((edit) => edit.op === "rule")?.dropped).toBeUndefined();
   });
 
   it("learns firm rules from the person, tentative ones from jobs, keeps what is confirmed, and can be undone", async () => {
@@ -80,7 +107,7 @@ describe("reflection", () => {
         seen = user;
         return [
           "rule: in launch videos keep text at least 32px at 1080p and always add a music bed [M1]",
-          "rule: render with at most 2 workers on this computer to avoid running out of memory [M2]",
+          "rule: render with at most 2 workers on this computer to avoid running out of memory [J1]",
           "confirm R1 [M2]",
           "retire F1 [M1]",
           "rule: invented without evidence",
@@ -94,6 +121,7 @@ describe("reflection", () => {
     expect(seen).toContain("M1 Person: The text is too small");
     expect(seen).toContain("[the person reacted 👍]");
     expect(seen).toContain("[the person reacted 👎 (did not like it)]");
+    expect(seen).toContain("J1 [failed] Render");
     expect(seen).toContain("Ran out of memory");
     expect(result.status).toBe("applied");
     expect(result.applied).toBe(4);
@@ -105,7 +133,7 @@ describe("reflection", () => {
 
     const rows = await current(account.id, nora.id);
     expect(rows.find((row) => row.body.startsWith("in launch videos"))).toMatchObject({ kind: "procedure", tentative: false });
-    // Rests only on the agent's own reply, so it waits to be confirmed.
+    // Rests only on the background job, so it waits to be confirmed.
     expect(rows.find((row) => row.body.startsWith("render with at most 2"))).toMatchObject({ tentative: true });
     expect(rows.find((row) => row.body.startsWith("Render drafts"))).toMatchObject({ confirmed: 1 });
     expect(rows.some((row) => row.body === "The launch is on Friday.")).toBe(false);

@@ -69,8 +69,10 @@ describe("memory", () => {
     const updated = await memoriesFor(db, room.accountId, other.id);
     expect(updated.map((fact) => fact.body)).toEqual(["The client is Bea."]);
     expect(updated.map((fact) => fact.messageId)).toEqual([correction.id]);
+    // The fixed slot holds the agent's rules and the shared facts; a plain fact of its own comes in by recall when relevant.
+    await remember(db, room.accountId, { scope: "agent", agentId: room.agentId, kind: "procedure", body: "Letters go out as PDF.", messageId: source.id });
     const firstAgent = await memoriesFor(db, room.accountId, room.agentId);
-    expect(firstAgent.map((fact) => fact.body).sort()).toEqual(["I draft the letters.", "The client is Bea."]);
+    expect(firstAgent.map((fact) => fact.body)).toEqual(["Letters go out as PDF.", "The client is Bea."]);
   });
 });
 

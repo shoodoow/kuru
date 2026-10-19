@@ -17,7 +17,8 @@ const KEY_SET = new Set<string>(summaryKeys);
 const KIND_SET = new Set<string>(memoryKinds.filter((kind) => kind !== "profile"));
 const MAX_ITEM = 500;
 const MAX_ITEMS = 8;
-const MAX_FACTS = 12;
+/** Facts one fold may save: only what the agent will use later, so memory stays small enough to read whole. */
+const MAX_FACTS = 3;
 const LINE_BODY_CHARS = 1_500;
 
 export type ModelDeps = { provider: string; modelId: string; apiKey: string; baseUrl: string | null };

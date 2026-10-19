@@ -32,20 +32,30 @@ export function agentsRoutes(ctx: AppContext, guard: Guard): Router {
     res.json(updated);
   });
   // Health: measured by code; "Fix now" reflects at once; each reflection can be undone.
+  const activeReflections = new Set<string>();
   agents.get("/:agentId/health", guard, async (req, res) => {
     const accountId = queryAccountId(req);
     const agentId = pathParam(req, "agentId");
     const [health, reflections] = await Promise.all([measureHealth(ctx.db, accountId, agentId), recentReflections(ctx.db, accountId, agentId, 5)]);
-    res.json({ health, reflections });
+    const reflecting = activeReflections.has(`${accountId}:${agentId}`);
+    res.json({ health, reflections, reflecting });
   });
   agents.post("/:agentId/reflect", guard, async (req, res) => {
     const accountId = queryAccountId(req);
     const agentId = pathParam(req, "agentId");
+    const key = `${accountId}:${agentId}`;
+    if (activeReflections.has(key)) {
+      res.status(409).json({ error: "A reflection is already running for this agent.", status: "running" });
+      return;
+    }
+    activeReflections.add(key);
     try {
       const result = await reflectAgent(ctx.db, accountId, agentId, { dryRun: (req.body ?? {}).dryRun === true });
       res.json(result);
     } catch (error) {
       res.status(502).json({ error: error instanceof Error ? `The reflection could not run: ${error.message.slice(0, 200)}` : "The reflection could not run." });
+    } finally {
+      activeReflections.delete(key);
     }
   });
   agents.post("/:agentId/reflections/:reflectionId/undo", guard, async (req, res) => {

@@ -10,7 +10,7 @@ done O<k>
 
 - `[n]` is the number of the transcript line the statement comes from.
 - Summary lines (at most 8). key is one of: decisions (choices that were settled), actions (things done or promised, with the outcome), open (unresolved questions or pending work), entities (accounts, URLs, ids, file paths, numbers worth keeping), corrections (something that replaced an earlier belief), topics (what the slice was about).
-- Fact lines (at most 12) are for things that stay true beyond this conversation. kind is one of: person, org, project, preference, decision, commitment, procedure, fact. Use procedure for a rule about how a kind of work should be done ("export product photos at 2000px wide", "send invoices as PDF, never as a link"); write it as the rule itself, with the situation it applies to. subject is the name the fact is about (a person, a company, a project); leave it empty for facts about the user themself. Write each fact so it makes sense on its own, with full names and dates instead of "he" or "next week".
+- Fact lines (at most 3, and usually 0 or 1) are only for what the assistant will actually use later: a rule the person set, a decision that changes how work is done, someone it will deal with again. Ask of each one: would the assistant do something differently next time because it knows this? If not, leave it out. Statuses, counts, episode numbers, file paths, what was done today and anything the summary lines already carry are never facts. Fact lines are for things that stay true beyond this conversation. kind is one of: person, org, project, preference, decision, commitment, procedure, fact. Use procedure for a rule about how a kind of work should be done ("export product photos at 2000px wide", "send invoices as PDF, never as a link"); write it as the rule itself, with the situation it applies to. subject is the name the fact is about (a person, a company, a project); leave it empty for facts about the user themself. Write each fact so it makes sense on its own, with full names and dates instead of "he" or "next week".
 - When the slice changes something memory already holds, write an `update M<k>` line with the new state instead of a second fact. Skip anything memory already states.
 - When the slice shows an open item was settled (it was done, answered, dropped, or overtaken by a later decision), write `done O<k>`. An open item left in place tells the assistant to keep waiting, so close every one the slice settles, and only those.
 - Only a fact or preference about the person themself (subject left empty, kind preference or person) is shared with all their assistants, and that should be rare. Everything else stays with this assistant: its projects, channels, clients, contacts, styles, schedules and deliverables. Give each fact its real kind and subject so it lands in the right place: a preference about one project or channel gets that project as its subject.
@@ -67,21 +67,22 @@ Look for, most important first:
 
 Rules for your lines:
 - Each must change what the assistant does next time. No diary, no summary of the day, nothing it already knows.
-- Every line except merge ends with the messages it rests on, like [M3] or [M3, M7]. A rule you cannot point to a message for is a guess: leave it out.
+- Every line except merge ends with the evidence it rests on: messages like [M3] or background jobs like [J1]. A rule you cannot point to evidence for is a guess: leave it out.
+- Do not save daily status, fleeting counts or queue snapshots (e.g. "inbox has 12 emails", "ran 3 sweeps today"). Keep only durable rules, preferences, and long-term project decisions.
 - Name a skill or tool only when it appears in the material, written as `name`; never invent one.
 - Under 300 characters each, plain words, the situation it applies to included. No secrets.
 - Read the person's intent, in any language: "can you make it bigger?" after a result is a correction; a plain question is not. Label only the person's messages.
 - Prefer editing over adding. At most 10 lines. When nothing is worth keeping, write exactly: nothing
 
 Format, one per line:
-rule: <a rule for how work is done> [M#]
-fact: <a durable fact about the work, a project or a decision> [M#]
-confirm R<n> [M#]
-contradict R<n> [M#]
-replace R<n>: <better wording> [M#]
-replace F<n>: <the fact as it now stands> [M#]
+rule: <a rule for how work is done> [M# or J#]
+fact: <a durable fact about the work, a project or a decision> [M# or J#]
+confirm R<n> [M# or J#]
+contradict R<n> [M# or J#]
+replace R<n>: <better wording> [M# or J#]
+replace F<n>: <the fact as it now stands> [M# or J#]
 merge R<n> R<m>: <one rule that says both>
-retire F<n> [M#]
+retire F<n> [M# or J#]
 correction M# M#   (the person's messages that corrected, rejected or redid its work)
 praise M# M#       (the person's messages that praised or accepted its work as it was)
 (S<n> lines, when listed, are facts every assistant shares; edit them the same way.)

@@ -112,6 +112,17 @@ describe("support tools", () => {
     expect(await briefFor(db, account.id)).toContain("handmade soap");
   });
 
+  it("keeps shared memory short: past the budget a shared fact is refused, an own fact still saves", async () => {
+    const { account, support, ctxFor } = await setUp("SharedFull");
+    const { SHARED_FACT_BUDGET } = await import("./executors.js");
+    await db.insert(memories).values(
+      Array.from({ length: SHARED_FACT_BUDGET }, (_, i) => ({ accountId: account.id, scope: "user", agentId: null, body: `Shared fact ${i}.` })),
+    );
+    const ctx = ctxFor(support.id);
+    expect(String((await call("remember_fact", ctx, { scope: "user", body: "Likes tea." })).error)).toMatch(/Shared memory is full/);
+    expect(await call("remember_fact", ctx, { scope: "agent", body: "Likes tea." })).toMatchObject({ scope: "agent" });
+  });
+
   it("hires an agent of the chosen kind on the caller's model, with its own chat", async () => {
     const { account, support, ctxFor } = await setUp("Hiring");
     const ctx = ctxFor(support.id);
