@@ -4,7 +4,9 @@ import { measureHealth, recentReflections, reflectAgent, undoReflection } from "
 import { createProfile } from "../../linux/linux.js";
 import { buildInstructions } from "../../prompt/build-instructions.js";
 import { RoomCapacityError } from "../../rooms/rooms.js";
-import { hireSubagent, listTeam } from "../../rooms/subagents.js";
+import { hireSubagent, listTeam, stopWorker } from "../../rooms/subagents.js";
+import { runningWork } from "../../rooms/running-work.js";
+import { agentMemoryPage, forgetMemory } from "../../memory/agent-memory-page.js";
 import { getAgent, updateAgentFlags } from "../../roster/roster.js";
 import {
   createOwnRoutine,
@@ -53,6 +55,43 @@ export function agentsRoutes(ctx: AppContext, guard: Guard): Router {
       return;
     }
     res.json({ undone: true });
+  });
+  // Memory page: every fact the agent reads, and removing one for good.
+  agents.get("/:agentId/memories", guard, async (req, res) => {
+    const facts = await agentMemoryPage(ctx.db, queryAccountId(req), pathParam(req, "agentId"));
+    if (!facts) {
+      res.status(404).json({ error: "Agent not found." });
+      return;
+    }
+    res.json(facts);
+  });
+  agents.delete("/:agentId/memories/:memoryId", guard, async (req, res) => {
+    const gone = await forgetMemory(ctx.db, queryAccountId(req), pathParam(req, "agentId"), pathParam(req, "memoryId"));
+    if (!gone) {
+      res.status(404).json({ error: "That memory is already gone." });
+      return;
+    }
+    res.json(gone);
+  });
+  // Running now: background jobs and routine runs, read from the rows.
+  agents.get("/:agentId/running", guard, async (req, res) => {
+    const work = await runningWork(ctx.db, queryAccountId(req), pathParam(req, "agentId"));
+    if (!work) {
+      res.status(404).json({ error: "Agent not found." });
+      return;
+    }
+    res.json(work);
+  });
+  agents.post("/:agentId/workers/:workerId/stop", guard, async (req, res) => {
+    const accountId = queryAccountId(req);
+    const work = await runningWork(ctx.db, accountId, pathParam(req, "agentId"));
+    const workerId = pathParam(req, "workerId");
+    // Only a job this agent started can be stopped from its page.
+    if (!work?.running.some((job) => job.workerId === workerId)) {
+      res.status(404).json({ error: "That job is not running." });
+      return;
+    }
+    res.json(await stopWorker(ctx.db, accountId, workerId));
   });
   agents.get("/:agentId/routines", guard, async (req, res) => {
     res.json(await listOwnRoutines(ctx.db, queryAccountId(req), pathParam(req, "agentId")));

@@ -43,20 +43,21 @@ export type FoldOutput = { items: FoldItem[]; facts?: FoldFact[]; /** Ids of ope
 /** A summarizer turns an aged-out slice into cited summary items and, optionally, durable facts. */
 export type FoldSummarizer = (slice: SliceMessage[], known: KnownFact[], open?: OpenItem[]) => Promise<FoldOutput | FoldItem[]>;
 
-/** Kinds of fact that describe the person and their world, which every one of their agents should know. */
-const SHARED_KINDS = new Set(["preference", "person", "org"]);
+/** Kinds of fact that can describe the person themself, the only facts every one of their agents needs. */
+const SHARED_KINDS = new Set(["preference", "person"]);
 
 /**
  * Whether a folded fact goes to every agent or stays with the chat's agent.
- * Why: every fact used to be shared, so one agent's working details (episode
- * numbers, render schedules, gig drafts) filled every other agent's memory
- * and pushed out what mattered to them. Facts about the person themself, the
- * people and organizations around them, and their preferences stay shared.
+ * Why: shared facts were common, so one agent's working details (a video
+ * style, a lead, gig prices) reached every other agent, and an agent read so
+ * much of the others' work that it lost track of its own role. Shared memory
+ * is now rare: only a preference or fact about the person themself (no
+ * subject). Anything about a project, a channel, a client or a third party
+ * stays with the agent whose chat it came from.
  */
 export function sharedFact(fact: { kind: string; subject: string | null }): boolean {
-  // How this agent was told to do its work stays with it, and reaches its workers.
-  if (fact.kind === "procedure") return false;
-  return SHARED_KINDS.has(fact.kind) || !fact.subject?.trim();
+  if (fact.subject?.trim()) return false;
+  return SHARED_KINDS.has(fact.kind);
 }
 
 export type FoldResult = { key: string; body: string }[] & { factsSaved?: number; lastMessageId?: string };

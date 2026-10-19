@@ -42,6 +42,12 @@ export default function ProfileRoute() {
         fix: () => core.reflectNow(session.accountId.trim(), profile.id),
         undo: (reflectionId) => core.undoReflection(session.accountId.trim(), profile.id, reflectionId),
       }}
+      work={{
+        running: () => core.agentRunning(session.accountId.trim(), profile.id),
+        stop: (workerId) => core.stopAgentJob(session.accountId.trim(), profile.id, workerId),
+        memories: () => core.agentMemories(session.accountId.trim(), profile.id),
+        forget: (memoryId) => core.forgetMemory(session.accountId.trim(), profile.id, memoryId),
+      }}
     />
     <Toast />
     </>

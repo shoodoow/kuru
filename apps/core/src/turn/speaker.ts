@@ -233,7 +233,7 @@ export async function speakOnce(
     })
     .slice(0, 3);
 
-  const person = await loadPerson(db, accountId, agentId);
+  const person = await loadPerson(db, accountId, agentId, agent.kind === "support");
   const [routineCount] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(routines)
@@ -565,9 +565,9 @@ async function skillsUsedBy(db: Db, accountId: string, agentId: string): Promise
  * Why: the room roster is agents; the human has to be named separately.
  * Team/groups are account-level so a private chat sees them without extra
  * list_team/list_groups calls. Generic: roster with copy-pasteable UUIDs.
- * Input: account id and the speaking agent. Output: name, zone, now, team, groups.
+ * Input: account id, the speaking agent, whether it sees the roster. Output: name, zone, now, team, groups.
  */
-async function loadPerson(db: Db, accountId: string, agentId: string): Promise<PersonContext> {
+async function loadPerson(db: Db, accountId: string, agentId: string, seesRoster: boolean): Promise<PersonContext> {
   const [account] = await db
     .select({ name: accounts.name, timezone: accounts.timezone })
     .from(accounts)
@@ -589,7 +589,10 @@ async function loadPerson(db: Db, accountId: string, agentId: string): Promise<P
       mention: member.name,
     })),
     groups: groups.map((group) => ({ id: group.conversationId, title: group.title, owned: group.owned })),
-    others: await otherAgents(db, accountId, agentId, new Set(team.map((member) => member.id))),
+    // Only the default agent, which sets the others up, sees the whole roster.
+    // A work agent that saw every other agent drifted into their work and lost
+    // its own role; when the person names another agent, message_agent finds it.
+    others: seesRoster ? await otherAgents(db, accountId, agentId, new Set(team.map((member) => member.id))) : [],
   };
 }
 

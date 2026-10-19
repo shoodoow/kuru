@@ -30,6 +30,12 @@ describe("classifyRisk", () => {
     const batch = hashToolInput("delete_routines", { routineIds: ["b", "a"] });
     expect(hashToolInput("delete_routines", { routineIds: ["a", "b"], requestApproval: true, approvalId: "x" })).toBe(batch);
   });
+
+  it("matches an approved removal even when the reason is reworded on retry", () => {
+    const first = hashToolInput("fire_agent", { agent: "Nora", reason: "He asked to delete Nora." });
+    expect(hashToolInput("fire_agent", { agent: "Nora", reason: "Mohammad asked to remove Nora and her memories." })).toBe(first);
+    expect(hashToolInput("fire_agent", { agent: "Max", reason: "He asked to delete Nora." })).not.toBe(first);
+  });
 });
 
 describe("reviewToolCall and send_message guards", () => {

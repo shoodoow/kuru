@@ -107,7 +107,7 @@ describe("support tools", () => {
     const { account, support, ctxFor } = await setUp("Briefed");
     const ctx = ctxFor(support.id);
     expect(await call("set_brief", ctx, { brief: "short" })).toHaveProperty("error");
-    expect(await call("set_brief", ctx, { brief: "x".repeat(4_001) })).toHaveProperty("error");
+    expect(await call("set_brief", ctx, { brief: "x".repeat(1_501) })).toHaveProperty("error");
     expect(await call("set_brief", ctx, { brief: "## Business\nSells handmade soap to parents of young children." })).toMatchObject({ saved: true });
     expect(await briefFor(db, account.id)).toContain("handmade soap");
   });
@@ -188,5 +188,14 @@ describe("copiedContextSections", () => {
     const { copiedContextSections } = await import("./executors.js");
     expect(copiedContextSections("# Mo\n## Goals\n- Sell\n## Now\nTime\n## Memory\n- x\n### Profile\nold")).toEqual(["Now", "Memory", "Profile"]);
     expect(copiedContextSections("# Mo\n## Who does what\n- Ethan: Fiverr")).toEqual([]);
+  });
+});
+
+describe("agentsNamedIn", () => {
+  it("finds agent names as whole words, so the brief stays about the person", async () => {
+    const { agentsNamedIn } = await import("./executors.js");
+    expect(agentsNamedIn("Who does what\n- Nora: Instagram\n- Leo: Gmail", ["Nora", "Leo", "Max"])).toEqual(["Nora", "Leo"]);
+    // Part of a longer word, or a lowercase word, is not a name.
+    expect(agentsNamedIn("Leonard likes maximum speed.", ["Leo", "Max"])).toEqual([]);
   });
 });

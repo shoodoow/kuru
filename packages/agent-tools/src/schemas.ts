@@ -97,7 +97,8 @@ export const teamBriefInputSchema = z.object({
 });
 
 export const accountBriefInputSchema = z.object({
-  brief: z.string().trim().min(10).max(4_000),
+  /** A short note about the person only; each agent's own job lives in its instructions and memory. */
+  brief: z.string().trim().min(10).max(1_500),
 });
 
 export const hireAgentInputSchema = z.object({
@@ -123,11 +124,7 @@ export const ownProfileInputSchema = z.object({
 /** Another agent on this account, by the name listed under "Other agents" (or its id). */
 const otherAgentField = z.string().trim().min(1).max(120);
 
-export const fireAgentInputSchema = z.object({
-  agent: otherAgentField,
-  /** Why the person is letting it go, in their words; shown on the approval card. */
-  reason: z.string().trim().max(300).optional(),
-});
+
 
 export const agentMemoryReadInputSchema = z.object({
   agent: otherAgentField,
@@ -163,6 +160,13 @@ export const groupConversationInputSchema = z.object({
 });
 
 export type GroupConversationInput = z.infer<typeof groupConversationInputSchema>;
+
+export const fireAgentInputSchema = z.object({
+  agent: otherAgentField,
+  /** Why the person is letting it go, in their words; shown on the approval card. */
+  reason: z.string().trim().max(300).optional(),
+  ...autoReviewRetryFields,
+});
 
 export const subagentCreateSchema = z.object({
   label: z

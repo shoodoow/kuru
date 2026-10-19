@@ -64,6 +64,9 @@ describe("foldAged", () => {
       facts: [
         { kind: "project", subject: "Run the Numbers", body: "Renders every night at 2:30.", messageId: slice[0]!.id },
         { kind: "preference", subject: null, body: "Wants short replies.", messageId: slice[0]!.id },
+        { kind: "preference", subject: "Run the Numbers", body: "Style: glass cards with lens flares.", messageId: slice[0]!.id },
+        { kind: "person", subject: "Quanhui Lu", body: "Quanhui Lu is a warm sales lead.", messageId: slice[0]!.id },
+        { kind: "fact", subject: null, body: "The render box has 4 cores.", messageId: slice[0]!.id },
       ],
     });
     await foldAged(db, room.accountId, room.conversationId, 1, 2, opener);
@@ -81,6 +84,10 @@ describe("foldAged", () => {
     const facts = await db.select().from(memories).where(eq(memories.accountId, room.accountId));
     expect(facts.find((fact) => fact.subject === "Run the Numbers")).toMatchObject({ scope: "agent", agentId: room.ownerAgentId });
     expect(facts.find((fact) => fact.body === "Wants short replies.")).toMatchObject({ scope: "user", agentId: null });
+    // Only facts about the person themself are shared; a project's style, a contact or a work fact stays with the agent.
+    for (const body of ["Style: glass cards with lens flares.", "Quanhui Lu is a warm sales lead.", "The render box has 4 cores."]) {
+      expect(facts.find((fact) => fact.body === body)).toMatchObject({ scope: "agent", agentId: room.ownerAgentId });
+    }
   });
 });
 

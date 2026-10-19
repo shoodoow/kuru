@@ -43,7 +43,7 @@ import { publish } from "../../rooms/stream.js";
 import { resolveMention } from "../../rooms/mentions.js";
 import { recentWorkLogs } from "../work-log.js";
 import { accountHome } from "../../linux/linux.js";
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, ne } from "drizzle-orm";
 import { agents, conversations, delegations, members, messages, workerTranscripts } from "../../db/schema.js";
 import { agentFacts, briefFor, correct, readHistory, remember, saveBrief } from "../../memory/memory.js";
 import { embedSummaryBacklog } from "../../memory/recall.js";
@@ -1465,15 +1465,42 @@ async function executeSetBrief(ctx: ToolContext, input: Record<string, unknown>)
   const me = await supportOnly(ctx);
   if ("error" in me) return me;
   const parsed = accountBriefInputSchema.safeParse(input);
-  if (!parsed.success) return { error: "Write the whole brief, between 10 and 4,000 characters." };
+  if (!parsed.success) return { error: "Write the whole brief as a short note about the person, between 10 and 1,500 characters." };
   const copied = copiedContextSections(parsed.data.brief);
   if (copied.length > 0) {
     return {
       error: `The brief repeats parts of your own context (${copied.join(", ")}). Every agent already gets those separately, so a copy shows them twice, and it goes stale. Remove those sections and send the brief again.`,
     };
   }
+  const others = await ctx.store
+    .select({ name: agents.name })
+    .from(agents)
+    .where(and(eq(agents.accountId, ctx.accountId), eq(agents.hidden, false), ne(agents.kind, "support")));
+  const named = agentsNamedIn(parsed.data.brief, others.map((other) => other.name));
+  if (named.length > 0) {
+    return {
+      error: `The brief names agents (${named.join(", ")}). Every agent reads it, so one agent's work there pulls the others into it. Keep the brief about the person only. An agent's area and rules go in its own memory with remember_for_agent. Send the brief again without them.`,
+    };
+  }
   const saved = await saveBrief(ctx.store, ctx.accountId, parsed.data.brief);
   return { saved: true, characters: saved.length, note: "Every agent on this account reads this brief from its next turn." };
+}
+
+/**
+ * Agent names that appear in a brief, matched as whole words with their capital letter.
+ * Why: the brief grew a "Who does what" part and each agent's rules, so every
+ * agent read every other agent's work and lost track of its own role.
+ * Input: the brief text, the account's agent names. Output: the names found.
+ */
+export function agentsNamedIn(brief: string, names: string[]): string[] {
+  const found = new Set<string>();
+  for (const name of names) {
+    const clean = name.trim();
+    if (clean.length < 2) continue;
+    const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}(?=$|[^\\p{L}\\p{N}])`, "u").test(brief)) found.add(clean);
+  }
+  return [...found];
 }
 
 /** Section names every agent's context already has; a brief must not carry its own copy. */

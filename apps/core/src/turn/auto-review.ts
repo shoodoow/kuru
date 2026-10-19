@@ -41,6 +41,9 @@ export function hashToolInput(name: string, input: Record<string, unknown>): str
   const copy: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input)) {
     if (key === "requestApproval" || key === "approvalId") continue;
+    // Free text shown on the card, not part of the action: a model rewords it
+    // on retry, and the approved card then never matched (three cards, no delete).
+    if (key === "reason") continue;
     // Stable order so the same batch delete retries match after approval.
     if (key === "routineIds" && Array.isArray(value)) {
       copy[key] = [...value].map(String).sort();

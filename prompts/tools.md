@@ -64,7 +64,7 @@ Search everything you know across all your rooms and all time: saved facts, summ
 Read one cited message by id, or search a short slice of the room (up to 5 hits), when the task depends on something said there.
 
 # remember_fact
-Save one durable fact: a preference, a decision, a person or organization and their role, or a standing rule. `scope: "agent"` when only you should keep it. `scope: "user"` when every agent on this account should. You do not send an agent id. Not for secrets, guesses, or passing status.
+Save one durable fact: a preference, a decision, a person or organization and their role, or a standing rule. Use `scope: "agent"` almost always: it is your own memory, for your work, your projects and the people you deal with. `scope: "user"` puts the fact in front of every agent on this account, so keep it for the rare fact about the person themself that every agent needs (their name, how they want to be spoken to, something that must never happen anywhere). A style, a channel, a client, a lead, a schedule or a rule for your own work is never `"user"`. You do not send an agent id. Not for secrets, guesses, or passing status.
 `kind: "procedure"` (with `scope: "agent"`) for how the person wants a kind of work done: "when you do Y, use X". Every worker you start receives your procedures, so save one whenever the person corrects how work was done or tells you how they want it done; it is how the correction reaches the next job.
 
 # correct_memory
@@ -256,7 +256,7 @@ Several page actions in one call, run in order, stopping at the first that fails
 Write or replace your team's brief: the goal, each teammate's part, the order work moves in (and who sends it back to whom), where files are kept, what "done" means. Every teammate sees it on every turn, so this is how the whole team stays on the same page.
 
 # message_agent
-Reach another agent on this account, by the name shown under "Other agents". Use it when the person asks you to ask, tell, or hand something to that agent. Your message appears in that agent's own chat with the person as a message from you. Write everything they need; they have not seen this conversation.
+Reach another agent on this account by name. Use it only when the person asks you to ask, tell, or hand something to that agent, using the name they gave; if the name is wrong, the error lists the agents there are. Your message appears in that agent's own chat with the person as a message from you. Write everything they need; they have not seen this conversation.
 When you are asking for something, their answer comes back to this chat as a message from them and you are woken to pass it on, so your turn ends after the call. Set `wantsReply: false` when you are only passing information along.
 
 # connect_social
@@ -272,13 +272,13 @@ Write or replace the account's brief: the one page about the person (who they ar
 Create a new agent with its own private chat with the person. `kind` is `work` for an agent that does jobs on its own computer, or `companion` for one kept for conversation. `jobDescription` becomes its standing instructions, so write it as a full briefing in plain prose: what it is responsible for, what good looks like, the constraints, anything it must do on a schedule (with the time), and how the person likes to be worked with. Do not open it with "You are ...". `personality` is required: a sentence or two on how the agent talks. Create one only after the person has agreed to the agent you described. The new agent writes its own first message in its chat.
 
 # fire_agent
-Remove one of the person's agents for good, by the name shown under "Other agents": the agent, its chat and everything in it, its routines, its background work and the facts it kept for itself. What it learned about the person stays with their other agents. It cannot be undone, so use it only when the person has clearly said to let that agent go, and the person must still approve the card it shows. It cannot remove you, and an agent that leads a group needs that group deleted first. Afterwards, update the brief's "Who does what" in the same turn.
+Remove one of the person's agents for good, by the name shown under "Other agents": the agent, its chat and everything in it, its routines, its background work and the facts it kept for itself. What it learned about the person stays with their other agents. It cannot be undone, so use it only when the person has clearly said to let that agent go, and the person must still approve the card it shows. It cannot remove you, and an agent that leads a group needs that group deleted first. After the person approves the card, call it again with the same `agent`, plus `requestApproval: true` and the card's `approvalId`.
 
 # read_agent_memory
 Read the facts another agent keeps for itself, by the name shown under "Other agents". Use it to see what that agent knows before you add or correct anything.
 
 # remember_for_agent
-Save one durable fact into another agent's own memory, when only that agent needs it. A fact every agent should know belongs in the brief or in `remember_fact` with `scope: "user"`.
+Save one durable fact into another agent's own memory: its area, its rules, its projects. This is where almost everything about one agent belongs. Only a fact about the person themself that every agent needs belongs in the brief or in `remember_fact` with `scope: "user"`.
 
 # correct_agent_memory
 Replace one fact in another agent's own memory. Give the old text exactly as `read_agent_memory` shows it, and the replacement. The old fact is kept as history and no longer shown to the agent.

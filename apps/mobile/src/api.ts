@@ -91,6 +91,32 @@ export type ToolApproval = {
   createdAt?: string;
 };
 
+/** One fact on an agent's Memory page. "shared" facts are read by every agent on the account. */
+export type AgentMemoryFact = {
+  id: string;
+  scope: "agent" | "shared";
+  kind: string;
+  subject: string | null;
+  body: string;
+  tentative: boolean;
+  createdAt: string;
+};
+
+/** One background job on an agent's "Running now" card. */
+export type AgentRunningJob = {
+  workerId: string;
+  title: string;
+  source: "routine" | "job";
+  status: "running" | "lost" | "done" | "failed";
+  progress: string;
+  steps: number;
+  startedAt: string;
+  lastActivityAt: string;
+  result?: string;
+};
+
+export type AgentRunningWork = { replying: boolean; running: AgentRunningJob[]; recent: AgentRunningJob[] };
+
 /** How an agent is doing, measured by the server from what it carries and how its day went. */
 export type AgentHealth = {
   status: "healthy" | "watch" | "needs attention";
@@ -408,6 +434,11 @@ export type CoreClient = {
   /** Reflects now and saves what passes the checks; it takes about half a minute. */
   reflectNow: (accountId: string, agentId: string) => Promise<AgentReflection & { health: AgentHealth }>;
   undoReflection: (accountId: string, agentId: string, reflectionId: string) => Promise<{ undone: boolean }>;
+  agentMemories: (accountId: string, agentId: string) => Promise<AgentMemoryFact[]>;
+  /** Removes one fact for good, with the older versions it replaced. */
+  forgetMemory: (accountId: string, agentId: string, memoryId: string) => Promise<{ removed: number }>;
+  agentRunning: (accountId: string, agentId: string) => Promise<AgentRunningWork>;
+  stopAgentJob: (accountId: string, agentId: string, workerId: string) => Promise<{ stopped: boolean }>;
   removeAllowance: (accountId: string, allowanceId: string) => Promise<ToolAllowance[]>;
   denyTool: (accountId: string, approvalId: string) => Promise<ToolApproval[]>;
   saveProfile: (accountId: string, agentId: string, profile: AgentProfile) => Promise<RosterAgent>;
@@ -532,6 +563,12 @@ function buildCore(baseUrl: string, fetchImpl: typeof fetch): CoreClient {
       readJson(fetchImpl, `${baseUrl}/agents/${agentId}/reflect?accountId=${accountId}`, { method: "POST", body: JSON.stringify({}) }),
     undoReflection: (accountId, agentId, reflectionId) =>
       readJson(fetchImpl, `${baseUrl}/agents/${agentId}/reflections/${reflectionId}/undo?accountId=${accountId}`, { method: "POST" }),
+    agentMemories: (accountId, agentId) => readJson(fetchImpl, `${baseUrl}/agents/${agentId}/memories?accountId=${accountId}`),
+    forgetMemory: (accountId, agentId, memoryId) =>
+      readJson(fetchImpl, `${baseUrl}/agents/${agentId}/memories/${memoryId}?accountId=${accountId}`, { method: "DELETE" }),
+    agentRunning: (accountId, agentId) => readJson(fetchImpl, `${baseUrl}/agents/${agentId}/running?accountId=${accountId}`),
+    stopAgentJob: (accountId, agentId, workerId) =>
+      readJson(fetchImpl, `${baseUrl}/agents/${agentId}/workers/${workerId}/stop?accountId=${accountId}`, { method: "POST" }),
     removeAllowance: (accountId, allowanceId) =>
       readJson<ToolAllowance[]>(fetchImpl, `${baseUrl}/accounts/${accountId}/tool-allowances/${allowanceId}`, { method: "DELETE" }),
     denyTool: (accountId, approvalId) => decideTool(baseUrl, accountId, approvalId, "deny", fetchImpl),

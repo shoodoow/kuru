@@ -16,7 +16,9 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { AgentHealthCard } from "./AgentHealthCard";
-import type { AgentHealth, AgentReflection, MessageBlock, ProviderSetting, RosterAgent, Routine, RoutineRun } from "../api";
+import { AgentMemoryCard } from "./AgentMemoryCard";
+import { AgentRunningCard } from "./AgentRunningCard";
+import type { AgentHealth, AgentMemoryFact, AgentReflection, AgentRunningWork, MessageBlock, ProviderSetting, RosterAgent, Routine, RoutineRun } from "../api";
 import { formatLastRun, formatNextRunRelative, formatRunHistoryWhen, formatSchedule, routineTitle } from "../api";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import Feather from "@expo/vector-icons/Feather";
@@ -82,9 +84,17 @@ export function BotInfoScreen({
   messages,
   onFetchBlob,
   health,
+  work,
 }: {
   /** Loaders for the Health card; left out, the card is not shown. */
   health?: { load: () => Promise<{ health: AgentHealth; reflections: AgentReflection[] }>; fix: () => Promise<unknown>; undo: (id: string) => Promise<unknown> };
+  /** Loaders for the Running now and Memory cards; left out, the cards are not shown. */
+  work?: {
+    running: () => Promise<AgentRunningWork>;
+    stop: (workerId: string) => Promise<unknown>;
+    memories: () => Promise<AgentMemoryFact[]>;
+    forget: (memoryId: string) => Promise<unknown>;
+  };
   profile: RosterAgent;
   providers: ProviderSetting[];
   routines: Routine[];
@@ -232,6 +242,7 @@ export function BotInfoScreen({
       messages={messages}
       onFetchBlob={onFetchBlob}
       health={health}
+      work={work}
     />
   );
 }
@@ -264,8 +275,16 @@ function InfoPage({
   messages,
   onFetchBlob,
   health,
+  work,
 }: {
   health?: { load: () => Promise<{ health: AgentHealth; reflections: AgentReflection[] }>; fix: () => Promise<unknown>; undo: (id: string) => Promise<unknown> };
+  /** Loaders for the Running now and Memory cards; left out, the cards are not shown. */
+  work?: {
+    running: () => Promise<AgentRunningWork>;
+    stop: (workerId: string) => Promise<unknown>;
+    memories: () => Promise<AgentMemoryFact[]>;
+    forget: (memoryId: string) => Promise<unknown>;
+  };
   profile: RosterAgent;
   providers: ProviderSetting[];
   routines: Routine[];
@@ -507,6 +526,8 @@ function InfoPage({
             </View>
             <Text style={styles.caption}>Shape, color, and material tabs — or the image icon for a photo</Text>
             {health ? <AgentHealthCard key={profile.id} onLoad={health.load} onFix={health.fix} onUndo={health.undo} /> : null}
+            {work ? <AgentRunningCard key={`run-${profile.id}`} onLoad={work.running} onStop={work.stop} /> : null}
+            {work ? <AgentMemoryCard key={`mem-${profile.id}`} onLoad={work.memories} onForget={work.forget} /> : null}
             <Pressable accessibilityRole="button" onPress={onInstructions} style={styles.rowCard}>
               <IconDoc />
               <Text style={styles.rowLabel}>Instructions</Text>
