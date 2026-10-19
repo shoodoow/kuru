@@ -9,6 +9,7 @@ import { agents, user } from "../db/schema.js";
 import { logger } from "../log/logger.js";
 import { ACCOUNT_NETWORK, applyFirewall, applyHostFirewall, ensureAccountNetwork } from "./firewall.js";
 import { inGb, largestGrant, planMemory, type MemoryPlan } from "./memory-plan.js";
+import { reapCheck } from "./zombies.js";
 
 const image = "kuru-linux:1";
 const GB = 1024 * 1024 * 1024;
@@ -166,8 +167,9 @@ export async function createLinux(accountId: string, emailHint?: string): Promis
   }
   const existing = docker.getContainer(name);
   try {
-    const info = await existing.inspect();
+    let info = await existing.inspect();
     assertOwnContainer(accountId, email, name, info.Config?.Labels);
+    if (await reapIfFull(existing, accountId, info)) info = await existing.inspect();
     if (!info.State.Running) {
       await existing.start();
     }
@@ -739,6 +741,34 @@ const RESTART_POLICY = "unless-stopped";
 async function ensureRestart(container: Dockerode.Container, current?: string): Promise<void> {
   if (current === RESTART_POLICY) return;
   await container.update({ RestartPolicy: { Name: RESTART_POLICY } }).catch(() => undefined);
+}
+
+const REAP_CHECK_MS = 60_000;
+const reapCheckedAt = new Map<string, number>();
+
+/**
+ * Restarts an older computer that has no init process once dead processes fill it.
+ * Why: see zombies.ts. Checked at most once a minute per computer, from outside it.
+ * Output: true when the computer was restarted.
+ */
+async function reapIfFull(container: Dockerode.Container, accountId: string, info: Dockerode.ContainerInspectInfo): Promise<boolean> {
+  if (info.HostConfig?.Init || !info.State.Running) return false;
+  const now = Date.now();
+  if (now - (reapCheckedAt.get(accountId) ?? 0) < REAP_CHECK_MS) return false;
+  reapCheckedAt.set(accountId, now);
+  const [top, stats] = await Promise.all([
+    container.top({ ps_args: "-eo pid,comm" }).catch(() => null),
+    container.stats({ stream: false }).catch(() => null),
+  ]);
+  const inUse = stats?.pids_stats?.current;
+  if (!top || !inUse) return false;
+  const processes: string[][] = top.Processes ?? [];
+  const live = processes.map((row) => row[1] ?? "");
+  const check = reapCheck(live, inUse, info.HostConfig?.PidsLimit || 8192);
+  if (!check.restart) return false;
+  logger.warn({ accountId }, `Restarting the account computer: ${check.why}. Files are kept.`);
+  await container.restart();
+  return true;
 }
 
 const ACCOUNT_CPU_SHARES = 512;
