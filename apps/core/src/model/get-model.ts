@@ -19,7 +19,15 @@ export function isOpenRouter(baseUrl?: string | null): boolean {
 }
 
 /**
- * A fetch that asks OpenRouter for the cheapest provider of the model.
+ * Slowest generation speed (tokens per second, median) a provider should have to be picked first.
+ * Why: the cheapest provider of DeepSeek V4.1 Flash wrote 20 tokens a second;
+ * one worker step of hidden thinking then took 21 to 39 minutes. Others write
+ * 60 to 105. Slower providers stay as a last fallback, so nothing is blocked.
+ */
+export const MIN_PROVIDER_TOKENS_PER_SECOND = 50;
+
+/**
+ * A fetch that asks OpenRouter for the cheapest provider of the model that is fast enough.
  * Why: by default OpenRouter spreads requests over every provider of a model,
  * and their prices differ up to 15 times (DeepSeek V4.1 Flash: $0.04 to $0.60
  * per million input tokens). Our calls went to a provider charging 2.6 times
@@ -36,7 +44,7 @@ export function cheapestProviderFetch(fetchImpl: typeof fetch = fetch): typeof f
         const body = JSON.parse(init.body) as Record<string, unknown>;
         const model = typeof body.model === "string" ? body.model : "";
         if (body && typeof body === "object" && !("provider" in body) && !model.includes(":")) {
-          return fetchImpl(input, { ...init, body: JSON.stringify({ ...body, provider: { sort: "price" } }) });
+          return fetchImpl(input, { ...init, body: JSON.stringify({ ...body, provider: { sort: "price", preferred_min_throughput: MIN_PROVIDER_TOKENS_PER_SECOND } }) });
         }
       } catch {
         // Not JSON: send it as it is.

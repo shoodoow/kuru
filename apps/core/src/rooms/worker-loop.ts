@@ -38,6 +38,17 @@ export const WORKER_OUTPUT_TOKENS = 24_000;
 /** Never ask for less than this, even when credit is short: below it most steps cannot finish. */
 export const MIN_OUTPUT_TOKENS = 4_096;
 
+/**
+ * Why one step stopped at the output limit, or null when it did not.
+ * "thinking": it wrote no text and called no tool, so the whole answer was hidden
+ * thinking; a larger limit only makes it think longer. "output": a long answer
+ * or file body was cut off mid-way, which a larger limit or parts can fix.
+ */
+export function cutKind(step: { finishReason?: string; text?: string; toolCalls?: unknown[] }): "thinking" | "output" | null {
+  if (step.finishReason !== "length") return null;
+  return (step.toolCalls?.length ?? 0) === 0 && !step.text?.trim() ? "thinking" : "output";
+}
+
 /** The output limit for a model, from its own maximum when known. */
 export function workerOutputCap(modelMax: number | null | undefined): number {
   return modelMax && modelMax > 0 ? Math.max(Math.min(modelMax, WORKER_OUTPUT_TOKENS), Math.min(modelMax, MIN_OUTPUT_TOKENS)) : WORKER_OUTPUT_TOKENS;

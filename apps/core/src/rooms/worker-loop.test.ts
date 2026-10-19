@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage } from "ai";
-import { collapseOldSteps, compactTranscript, compactionThreshold, dropStaleViews, isLookOnlyStep, isReadOnlyShell, resumableTranscript, transcriptForStorage, StuckWatch, callTargets, stepFailed, splitForSummary, withStateSummary } from "./worker-loop.js";
+import { collapseOldSteps, compactTranscript, compactionThreshold, dropStaleViews, isLookOnlyStep, isReadOnlyShell, resumableTranscript, transcriptForStorage, StuckWatch, callTargets, stepFailed, splitForSummary, withStateSummary, cutKind } from "./worker-loop.js";
 
 const call = (id: string, toolName: string, input: unknown): ModelMessage =>
   ({ role: "assistant", content: [{ type: "tool-call", toolCallId: id, toolName, input }] }) as ModelMessage;
@@ -295,6 +295,17 @@ describe("StuckWatch", () => {
     expect(stepFailed([covered])).toBe(true);
     expect(stepFailed([ok])).toBe(false);
     expect(stepFailed([])).toBe(false);
+  });
+});
+
+describe("cutKind", () => {
+  it("tells a step that only thought from one cut off mid-answer", () => {
+    expect(cutKind({ finishReason: "length", text: "", toolCalls: [] })).toBe("thinking");
+    expect(cutKind({ finishReason: "length", text: "  \n" })).toBe("thinking");
+    expect(cutKind({ finishReason: "length", text: "Writing the file now", toolCalls: [] })).toBe("output");
+    expect(cutKind({ finishReason: "length", text: "", toolCalls: [{}] })).toBe("output");
+    expect(cutKind({ finishReason: "tool-calls", text: "", toolCalls: [{}] })).toBeNull();
+    expect(cutKind({ finishReason: "stop", text: "done" })).toBeNull();
   });
 });
 

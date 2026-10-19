@@ -194,6 +194,9 @@ You have about {{steps}} steps left in this run. Finish the piece you are on, ch
 # no-vision
 Your model cannot see pictures; the provider refused the last request because it carried one. Nothing you did is lost. From now on, when you open a picture or take a screenshot, you get a written description of it instead, or a note on how to check it another way. Carry on from where you were.
 
+# thinking-cut
+Your last answer spent all {{tokens}} tokens on thinking and did nothing: no file, no command. That thinking is not kept, so planning everything in your head again will end the same way. Act now in small pieces: write the plan you have so far to a file (a few lines per part, `write` then `write` with `append: true`), or make the single next tool call. Plan the next part only when you reach it.
+
 # output-cut
 Your last answer was cut off at the output limit ({{tokens}} tokens), so the tool call in it did nothing. Do not send the same thing again in one piece. Write long files in parts: `write` the first few hundred lines, then add the rest with `write` and `append: true`, one part per call. Keep what you say between calls short.
 

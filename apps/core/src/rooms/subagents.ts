@@ -66,6 +66,7 @@ import {
   transcriptForStorage,
   splitForSummary,
   withStateSummary,
+  cutKind,
 } from "./worker-loop.js";
 import { RoomCapacityError } from "./rooms.js";
 import { logger, noted } from "../log/logger.js";
@@ -1513,6 +1514,8 @@ export async function runWorker(
     let warnedWrapUp = false;
     let cutOff = false;
     let cutOffs = 0;
+    /** The step that hit the limit wrote no text and called no tool: it only thought. */
+    let thoughtOnly = false;
     /** Set when this run's token budget or the account's daily limit is spent: the next step is the report. */
     let spendStop: string | null = null;
     let alarmed = false;
@@ -1612,7 +1615,11 @@ export async function runWorker(
           onStepEnd: async (step) => {
             totalSteps += 1;
             segmentCount += 1;
-            if (step.finishReason === "length") cutOff = true;
+            const cut = cutKind(step);
+            if (cut) {
+              cutOff = true;
+              thoughtOnly = cut === "thinking";
+            }
             const currentCalls = (step.toolCalls ?? []).map((call) => ({
               name: (call as { toolName?: string }).toolName ?? "",
               input: (call as { input?: unknown }).input ?? (call as { args?: unknown }).args,
@@ -1738,6 +1745,15 @@ export async function runWorker(
         if (closing) {
           finalText = result.text;
           break;
+        }
+        if (cutOff && thoughtOnly) {
+          // The whole answer went on hidden thinking and nothing was done. A larger
+          // limit only makes it think longer: one showreel job spent 20 to 39 minutes
+          // per step this way and produced nothing. Same limit, told to act in parts.
+          cutOff = false;
+          thoughtOnly = false;
+          say(prompt("worker-rules", "thinking-cut", { tokens: outputCap }));
+          continue;
         }
         if (cutOff) {
           // The answer hit the output limit mid-way, usually a whole file in one call.

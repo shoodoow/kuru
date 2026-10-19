@@ -24,8 +24,8 @@ describe("OpenRouter routing", () => {
     return JSON.parse(seen) as Record<string, unknown>;
   };
 
-  it("asks for the cheapest provider", async () => {
-    expect((await sent({ model: "deepseek/deepseek-v4.1-flash", input: "hi" })).provider).toEqual({ sort: "price" });
+  it("asks for the cheapest provider that is fast enough", async () => {
+    expect((await sent({ model: "deepseek/deepseek-v4.1-flash", input: "hi" })).provider).toEqual({ sort: "price", preferred_min_throughput: 50 });
   });
 
   it("leaves a request alone that routes itself", async () => {
