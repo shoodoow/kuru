@@ -232,7 +232,8 @@ describe("stale views of a page", () => {
     ({ role: "tool", content: [{ type: "tool-result", toolCallId: id, toolName: name, output: { type: "text", value: text } }] }) as ModelMessage;
   const page = (title: string): string => `✓ ${title}\n  https://shop.example/${title}\n${"- link \"Item\" [ref=e1]\n".repeat(300)}`;
 
-  it("keeps the newest views whole and leaves only the address of older ones", () => {
+  it("keeps the newest full page with the changes after it, and drops older pages", () => {
+    const change = (lines: string) => `Changed since your last snapshot; the rest of the page is as you saw it.\nNew or changed:\n${lines}`;
     const talk: ModelMessage[] = [
       { role: "user", content: "Buy the blue one." },
       view("browser_navigate", page("home"), "1"),
@@ -240,21 +241,32 @@ describe("stale views of a page", () => {
       view("browser_snapshot", page("list"), "3"),
       view("browser_click", "✗ Unknown ref: e9", "4"),
       view("browser_snapshot", page("item"), "5"),
-      view("browser_read", page("cart"), "6"),
+      view("browser_snapshot", change("- button \"Add\" [ref=e7]\n".repeat(40)), "6"),
+      view("browser_snapshot", change("- dialog \"Cart\" [ref=e8]\n".repeat(40)), "7"),
+      view("browser_snapshot", "Nothing changed on the page since your last snapshot; its refs still hold.", "8"),
     ];
     const out = dropStaleViews(talk);
     const text = (index: number): string => ((out[index] as { content: { output: { value: string } }[] }).content[0]!.output.value);
-    // The two latest views are untouched.
-    expect(text(6)).toBe(page("cart"));
+    // The newest full tree and every change after it are the page as it is now.
     expect(text(5)).toBe(page("item"));
-    // Older ones keep where they were and lose the page.
+    expect(text(6)).toContain("Add");
+    expect(text(7)).toContain("Cart");
+    // Older pages keep only where they were.
     expect(text(3)).toContain("https://shop.example/list");
     expect(text(3)).toContain("An earlier view of the page was here");
     expect(text(1).length).toBeLessThan(500);
-    // Command output and short answers are not views.
+    // Command output and short answers are not views of the page.
     expect(text(2)).toHaveLength(5000);
     expect(text(4)).toBe("✗ Unknown ref: e9");
     expect(out).toHaveLength(talk.length);
+  });
+
+  it("keeps only the newest picture", () => {
+    const shot = (id: string): ModelMessage => ({ role: "tool", content: [{ type: "tool-result", toolCallId: id, toolName: "browser_screenshot", output: { type: "content", value: [{ type: "text", text: "Screenshot." }, { type: "media", data: "AAAA", mediaType: "image/png" }] } }] }) as ModelMessage;
+    const out = dropStaleViews([{ role: "user", content: "Look." }, shot("1"), view("browser_snapshot", page("a"), "2"), shot("3")]);
+    expect(JSON.stringify(out[3])).toContain("AAAA");
+    expect(JSON.stringify(out[1])).not.toContain("AAAA");
+    expect(JSON.stringify(out[2])).toContain("https://shop.example/a");
   });
 
 });

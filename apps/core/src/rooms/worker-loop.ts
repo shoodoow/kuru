@@ -375,17 +375,28 @@ export function collapseOldSteps(messages: ModelMessage[], keepRecent = 16): Mod
 const VIEW_TOOLS = new Set(["browser_navigate", "browser_snapshot", "browser_read", "browser_screenshot", "computer_screenshot"]);
 const VIEW_GONE = "[An earlier view of the page was here. The page has moved on since; take a new browser_snapshot to see it as it is now.]";
 
+/** A snapshot answer that lists only what changed, or says nothing did: it builds on the full tree before it. */
+function isPageChange(text: string): boolean {
+  return text.startsWith("Changed since your last snapshot") || text.startsWith("Nothing changed on the page");
+}
+
 /**
- * Drops all but the newest views of a page or the screen.
+ * Drops views of a page or the screen that the newest ones have replaced.
  * Why: every step resends everything before it, and one snapshot of a page is
  * thousands of tokens. A job that clicks through a site carried every page it
  * had ever seen, at every later step: a short form cost 200,000 input tokens.
- * An old view is also wrong, since the page changed with the next action.
- * Input: the conversation and how many of the latest views to keep whole.
- * Output: a new array; message count and order are unchanged, so calls stay paired with results.
+ * Kept: the newest full page tree with every change-only snapshot after it
+ * (together they are the page as it is now), the newest page text read, and the
+ * newest picture. Keeping only the two newest views used to drop the tree that
+ * the change-only answers build on, so workers asked for the whole page again:
+ * 19 of 54 page views in one job were full trees asked for that way.
+ * Input: the conversation. Output: a new array; message count and order are
+ * unchanged, so calls stay paired with results.
  */
-export function dropStaleViews(messages: ModelMessage[], keep = 2): ModelMessage[] {
-  let seen = 0;
+export function dropStaleViews(messages: ModelMessage[]): ModelMessage[] {
+  let haveTree = false;
+  let haveRead = false;
+  let havePicture = false;
   const out = [...messages];
   for (let index = out.length - 1; index >= 0; index -= 1) {
     const message = out[index]!;
@@ -395,10 +406,25 @@ export function dropStaleViews(messages: ModelMessage[], keep = 2): ModelMessage
     const next = [...(content as Part[])];
     for (let at = next.length - 1; at >= 0; at -= 1) {
       const part = next[at]!;
-      if (part.type !== "tool-result" || !VIEW_TOOLS.has(String(part.toolName ?? ""))) continue;
-      seen += 1;
-      if (seen <= keep) continue;
+      const name = String(part.toolName ?? "");
+      if (part.type !== "tool-result" || !VIEW_TOOLS.has(name)) continue;
       const { text, hadImage } = outputText(part.output);
+      if (hadImage || name.endsWith("_screenshot")) {
+        if (!havePicture) {
+          havePicture = true;
+          continue;
+        }
+      } else if (name === "browser_read") {
+        if (!haveRead) {
+          haveRead = true;
+          continue;
+        }
+      } else if (!haveTree) {
+        // Change-only answers stay until the full tree they build on is reached; that tree stays too.
+        // A short answer (an error, a click result) is not the tree.
+        if (!isPageChange(text) && text.length > 400) haveTree = true;
+        continue;
+      }
       // A short answer (an error, "the browser did not start") costs nothing to keep and may matter.
       if (!hadImage && text.length <= 400) continue;
       // The address and title, on the first lines, say where the job has been.
