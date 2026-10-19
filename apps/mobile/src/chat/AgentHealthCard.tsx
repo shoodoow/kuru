@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import type { AgentHealth, AgentReflection } from "../api";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
@@ -31,6 +31,8 @@ function editLine(edit: AgentReflection["edits"][number]): string {
   return `${what}${edit.body ? `: ${edit.body}` : ""}${edit.tentative ? " (not yet confirmed)" : ""}`;
 }
 
+const inFlightFixes = new Set<string>();
+
 /**
  * How the agent is doing, and its nightly reflections.
  * Why: an agent's memory now changes on its own every night, so the person
@@ -40,35 +42,67 @@ function editLine(edit: AgentReflection["edits"][number]): string {
  * Input: loaders for the health, a reflection now, and an undo.
  */
 export function AgentHealthCard({
+  agentId,
   onLoad,
   onFix,
   onUndo,
 }: {
-  onLoad: () => Promise<{ health: AgentHealth; reflections: AgentReflection[] }>;
+  agentId?: string;
+  onLoad: () => Promise<{ health: AgentHealth; reflections: AgentReflection[]; reflecting?: boolean }>;
   onFix: () => Promise<unknown>;
   onUndo: (reflectionId: string) => Promise<unknown>;
 }) {
-  const [data, setData] = useState<{ health: AgentHealth; reflections: AgentReflection[] } | null>(null);
+  const [data, setData] = useState<{ health: AgentHealth; reflections: AgentReflection[]; reflecting?: boolean } | null>(null);
   const [busy, setBusy] = useState<"fix" | "undo" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  // What the last "Reflect now" did, in the server's words ("Nothing new…", "Learned 2 rules…").
+  const [notice, setNotice] = useState<string | null>(null);
+  // The screen passes a new loader on every render; keeping the latest in a ref
+  // stops each render from reloading, which reloaded again in a loop.
+  const loader = useRef(onLoad);
+  loader.current = onLoad;
+
+  const isFixing = busy === "fix" || (agentId ? inFlightFixes.has(agentId) : false) || Boolean(data?.reflecting);
 
   const load = useCallback(() => {
-    void onLoad()
-      .then(setData)
+    void loader.current()
+      .then((res) => {
+        setData(res);
+        if (!res.reflecting && agentId) {
+          inFlightFixes.delete(agentId);
+        }
+      })
       .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Health did not load."));
-    // The loader is recreated with the screen; loading once per mount is enough.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [agentId]);
+
   useEffect(load, [load]);
+
+  // Poll health while a reflection is in progress so the card auto-refreshes when done
+  useEffect(() => {
+    if (!isFixing) return;
+    const timer = setInterval(() => {
+      load();
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [isFixing, load]);
 
   const act = (kind: "fix" | "undo", action: () => Promise<unknown>) => {
     setBusy(kind);
+    if (kind === "fix" && agentId) inFlightFixes.add(agentId);
     setError(null);
+    setNotice(null);
     void action()
-      .then(() => load())
+      .then((result) => {
+        const note = (result as { note?: unknown } | null)?.note;
+        if (kind === "fix" && typeof note === "string" && note) setNotice(note);
+        load();
+      })
       .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "That did not work."))
-      .finally(() => setBusy(null));
+      .finally(() => {
+        setBusy(null);
+        if (kind === "fix" && agentId) inFlightFixes.delete(agentId);
+      });
   };
 
   if (!data) {
@@ -131,16 +165,17 @@ export function AgentHealthCard({
       ) : (
         <Text style={styles.note}>It has not reflected yet. Its first reflection runs after it has worked with you.</Text>
       )}
+      {notice ? <Text style={styles.note}>{notice}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={styles.actions}>
         <Pressable
           accessibilityRole="button"
           accessibilityHint="Reflects on its recent work now and saves the changes that pass the checks."
-          disabled={busy !== null}
+          disabled={isFixing || busy !== null}
           onPress={() => act("fix", onFix)}
-          style={({ pressed }) => [styles.primary, pressed || busy ? styles.pressed : null]}
+          style={({ pressed }) => [styles.primary, pressed || isFixing || busy ? styles.pressed : null]}
         >
-          <Text style={styles.primaryText}>{busy === "fix" ? "Reflecting…" : health.status === "healthy" ? "Reflect now" : "Fix now"}</Text>
+          <Text style={styles.primaryText}>{isFixing ? "Reflecting…" : health.status === "healthy" ? "Reflect now" : "Fix now"}</Text>
         </Pressable>
         {last?.status === "applied" && kept.length > 0 ? (
           <Pressable

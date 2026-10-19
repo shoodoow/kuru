@@ -41,6 +41,8 @@ import { PrimaryButton } from "../ui/PrimaryButton";
 import { collectShares, type SharedFile } from "./shares";
 import { MediaThumb } from "./media";
 
+import { ColorPickerModal } from "../ui/ColorPickerModal";
+
 type Page = "info" | "instructions" | "provider" | "routine";
 type Tab = "info" | "links" | "media" | "files";
 type CharacterTab = "shape" | "color" | "material";
@@ -304,6 +306,7 @@ function InfoPage({
   onFetchBlob?: (conversationId: string, messageId: string, index: number) => Promise<{ url?: string; previewUrl?: string }>;
 }) {
   const [characterTab, setCharacterTab] = useState<CharacterTab>("shape");
+  const [pickerOpen, setPickerOpen] = useState(false);
   useEffect(() => {
     warmMarkThumbs([mark], { prioritize: true });
   }, [mark.shape, mark.color, mark.material, mark.style, mark.gender]);
@@ -460,28 +463,69 @@ function InfoPage({
                 </View>
               ) : null}
               {characterTab === "color" ? (
-                <View style={styles.colorGrid}>
-                  {MARK_COLORS.map((color) => (
+                <View style={styles.colorSection}>
+                  <Text style={styles.colorSubheading}>Presets</Text>
+                  <View style={styles.colorGrid}>
+                    {MARK_COLORS.map((color) => {
+                      const selected = mark.color.toLowerCase() === color.toLowerCase();
+                      return (
+                        <Pressable
+                          key={color}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Mark color ${color}`}
+                          accessibilityState={{ selected }}
+                          onPress={() => onPickMark({ ...mark, color })}
+                          style={styles.colorCell}
+                          disabled={Boolean(profile.avatarUrl)}
+                        >
+                          <View
+                            style={[
+                              styles.colorRing,
+                              selected && !profile.avatarUrl ? styles.ringOn : null,
+                              profile.avatarUrl ? styles.colorDim : null,
+                            ]}
+                          >
+                            <View style={[styles.dot, { backgroundColor: color }]} />
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  <Text style={styles.colorSubheading}>Custom Hex</Text>
+                  <View style={styles.hexInputRow}>
                     <Pressable
-                      key={color}
                       accessibilityRole="button"
-                      accessibilityLabel={`Mark color ${color}`}
-                      accessibilityState={{ selected: mark.color === color }}
-                      onPress={() => onPickMark({ ...mark, color })}
-                      style={styles.colorCell}
+                      accessibilityLabel="Open color picker"
+                      onPress={() => setPickerOpen(true)}
                       disabled={Boolean(profile.avatarUrl)}
-                    >
-                      <View
-                        style={[
-                          styles.colorRing,
-                          mark.color === color && !profile.avatarUrl ? styles.ringOn : null,
-                          profile.avatarUrl ? styles.colorDim : null,
-                        ]}
-                      >
-                        <View style={[styles.dot, { backgroundColor: color }]} />
-                      </View>
-                    </Pressable>
-                  ))}
+                      style={({ pressed }) => [
+                        styles.hexPreviewDot,
+                        { backgroundColor: mark.color },
+                        profile.avatarUrl ? styles.colorDim : null,
+                        pressed ? { opacity: 0.7 } : null,
+                      ]}
+                    />
+                    <View style={styles.hexInputWrap}>
+                      <Text style={styles.hexHash}>#</Text>
+                      <TextInput
+                        value={mark.color.replace(/^#/, "").toUpperCase()}
+                        onChangeText={(hex) => {
+                          const cleaned = hex.replace(/[^0-9A-Fa-f]/g, "").slice(0, 6);
+                          if (cleaned.length === 6 || cleaned.length === 3) {
+                            onPickMark({ ...mark, color: `#${cleaned.toUpperCase()}` });
+                          }
+                        }}
+                        placeholder="HEX CODE"
+                        placeholderTextColor={colors.muted}
+                        autoCapitalize="characters"
+                        autoCorrect={false}
+                        maxLength={6}
+                        style={styles.hexInput}
+                        editable={!profile.avatarUrl}
+                      />
+                    </View>
+                  </View>
                 </View>
               ) : null}
               {characterTab === "material" ? (
@@ -525,14 +569,20 @@ function InfoPage({
               </Pressable>
             </View>
             <Text style={styles.caption}>Shape, color, and material tabs — or the image icon for a photo</Text>
-            {health ? <AgentHealthCard key={profile.id} onLoad={health.load} onFix={health.fix} onUndo={health.undo} /> : null}
-            {work ? <AgentRunningCard key={`run-${profile.id}`} onLoad={work.running} onStop={work.stop} /> : null}
-            {work ? <AgentMemoryCard key={`mem-${profile.id}`} onLoad={work.memories} onForget={work.forget} /> : null}
+            <ColorPickerModal
+              visible={pickerOpen}
+              color={mark.color}
+              onColorChange={(hex) => onPickMark({ ...mark, color: hex })}
+              onClose={() => setPickerOpen(false)}
+            />
             <Pressable accessibilityRole="button" onPress={onInstructions} style={styles.rowCard}>
               <IconDoc />
               <Text style={styles.rowLabel}>Instructions</Text>
               <IconChevron />
             </Pressable>
+            {health ? <AgentHealthCard key={profile.id} agentId={profile.id} onLoad={health.load} onFix={health.fix} onUndo={health.undo} /> : null}
+            {work ? <AgentRunningCard key={`run-${profile.id}`} onLoad={work.running} onStop={work.stop} /> : null}
+            {work ? <AgentMemoryCard key={`mem-${profile.id}`} onLoad={work.memories} onForget={work.forget} /> : null}
             <Text style={styles.section}>Routines</Text>
             <View style={styles.group}>
               {routines.length === 0 ? (
@@ -1068,6 +1118,42 @@ function createStyles(colors: ColorPalette) {
   photoRing: { backgroundColor: colors.control, overflow: "hidden" },
   photoThumb: { width: 68, height: 68, borderRadius: 34 },
   ringOn: { borderColor: "#636366" },
+  colorSection: { gap: 6 },
+  colorSubheading: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginTop: 6,
+    marginHorizontal: 4,
+  },
+  hexInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 4,
+    marginHorizontal: 4,
+    marginBottom: 6,
+  },
+  hexPreviewDot: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderColor: colors.line,
+  },
+  hexInputWrap: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.control,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 40,
+  },
+  hexHash: { color: colors.muted, fontSize: 16, fontWeight: "600", marginRight: 4 },
+  hexInput: { flex: 1, color: colors.text, fontSize: 15, fontWeight: "600", letterSpacing: 1 },
   colorGrid: { flexDirection: "row", flexWrap: "wrap", marginTop: 4 },
   colorCell: { width: "20%", alignItems: "center", paddingVertical: 5 },
   colorRing: {

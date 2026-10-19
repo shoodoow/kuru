@@ -50,7 +50,8 @@ export function agentsRoutes(ctx: AppContext, guard: Guard): Router {
     }
     activeReflections.add(key);
     try {
-      const result = await reflectAgent(ctx.db, accountId, agentId, { dryRun: (req.body ?? {}).dryRun === true });
+      // Asked for by the person: read at least the last 3 days, not only what came after the last run.
+      const result = await reflectAgent(ctx.db, accountId, agentId, { dryRun: (req.body ?? {}).dryRun === true, lookBackMs: 3 * 24 * 60 * 60 * 1000 });
       res.json(result);
     } catch (error) {
       res.status(502).json({ error: error instanceof Error ? `The reflection could not run: ${error.message.slice(0, 200)}` : "The reflection could not run." });

@@ -1,34 +1,34 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { AgentRunningJob, AgentRunningWork } from "../api";
-import { darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
+import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
+import { Sheet } from "../ui/Sheet";
+import { CircleButton } from "../ui/CircleButton";
+import { IconChevron, IconClose } from "../ui/icons";
+import Feather from "@expo/vector-icons/Feather";
 
-/** How often the card refreshes while it is on screen. */
-const REFRESH_MS = 15_000;
+/** How often running work refreshes while on screen. */
+const REFRESH_MS = 10_000;
 
 /** Minutes or hours since a moment, in short words. */
 function since(iso: string): string {
   const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
   if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
-  return `${hours} h ${minutes % 60} min ago`;
+  return `${hours}h ${minutes % 60}m ago`;
 }
 
 const STATE: Record<AgentRunningJob["status"], string> = {
   running: "Running",
-  lost: "Stalled (the server restarted)",
+  lost: "Stalled",
   done: "Finished",
-  failed: "Stopped or failed",
+  failed: "Stopped",
 };
 
 /**
- * What the agent is doing right now: its reply in progress, its background
- * jobs and routine runs, and what ended in the last day. Each running job can be stopped.
- * Why: the app showed the agent as busy with no way to see on what, and the
- * agent's own answer ("nothing is running") was sometimes wrong. This reads
- * the server's rows, not the agent's word.
- * Input: loaders to read the work and to stop one job.
+ * Running tasks item and modal sheet.
+ * Shows only actively running work and replies in progress (never finished jobs).
  */
 export function AgentRunningCard({
   onLoad,
@@ -40,6 +40,7 @@ export function AgentRunningCard({
   const [work, setWork] = useState<AgentRunningWork | null>(null);
   const [stopping, setStopping] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
   const load = useCallback(() => {
     void onLoad()
@@ -48,9 +49,8 @@ export function AgentRunningCard({
         setError(null);
       })
       .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Running work did not load."));
-    // The loader is recreated with the screen; the interval below keeps it fresh.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [onLoad]);
+
   useEffect(() => {
     load();
     const timer = setInterval(load, REFRESH_MS);
@@ -58,10 +58,10 @@ export function AgentRunningCard({
   }, [load]);
 
   const stop = (job: AgentRunningJob) => {
-    Alert.alert("Stop this job?", job.title, [
+    Alert.alert("Stop this task?", job.title, [
       { text: "Keep running", style: "cancel" },
       {
-        text: "Stop",
+        text: "Stop task",
         style: "destructive",
         onPress: () => {
           setStopping(job.workerId);
@@ -74,79 +74,238 @@ export function AgentRunningCard({
     ]);
   };
 
-  if (!work) {
-    return (
-      <View style={styles.card}>
-        <Text style={styles.title}>Running now</Text>
-        {error ? <Text style={styles.error}>{error}</Text> : <ActivityIndicator color={styles.muted.color} />}
-      </View>
-    );
-  }
-  const idle = !work.replying && work.running.length === 0;
+  const runningCount = work?.running.length ?? 0;
+  const isBusy = Boolean(work?.replying || runningCount > 0);
+
+  const subtitle = work?.replying
+    ? "Writing reply in chat"
+    : runningCount > 0
+    ? `${runningCount} active task${runningCount === 1 ? "" : "s"}`
+    : "Idle · No tasks running";
+
   return (
-    <View style={styles.card}>
-      <View style={styles.head}>
-        <Text style={styles.title}>Running now</Text>
-        <View style={[styles.dot, idle ? styles.idle : styles.busy]} />
-      </View>
-      {work.replying ? <Text style={styles.body}>Writing a reply in its chat.</Text> : null}
-      {idle ? <Text style={styles.muted}>Nothing is running.</Text> : null}
-      {work.running.map((job) => (
-        <View key={job.workerId + job.startedAt} style={styles.row}>
-          <Text style={styles.jobTitle}>{job.title}</Text>
-          <Text style={styles.meta}>
-            {job.source === "routine" ? "Routine" : "Job"} · {STATE[job.status]} · started {since(job.startedAt)} · {job.steps} steps · last activity {since(job.lastActivityAt)}
-          </Text>
-          {job.progress ? <Text style={styles.body}>{job.progress}</Text> : null}
-          <Pressable
-            accessibilityRole="button"
-            disabled={stopping !== null}
-            onPress={() => stop(job)}
-            style={({ pressed }) => [styles.stop, pressed || stopping ? styles.pressed : null]}
-          >
-            <Text style={styles.stopText}>{stopping === job.workerId ? "Stopping…" : "Stop"}</Text>
-          </Pressable>
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Running tasks"
+        onPress={() => setOpen(true)}
+        style={({ pressed }) => [styles.itemRow, pressed ? styles.rowPressed : null]}
+      >
+        <View style={[styles.iconWrap, isBusy ? styles.iconBusy : styles.iconIdle]}>
+          <Feather name="activity" size={18} color={isBusy ? colors.green : colors.muted} />
         </View>
-      ))}
-      {work.recent.length > 0 ? <Text style={styles.section}>Ended in the last day</Text> : null}
-      {work.recent.map((job) => (
-        <View key={job.workerId + job.startedAt} style={styles.row}>
-          <Text style={styles.jobTitle} numberOfLines={1}>
-            {job.title}
+        <View style={styles.itemBody}>
+          <View style={styles.titleRow}>
+            <Text style={styles.itemTitle}>Running tasks</Text>
+            {isBusy ? <View style={styles.pulseDot} /> : null}
+          </View>
+          <Text style={styles.itemSub} numberOfLines={1}>
+            {subtitle}
           </Text>
-          <Text style={styles.meta}>
-            {job.source === "routine" ? "Routine" : "Job"} · {STATE[job.status]} · {since(job.lastActivityAt)}
-          </Text>
-          {job.result ? (
-            <Text style={styles.body} numberOfLines={3}>
-              {job.result}
-            </Text>
-          ) : null}
         </View>
-      ))}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-    </View>
+        <IconChevron />
+      </Pressable>
+
+      <Sheet open={open} onClose={() => setOpen(false)}>
+        <View style={styles.sheetWrap}>
+          <View style={styles.sheetHeader}>
+            <View style={styles.sheetHeaderTitles}>
+              <Text style={styles.sheetTitle}>Running tasks</Text>
+              <Text style={styles.sheetSub}>
+                {isBusy ? (work?.replying ? "Replying now" : `${runningCount} active`) : "Nothing running"}
+              </Text>
+            </View>
+            <CircleButton label="Close" onPress={() => setOpen(false)}>
+              <IconClose />
+            </CircleButton>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
+            {work?.replying ? (
+              <View style={styles.replyingCard}>
+                <View style={styles.pulseDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.replyingTitle}>Writing a reply in chat</Text>
+                  <Text style={styles.replyingSub}>The agent is generating an answer right now.</Text>
+                </View>
+                <ActivityIndicator size="small" color={colors.green} />
+              </View>
+            ) : null}
+
+            {work?.running.map((job) => (
+              <View key={job.workerId + job.startedAt} style={styles.jobCard}>
+                <View style={styles.jobHead}>
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{job.source === "routine" ? "Routine" : "Job"}</Text>
+                  </View>
+                  <View style={[styles.statusDot, job.status === "running" ? styles.dotGreen : styles.dotWarn]} />
+                  <Text style={styles.statusText}>{STATE[job.status]}</Text>
+                </View>
+
+                <Text style={styles.jobTitle}>{job.title}</Text>
+
+                <Text style={styles.jobMeta}>
+                  Started {since(job.startedAt)} · {job.steps} steps · Last activity {since(job.lastActivityAt)}
+                </Text>
+
+                {job.progress ? (
+                  <View style={styles.progressBox}>
+                    <Text style={styles.progressText}>{job.progress}</Text>
+                  </View>
+                ) : null}
+
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={stopping !== null}
+                  onPress={() => stop(job)}
+                  style={({ pressed }) => [styles.stopButton, pressed || stopping ? styles.stopPressed : null]}
+                >
+                  <Feather name="square" size={14} color={colors.danger} />
+                  <Text style={styles.stopText}>{stopping === job.workerId ? "Stopping…" : "Stop task"}</Text>
+                </Pressable>
+              </View>
+            ))}
+
+            {!isBusy ? (
+              <View style={styles.emptyState}>
+                <View style={styles.emptyIconCircle}>
+                  <Feather name="check" size={28} color={colors.green} />
+                </View>
+                <Text style={styles.emptyTitle}>All quiet</Text>
+                <Text style={styles.emptyDesc}>
+                  No background jobs or scheduled routines are currently running. Active tasks will appear here automatically.
+                </Text>
+              </View>
+            ) : null}
+          </ScrollView>
+        </View>
+      </Sheet>
+    </>
   );
 }
 
-function createStyles(colors: ColorPalette) {
+function createStyles(theme: ColorPalette) {
   return StyleSheet.create({
-    card: { backgroundColor: colors.bubble, borderRadius: 14, borderCurve: "continuous", padding: 14, gap: 8, marginBottom: 12 },
-    head: { flexDirection: "row", alignItems: "center", gap: 8 },
-    title: { color: colors.text, fontSize: 17, fontWeight: "600", flex: 1 },
-    dot: { width: 10, height: 10, borderRadius: 5 },
-    busy: { backgroundColor: colors.green },
-    idle: { backgroundColor: colors.line },
-    section: { color: colors.muted, fontSize: 13, marginTop: 4 },
-    row: { gap: 3, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-    jobTitle: { color: colors.text, fontSize: 15, fontWeight: "600" },
-    meta: { color: colors.muted, fontSize: 12 },
-    muted: { color: colors.muted, fontSize: 14 },
-    body: { color: colors.text, fontSize: 14, lineHeight: 20 },
-    stop: { alignSelf: "flex-start", marginTop: 6, paddingHorizontal: 14, height: 34, borderRadius: 10, borderWidth: 1, borderColor: colors.danger, alignItems: "center", justifyContent: "center" },
-    stopText: { color: colors.danger, fontSize: 14, fontWeight: "600" },
-    error: { color: colors.danger, fontSize: 14 },
-    pressed: { opacity: 0.6 },
+    itemRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      backgroundColor: theme.bubble,
+      borderRadius: 14,
+      borderCurve: "continuous",
+      paddingHorizontal: 14,
+      paddingVertical: 13,
+    },
+    rowPressed: { opacity: 0.7 },
+    iconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    iconIdle: { backgroundColor: theme.control },
+    iconBusy: { backgroundColor: "rgba(52, 199, 89, 0.15)" },
+    itemBody: { flex: 1, gap: 2 },
+    titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+    itemTitle: { color: theme.text, fontSize: 16, fontWeight: "500" },
+    itemSub: { color: theme.muted, fontSize: 13 },
+    pulseDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: theme.green,
+    },
+    sheetWrap: { flex: 1, backgroundColor: theme.bg },
+    sheetHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 20,
+      paddingTop: 16,
+      paddingBottom: 14,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.line,
+    },
+    sheetHeaderTitles: { gap: 2 },
+    sheetTitle: { color: theme.text, fontSize: 20, fontWeight: "700" },
+    sheetSub: { color: theme.muted, fontSize: 13 },
+    sheetContent: { padding: 16, gap: 12, paddingBottom: 40 },
+    replyingCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      backgroundColor: theme.bubble,
+      borderRadius: 14,
+      padding: 14,
+      borderWidth: 1,
+      borderColor: "rgba(52, 199, 89, 0.3)",
+    },
+    replyingTitle: { color: theme.text, fontSize: 15, fontWeight: "600" },
+    replyingSub: { color: theme.muted, fontSize: 12, marginTop: 2 },
+    jobCard: {
+      backgroundColor: theme.bubble,
+      borderRadius: 14,
+      borderCurve: "continuous",
+      padding: 16,
+      gap: 10,
+    },
+    jobHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+    badge: {
+      backgroundColor: theme.control,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 6,
+    },
+    badgeText: { color: theme.text, fontSize: 11, fontWeight: "600" },
+    statusDot: { width: 6, height: 6, borderRadius: 3 },
+    dotGreen: { backgroundColor: theme.green },
+    dotWarn: { backgroundColor: "#FF9F0A" },
+    statusText: { color: theme.muted, fontSize: 12 },
+    jobTitle: { color: theme.text, fontSize: 16, fontWeight: "600", lineHeight: 22 },
+    jobMeta: { color: theme.muted, fontSize: 12 },
+    progressBox: {
+      backgroundColor: theme.control,
+      borderRadius: 8,
+      padding: 10,
+    },
+    progressText: { color: theme.text, fontSize: 13, lineHeight: 18 },
+    stopButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      alignSelf: "flex-start",
+      paddingHorizontal: 14,
+      height: 36,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: theme.danger,
+      marginTop: 4,
+    },
+    stopPressed: { opacity: 0.6 },
+    stopText: { color: theme.danger, fontSize: 13, fontWeight: "600" },
+    emptyState: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 60,
+      paddingHorizontal: 32,
+      gap: 12,
+    },
+    emptyIconCircle: {
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      backgroundColor: "rgba(52, 199, 89, 0.12)",
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 6,
+    },
+    emptyTitle: { color: theme.text, fontSize: 18, fontWeight: "600" },
+    emptyDesc: { color: theme.muted, fontSize: 14, textAlign: "center", lineHeight: 20 },
+    error: { color: theme.danger, fontSize: 14, marginHorizontal: 4 },
   });
 }
 

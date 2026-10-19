@@ -68,6 +68,17 @@ describe("reflection", () => {
     expect(parseSignals("correction M2 M4\npraise [M5]\n- correction: M4\nrule: x [M1]")).toEqual({ corrections: ["M2", "M4"], praise: ["M5"] });
   });
 
+  it("lets a manual reflection read back over recent days after the last run", async () => {
+    const { account, nora, say } = await setUp("reflect-lookback");
+    await say("Keep numbers centered on screen.");
+    const first = await reflectAgent(db, account.id, nora.id, { think: async () => "rule: keep numbers centered on screen [M1]" });
+    expect(first.status).toBe("applied");
+    // Nothing new since that run: the nightly path skips, a manual one still reads the message.
+    expect((await reflectAgent(db, account.id, nora.id, { think: async () => "nothing" })).status).toBe("skipped");
+    const manual = await reflectAgent(db, account.id, nora.id, { lookBackMs: 24 * 60 * 60 * 1000, think: async () => "nothing" });
+    expect(manual.status).not.toBe("skipped");
+  });
+
   it("turns down a new rule over budget unless the same pass retires one", async () => {
     const { account, nora, say } = await setUp("reflect-budget");
     const said = await say("Use the new recipe file for every reel.");

@@ -430,7 +430,7 @@ export type CoreClient = {
   /** `always`: this agent may take this action from now on without asking. */
   approveTool: (accountId: string, approvalId: string, always?: boolean) => Promise<ToolApproval[]>;
   listAllowances: (accountId: string) => Promise<ToolAllowance[]>;
-  agentHealth: (accountId: string, agentId: string) => Promise<{ health: AgentHealth; reflections: AgentReflection[] }>;
+  agentHealth: (accountId: string, agentId: string) => Promise<{ health: AgentHealth; reflections: AgentReflection[]; reflecting?: boolean }>;
   /** Reflects now and saves what passes the checks; it takes about half a minute. */
   reflectNow: (accountId: string, agentId: string) => Promise<AgentReflection & { health: AgentHealth }>;
   undoReflection: (accountId: string, agentId: string, reflectionId: string) => Promise<{ undone: boolean }>;

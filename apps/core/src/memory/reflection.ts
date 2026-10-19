@@ -350,11 +350,16 @@ export async function reflectAgent(
   db: Db,
   accountId: string,
   agentId: string,
-  options: { since?: Date; dryRun?: boolean; think?: (system: string, user: string) => Promise<string> } = {},
+  options: { since?: Date; lookBackMs?: number; dryRun?: boolean; think?: (system: string, user: string) => Promise<string> } = {},
 ): Promise<ReflectionResult> {
   const [agent] = await db.select().from(agents).where(and(eq(agents.id, agentId), eq(agents.accountId, accountId)));
   if (!agent) return { status: "skipped", read: { messages: 0, jobs: 0 }, edits: [], applied: 0, note: "No such agent.", health: QUIET_HEALTH };
-  const since = options.since ?? agent.reflectedAt ?? agent.createdAt;
+  // "Reflect now" from the app reads at least the last few days: after an undo, or
+  // with nothing said since the nightly run, it otherwise had nothing to read.
+  const last = agent.reflectedAt ?? agent.createdAt;
+  const since =
+    options.since ??
+    (options.lookBackMs ? new Date(Math.min(last.getTime(), Date.now() - options.lookBackMs)) : last);
   const rooms = await db.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.accountId, accountId), eq(conversations.ownerAgentId, agentId)));
   const roomIds = rooms.map((room) => room.id);
   const said = roomIds.length
@@ -368,7 +373,14 @@ export async function reflectAgent(
   const health = await measureHealth(db, accountId, agentId);
   const fromPerson = said.filter((row) => !row.agentId);
   if (fromPerson.length === 0) {
-    return { status: "skipped", read: { messages: said.length, jobs: 0 }, edits: [], applied: 0, note: "Nothing new from the person since the last reflection.", health };
+    return {
+      status: "skipped",
+      read: { messages: said.length, jobs: 0 },
+      edits: [],
+      applied: 0,
+      note: options.lookBackMs ? "Nothing to learn: the person has not written to it in the last few days." : "Nothing new from the person since the last reflection.",
+      health,
+    };
   }
 
   // Rewards ride on the line they were given to.
