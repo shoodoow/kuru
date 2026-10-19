@@ -65,6 +65,8 @@ export const LAZY_PLUGIN_TOOLS = 12;
 export const LOAD_WHOLE_PLUGIN_MAX = 30;
 /** Most tools one load call turns on, so a large plugin can never flood the prompt. */
 export const LOAD_TOOLS_PER_CALL = 12;
+/** Most tools a keyword search turns on: a search loaded 12 email tools for a job that used 3. */
+export const LOAD_TOOLS_PER_SEARCH = 4;
 /** Longest description a connector tool may send with every step. */
 export const MCP_DESCRIPTION_CHARS = 500;
 /** Longest description inside a connector tool's input schema. */
@@ -195,10 +197,10 @@ export async function appendMcpTools(
           const byName = asked.length
             ? tools.filter((entry) => asked.includes(entry.name) || asked.includes(fullNames.get(entry.name) ?? ""))
             : [];
-          const chosen = (byName.length > 0 ? byName : matchPluginTools(tools, typeof input.search === "string" ? input.search : "")).slice(
-            0,
-            LOAD_TOOLS_PER_CALL,
-          );
+          const chosen =
+            byName.length > 0
+              ? byName.slice(0, LOAD_TOOLS_PER_CALL)
+              : matchPluginTools(tools, typeof input.search === "string" ? input.search : "", LOAD_TOOLS_PER_SEARCH);
           if (chosen.length === 0) {
             return {
               loaded: 0,

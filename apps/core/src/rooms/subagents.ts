@@ -9,7 +9,7 @@ import {
 
 import { workerToolNames as agentWorkerToolNames } from "@kuru/agent-tools";
 import { generateText, isStepCount, NoSuchToolError, type ModelMessage } from "ai";
-import { activeWorkerTools, pluginToolKey } from "../turn/tools/tool-sets.js";
+import { activeWorkerTools, deferredToolsBlock, pluginToolKey } from "../turn/tools/tool-sets.js";
 import { gateToolFamilies, startNamedPlugins, startingFamilies } from "./worker-tool-families.js";
 import { isNoImageInputError, learnCapability, modelCapabilities } from "../model/capabilities.js";
 import { imageDescriber, type ImageDescriber } from "../turn/describe-image.js";
@@ -64,6 +64,8 @@ import {
   isLookOnlyStep,
   resumableTranscript,
   transcriptForStorage,
+  splitForSummary,
+  withStateSummary,
 } from "./worker-loop.js";
 import { RoomCapacityError } from "./rooms.js";
 import { logger, noted } from "../log/logger.js";
@@ -1381,7 +1383,9 @@ export async function runWorker(
       );
     }
     // The task is sent once, as the user message; the system text is standing method only.
-    const workerInstructions = [standing, roleLine, ...preloaded].join("\n\n");
+    // Written once, before the first step, so the instructions stay the same (and cached) for the whole run.
+    const deferred = deferredToolsBlock(review.pluginGates ?? new Map(), review.pluginLoaders ?? new Map(), review.enabledToolSets ?? new Set());
+    const workerInstructions = [standing, roleLine, ...preloaded, deferred].filter(Boolean).join("\n\n");
     const contextLines = meta.context?.trim() ? `\n${meta.context.trim()}` : "";
     const taskMessage = (
       input.resumeNote ??
@@ -1434,10 +1438,61 @@ export async function runWorker(
     } = await import("../turn/worker-report.js");
     const model = getModel(runOn.provider, runOn.modelId, credential.apiKey, credential.baseUrl);
     const compactAt = compactionThreshold(runOn.contextWindow);
-    // A continued job starts from its saved conversation, which can be far over the
-    // threshold; bring it down before the first step instead of after six of them.
-    if (prior.length > 0 && estimateTokens(transcript) > compactAt / 2) {
-      transcript = collapseOldSteps(compactTranscript(transcript));
+    /**
+     * Replaces the older steps with a state summary the worker's own model writes.
+     * Why: cutting old results made workers forget what they had read and read it
+     * again for a hundred steps. The request repeats the conversation as it stands,
+     * so the provider reads it from its cache. Output: false when no summary came.
+     */
+    const summarizeState = async (): Promise<boolean> => {
+      const parts = splitForSummary(transcript);
+      if (!parts) return false;
+      const reply = await generateText({
+        model,
+        abortSignal: controller.signal,
+        instructions: [
+          runOn.provider === "anthropic"
+            ? { role: "system" as const, content: workerInstructions, providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } }
+            : { role: "system" as const, content: workerInstructions },
+        ],
+        messages: [...transcript, { role: "user", content: prompt("worker-rules", "state-summary") }],
+        tools,
+        activeTools: activeWorkerTools(Object.keys(tools), review.enabledToolSets ?? new Set(), {
+          gates: review.pluginGates,
+          loaders: review.pluginLoaders,
+        }) as never,
+        toolChoice: "none",
+        maxOutputTokens: Math.min(outputCap, 8_000),
+      }).catch((error: unknown) => {
+        logger.warn({ err: error, delegationId: input.delegationId }, "worker state summary failed");
+        return null;
+      });
+      if (reply) {
+        usage.inputTokens = (usage.inputTokens ?? 0) + (reply.usage?.inputTokens ?? 0);
+        usage.outputTokens = (usage.outputTokens ?? 0) + (reply.usage?.outputTokens ?? 0);
+        usage.cacheReadTokens = (usage.cacheReadTokens ?? 0) + (reply.usage?.inputTokenDetails?.cacheReadTokens ?? 0);
+      }
+      const summary = reply?.text?.trim() ?? "";
+      if (summary.length < 200) return false;
+      const before = estimateTokens(transcript);
+      transcript = withStateSummary(parts, summary);
+      // Earlier reads are no longer in view, so "you already loaded this, it is above" would be wrong.
+      review.loaded?.clear();
+      logger.info({ delegationId: input.delegationId, before, after: estimateTokens(transcript) }, "worker conversation summarized");
+      return true;
+    };
+    /** The older way, kept for when no summary can be written: shorten old results, then collapse the oldest steps. */
+    const trimOldSteps = (): void => {
+      transcript = compactTranscript(transcript);
+      if (estimateTokens(transcript) > compactAt) {
+        transcript = compactTranscript(transcript, { keepRecent: 6, toolChars: 300, inputChars: 200 });
+      }
+      if (estimateTokens(transcript) > compactAt / 2) transcript = collapseOldSteps(transcript);
+      review.loaded?.clear();
+    };
+    // A continued job starts from its saved conversation, which can be over the threshold.
+    if (prior.length > 0 && estimateTokens(transcript) > compactAt) {
+      if (!(await summarizeState())) trimOldSteps();
     }
     const startedAt = Date.now();
     /** Slim copies of finished steps: enough to write a report from, without holding every screenshot. */
@@ -1754,14 +1809,7 @@ export async function runWorker(
         // provider resend everything after them uncached. Drop them only once they weigh something.
         if (estimateTokens(transcript) > STALE_VIEWS_AT) transcript = dropStaleViews(transcript);
         if (lastInputTokens > compactAt || estimateTokens(transcript) > compactAt) {
-          transcript = compactTranscript(transcript);
-          if (estimateTokens(transcript) > compactAt) {
-            transcript = compactTranscript(transcript, { keepRecent: 6, toolChars: 300, inputChars: 200 });
-          }
-          // Shortened steps still add up over hundreds of steps: collapse the oldest.
-          if (lastInputTokens > compactAt || estimateTokens(transcript) > compactAt / 2) {
-            transcript = collapseOldSteps(transcript);
-          }
+          if (!(await summarizeState())) trimOldSteps();
           lastInputTokens = 0;
         }
       }

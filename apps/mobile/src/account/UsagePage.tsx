@@ -39,7 +39,7 @@ export function UsagePage({
   onSaveLimit?: (usd: number | null) => Promise<unknown>;
   scrollStyle: ViewStyle;
 }) {
-  const [period, setPeriod] = useState<UsagePeriod>("week");
+  const [period, setPeriod] = useState<UsagePeriod>("today");
   const [usage, setUsage] = useState<AccountUsage | null>(null);
   const [error, setError] = useState<string | null>(null);
 

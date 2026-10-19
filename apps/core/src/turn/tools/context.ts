@@ -47,6 +47,8 @@ export type ToolContext = {
   workEntries?: WorkLogEntry[];
   /** Read-type calls that already succeeded this turn, keyed by tool + input. */
   loaded?: Set<string>;
+  /** A worker's reads of each file, page or listing this run (result-guard.ts). */
+  readCounter?: import("./result-guard.js").ReadCounter;
   /** Optional tool sets on for this turn (see tool-sets.ts). Mutated by enable_tools. */
   enabledToolSets?: Set<string>;
   /**

@@ -410,16 +410,97 @@ export function estimateTokens(messages: ModelMessage[]): number {
 }
 
 /**
- * When the conversation should be shrunk, in tokens.
- * Why: weak models lose the thread long before a large window is full, and a
- * small window must keep room for the reply.
+ * Most a worker's conversation may grow to before it is summarized, in tokens.
+ * Why: every step resends the whole conversation, and models use a very long
+ * one worse. With a state summary at this point nothing the job learned is lost.
+ */
+export const WORKER_CONTEXT_CEILING = 150_000;
+
+/**
+ * When the conversation should be summarized, in tokens: 80% of the window, at most the ceiling.
+ * Why: the threshold was 48,000. With ~35,000 of instructions and tool definitions
+ * that left a few steps of room, so old results were cut every few steps; workers
+ * forgot what they had read and read it again (236 steps for a 9-step job), and
+ * each cut also changed old messages, so the provider's cache no longer matched.
  * Input: the model's context window, when known. Output: the threshold.
  */
 export function compactionThreshold(contextWindow?: number | null): number {
   const window = contextWindow && contextWindow > 0 ? contextWindow : 128_000;
-  // The ceiling was 90,000. A long job then resent up to that much at every one of its steps, which
-  // is most of what such a job costs; the old output it kept is rarely read again and can be rerun.
-  return Math.max(24_000, Math.min(Math.floor(window * 0.55), 48_000));
+  return Math.max(24_000, Math.min(Math.floor(window * 0.8), WORKER_CONTEXT_CEILING));
+}
+
+/** Newest part of the conversation kept word for word beside a state summary, in tokens. */
+export const SUMMARY_KEEP_RECENT_TOKENS = 20_000;
+/** Opens the message that holds a state summary; also how a later summary finds the earlier one. */
+export const STATE_HEAD = "[Earlier steps of this job were replaced by this state summary.";
+const INSTRUCTIONS_HEAD = "## Instructions from the agent, word for word";
+const SUMMARY_HEAD = "## State of the job";
+/** Messages from the agent, as the loop words them (agent-note, continue-message). */
+const AGENT_WORDS = /^(Note from the agent you work for|The agent you work for has more for you)/;
+const INSTRUCTIONS_KEPT = 8;
+const INSTRUCTION_CHARS = 4_000;
+
+/**
+ * Splits a conversation for a state summary: the brief, the older part, and the newest part kept whole.
+ * Input: the conversation and how many tokens of the newest part to keep.
+ * Output: the parts, or null when there is too little to summarize. The newest
+ * part never starts with tool results whose calls would be left behind.
+ */
+export function splitForSummary(
+  messages: ModelMessage[],
+  keepTokens = SUMMARY_KEEP_RECENT_TOKENS,
+): { brief: ModelMessage; older: ModelMessage[]; recent: ModelMessage[] } | null {
+  let cut = messages.length;
+  let kept = 0;
+  while (cut > 1) {
+    const size = estimateTokens([messages[cut - 1]!]);
+    if (kept + size > keepTokens && messages.length - cut >= 2) break;
+    kept += size;
+    cut -= 1;
+  }
+  while (cut < messages.length && messages[cut]!.role === "tool") cut += 1;
+  if (cut <= 1 || cut >= messages.length) return null;
+  return { brief: messages[0]!, older: messages.slice(1, cut), recent: messages.slice(cut) };
+}
+
+/**
+ * What the agent told the worker during the older part, word for word, including what an earlier summary carried.
+ * Why: a summary written by the model can drift from what was asked; these are kept by code.
+ */
+export function agentInstructions(older: ModelMessage[]): string[] {
+  const found: string[] = [];
+  for (const message of older) {
+    if (message.role !== "user") continue;
+    const text = plainText(message).trim();
+    if (text.startsWith(STATE_HEAD)) {
+      const block = text.split(INSTRUCTIONS_HEAD)[1]?.split(SUMMARY_HEAD)[0] ?? "";
+      found.push(...block.split("\n\n---\n\n").map((item) => item.trim()).filter((item) => item && item !== "(none)"));
+      continue;
+    }
+    if (AGENT_WORDS.test(text)) found.push(text.slice(0, INSTRUCTION_CHARS));
+  }
+  return found.slice(-INSTRUCTIONS_KEPT);
+}
+
+/**
+ * The conversation after a state summary: the brief, one summary message, then the newest steps unchanged.
+ * Input: the split parts and the summary the model wrote. Output: the new conversation.
+ */
+export function withStateSummary(
+  parts: { brief: ModelMessage; older: ModelMessage[]; recent: ModelMessage[] },
+  summary: string,
+): ModelMessage[] {
+  const instructions = agentInstructions(parts.older);
+  const note = [
+    `${STATE_HEAD} Trust it and the files on disk; open a file again only to use a detail that is not here, and never redo anything listed as done.]`,
+    "",
+    INSTRUCTIONS_HEAD,
+    instructions.length > 0 ? instructions.join("\n\n---\n\n") : "(none)",
+    "",
+    SUMMARY_HEAD,
+    summary.trim(),
+  ].join("\n");
+  return [parts.brief, { role: "user", content: note }, ...parts.recent];
 }
 
 /** Below this size (estimated tokens) old page views are left alone, so the cached prefix stays the same. */

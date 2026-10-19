@@ -6,6 +6,9 @@ import { reviewToolCall, waitForApproval } from "../auto-review.js";
 import type { ToolContext } from "./context.js";
 import { prompt } from "../../prompt/prompts.js";
 import { workEntry } from "../work-log.js";
+import { exec } from "../../linux/linux.js";
+import { writeFile } from "../../computer/computer.js";
+import { RESULT_INLINE_CHARS, ReadCounter, cutResult, resultText, sourceKeys, writtenPaths } from "./result-guard.js";
 
 /** Same tool + byte-identical input this many times in a row = a loop, not work. */
 export const DOOM_LOOP_THRESHOLD = 3;
@@ -36,6 +39,25 @@ function lookedAt(name: string, input: Record<string, unknown>): string | null {
   return null;
 }
 
+/**
+ * A worker's big tool result, cut once as it arrives, with the whole text saved on its computer.
+ * Why: see result-guard.ts. Pictures and small results pass through unchanged.
+ */
+async function keepSmall(ctx: ToolContext, toolCallId: string, result: unknown): Promise<unknown> {
+  const text = resultText(result);
+  if (text === null || text.length <= RESULT_INLINE_CHARS) return result;
+  let savedAt: string | null = null;
+  if (ctx.linuxProfile) {
+    const dir = `/home/${ctx.linuxProfile}/.cache/tool-results`;
+    const path = `${dir}/${toolCallId.slice(0, 8)}.txt`;
+    savedAt = await exec(ctx.accountId, ["mkdir", "-p", dir], ctx.linuxProfile)
+      .then(() => writeFile(ctx.accountId, ctx.linuxProfile!, path, text))
+      .then(() => path)
+      .catch(() => null);
+  }
+  return cutResult(text, savedAt);
+}
+
 function isToolError(result: unknown): boolean {
   return typeof result === "object" && result !== null && "error" in result;
 }
@@ -48,6 +70,7 @@ export function wrapToolExecute(
 ) {
   return async (input: Record<string, unknown>) => {
     const toolCallId = randomUUID();
+    let rereadNote: string | null = null;
     const started = performance.now();
     const inputJson = JSON.stringify(input ?? {});
     // A model that has lost the thread can emit hundreds of calls in one step. Past a sensible
@@ -82,6 +105,16 @@ export function wrapToolExecute(
         error: "doom_loop",
       });
       return { error: doomLoopError() };
+    }
+    // A worker that keeps reading the same file or listing has lost track; told once, then not run.
+    if (mode === "worker") {
+      const reread = (ctx.readCounter ??= new ReadCounter()).record(sourceKeys(name, input ?? {}));
+      if (reread.action === "refuse") {
+        const note = prompt("worker-rules", "reread-refuse", { source: reread.source, times: reread.times - 1 });
+        await ctx.traceSession?.emit({ type: "tool.call.finish", toolCallId, name, input, outputPreview: tracePreview(note), durationMs: 0, error: "reread" });
+        return { error: note };
+      }
+      if (reread.action === "remind") rereadNote = prompt("worker-rules", "reread-remind", { source: reread.source, times: reread.times });
     }
     // A read that already succeeded this turn is still in the transcript above;
     // loading it again only resends the same text on every later step.
@@ -174,6 +207,9 @@ export function wrapToolExecute(
         outputPreview: tracePreview(result),
         durationMs,
       });
+      if (mode === "worker") ctx.readCounter?.changed(writtenPaths(name, input ?? {}));
+      if (mode === "worker" && !failedResult) result = await keepSmall(ctx, toolCallId, result);
+      if (rereadNote) return typeof result === "string" ? `${rereadNote}\n\n${result}` : { note: rereadNote, result };
       return result;
     } catch (error) {
       const durationMs = Math.round(performance.now() - started);

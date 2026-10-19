@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage } from "ai";
-import { collapseOldSteps, compactTranscript, compactionThreshold, dropStaleViews, isLookOnlyStep, isReadOnlyShell, resumableTranscript, transcriptForStorage, StuckWatch, callTargets, stepFailed } from "./worker-loop.js";
+import { collapseOldSteps, compactTranscript, compactionThreshold, dropStaleViews, isLookOnlyStep, isReadOnlyShell, resumableTranscript, transcriptForStorage, StuckWatch, callTargets, stepFailed, splitForSummary, withStateSummary } from "./worker-loop.js";
 
 const call = (id: string, toolName: string, input: unknown): ModelMessage =>
   ({ role: "assistant", content: [{ type: "tool-call", toolCallId: id, toolName, input }] }) as ModelMessage;
@@ -176,10 +176,54 @@ describe("resumableTranscript", () => {
 });
 
 describe("compactionThreshold", () => {
-  it("scales with the model window inside sane bounds", () => {
-    expect(compactionThreshold(1_000_000)).toBe(48_000);
-    expect(compactionThreshold(32_000)).toBe(24_000);
-    expect(compactionThreshold(null)).toBe(48_000);
+  it("is 80% of the window, at most 150K, at least 24K", () => {
+    expect(compactionThreshold(1_000_000)).toBe(150_000);
+    expect(compactionThreshold(128_000)).toBe(102_400);
+    expect(compactionThreshold(32_000)).toBe(25_600);
+    expect(compactionThreshold(16_000)).toBe(24_000);
+    expect(compactionThreshold(null)).toBe(102_400);
+  });
+});
+
+describe("state summary", () => {
+  const call = (id: string, command: string): ModelMessage =>
+    ({ role: "assistant", content: [{ type: "tool-call", toolCallId: id, toolName: "bash", input: { command } }] }) as ModelMessage;
+  const result = (id: string, text: string): ModelMessage =>
+    ({ role: "tool", content: [{ type: "tool-result", toolCallId: id, toolName: "bash", output: { type: "text", value: text } }] }) as ModelMessage;
+  const job: ModelMessage[] = [
+    { role: "user", content: "Send today's three outreach emails." },
+    call("1", "cat send-log.md"),
+    result("1", "x".repeat(40_000)),
+    { role: "user", content: "Note from the agent you work for (read it, then carry on from where you are):\nKeep it to 5 a day." },
+    { role: "user", content: "Your last 8 steps only read and searched." },
+    call("2", "cat shortlist.md"),
+    result("2", "y".repeat(40_000)),
+    call("3", "ls"),
+    result("3", "a.md b.md"),
+  ];
+
+  it("keeps the brief and the newest steps whole, and never starts the kept part on a tool result", () => {
+    const parts = splitForSummary(job, 12_000)!;
+    expect(parts.brief).toBe(job[0]);
+    expect(parts.recent[0]!.role).not.toBe("tool");
+    expect(parts.recent.at(-1)).toBe(job.at(-1));
+    expect([parts.brief, ...parts.older, ...parts.recent]).toEqual(job);
+  });
+
+  it("carries the agent's words verbatim, not the loop's nudges, across repeated summaries", () => {
+    const first = withStateSummary(splitForSummary(job, 5_000)!, "## Goal\n- send three emails");
+    const note = (first[1] as { content: string }).content;
+    expect(note).toContain("Keep it to 5 a day.");
+    expect(note).not.toContain("only read and searched");
+    expect(note).toContain("## State of the job\n## Goal");
+    const again = withStateSummary(splitForSummary([...first, call("4", "pwd"), result("4", "z".repeat(60_000)), call("5", "ls"), result("5", "ok")], 1_000)!, "## Goal\n- later");
+    const second = (again[1] as { content: string }).content;
+    expect(second.match(/Keep it to 5 a day\./g)).toHaveLength(1);
+    expect(again[0]).toBe(job[0]);
+  });
+
+  it("returns null when there is nothing old enough to summarize", () => {
+    expect(splitForSummary(job.slice(0, 1))).toBeNull();
   });
 });
 
@@ -213,10 +257,6 @@ describe("stale views of a page", () => {
     expect(out).toHaveLength(talk.length);
   });
 
-  it("starts trimming old output well before a large window is full", () => {
-    expect(compactionThreshold(1_000_000)).toBe(48_000);
-    expect(compactionThreshold(32_000)).toBe(24_000);
-  });
 });
 
 describe("StuckWatch", () => {

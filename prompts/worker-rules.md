@@ -202,3 +202,39 @@ This run has sent about {{tokens}} million tokens to the model, its limit for on
 
 # daily-limit-stop
 The account has reached its daily spending limit. Stop working now and write your report: what is done, exactly where you stopped, and what is left. The job can be continued tomorrow or when the person raises the limit.
+
+# state-summary
+Stop here and write a state summary of this job so far. It replaces the older steps of this conversation, so the next steps continue from it alone, together with the brief, the agent's instructions and your newest steps, which stay in view. Do not call tools and do not continue the task. Use exactly these headings, terse single-line bullets, and "(none)" where a section is empty:
+
+## Goal
+- What the brief asks for, in one or two lines, with its limits (counts, deadlines, what must not be touched).
+
+## Done, never repeat
+- Every action with an effect outside your own files: emails sent or scheduled, posts published, messages, purchases, uploads, deletions, approvals asked. Give the exact target and the id or proof that came back. These must not happen twice.
+
+## Facts learned
+- Each fact the job needs and its source: names, addresses, prices, ids, measured values, what a page or command showed. Exact strings, not paraphrase.
+
+## Files on disk
+- Path: what it holds and whether it is final. Open these instead of rebuilding them.
+
+## What failed and what worked
+- The exact error and the way around it (a parameter a tool rejects, a site that blocks, a command that works).
+
+## Current state
+- Completed parts, the part in progress, and anything blocked and why.
+
+## Next step
+- The single next action, quoting the end of your last step so the job carries on exactly where it was.
+
+# reread-remind
+[You have now read {{source}} {{times}} times in this job. What it said is above or in your state summary: use that, note the facts you need in a file, and move on to doing the job.]
+
+# reread-refuse
+Not run: you already read {{source}} {{times}} times in this job and it has not been changed by you since. Work from what you have. If something specific is missing, read only that part (grep -n for it), or report what is blocking you.
+
+# deferred-tools
+<available-deferred-tools>
+These tools exist but are not loaded, to keep every step small. Load only the ones this job needs, by exact name, with the loader shown; they work from your next step. Do not load a whole plugin to find one tool.
+{{list}}
+</available-deferred-tools>

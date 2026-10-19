@@ -88,6 +88,47 @@ export function activeWorkerTools(
   return allNames.filter((name) => pluginToolActive(name, enabled, plugins) ?? true);
 }
 
+/** Most tool names one deferred-tools block lists, so a huge plugin cannot flood the prompt. */
+const DEFERRED_NAMES_MAX = 300;
+
+/**
+ * The names of a worker's tools that are not loaded yet, grouped by the tool that loads them.
+ * Why: a worker saw only a few plugin tool names and loaded by keyword search,
+ * which turned on 12 tools at a time; one run carried 24 email tools on every
+ * step and used 3. With exact names it loads only what it needs.
+ * Input: gates (tool → set), loaders (loader → set) and the sets that are on.
+ * Output: an `<available-deferred-tools>` block, or "" when nothing is deferred.
+ */
+export function deferredToolsBlock(
+  gates: ReadonlyMap<string, string>,
+  loaders: ReadonlyMap<string, string>,
+  enabled: ReadonlySet<string>,
+): string {
+  const loaderOf = new Map<string, string>();
+  for (const [loader, set] of loaders) loaderOf.set(set, loader);
+  const groups = new Map<string, string[]>();
+  for (const [name, set] of gates) {
+    if (enabled.has(set) || enabled.has(pluginToolKey(name))) continue;
+    groups.set(set, [...(groups.get(set) ?? []), name]);
+  }
+  if (groups.size === 0) return "";
+  let budget = DEFERRED_NAMES_MAX;
+  const lines: string[] = [];
+  for (const [set, names] of groups) {
+    const loader = loaderOf.get(set);
+    if (!loader) continue;
+    if (set.startsWith("family:")) {
+      lines.push(`${set.slice("family:".length)} (${names.length} tools): call ${loader} to load them all`);
+      continue;
+    }
+    const shown = names.slice(0, Math.max(0, budget));
+    budget -= shown.length;
+    lines.push(`${set.replace(/^plugin:/, "")}: load with ${loader} {"tools": [exact names]}`, ...shown);
+    if (shown.length < names.length) lines.push(`(${names.length - shown.length} more; ${loader} with "search" finds them)`);
+  }
+  return prompt("worker-rules", "deferred-tools", { list: lines.join("\n") });
+}
+
 /** How to use one set: returned by enable_tools and added to the prompt when the set starts on. */
 export function toolSetGuidance(set: ToolSetName): string {
   return prompt("tool-sets", set);
