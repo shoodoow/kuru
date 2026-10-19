@@ -4,7 +4,7 @@ import { getDb } from "../db/client.js";
 import { conversations, delegations, memories } from "../db/schema.js";
 import { runningWork } from "../rooms/running-work.js";
 import { createAccount, createAgent } from "../roster/roster.js";
-import { agentMemoryPage, forgetMemory } from "./agent-memory-page.js";
+import { agentMemoryPage, forgetAllMemories, forgetMemory } from "./agent-memory-page.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@127.0.0.1:5432/kuru_database";
 const db = getDb(databaseUrl);
@@ -43,6 +43,19 @@ describe("agent memory page", () => {
     expect(await forgetMemory(db, accountId, max.id, newest!.id)).toBeNull();
     expect(await forgetMemory(db, accountId, nora.id, newest!.id)).toEqual({ removed: 2 });
     expect(await db.select().from(memories).where(eq(memories.agentId, nora.id))).toHaveLength(0);
+  });
+
+  it("clears everything an agent keeps for itself, leaving shared facts and other agents alone", async () => {
+    const { accountId, nora, max } = await twoAgents("memory-clear");
+    const [newest] = await db.insert(memories).values({ accountId, scope: "agent", agentId: nora.id, body: "Rule v2." }).returning();
+    await db.insert(memories).values([
+      { accountId, scope: "agent", agentId: nora.id, body: "Rule v1.", supersededBy: newest!.id },
+      { accountId, scope: "agent", agentId: max.id, body: "Max's rule." },
+      { accountId, scope: "user", agentId: null, body: "Wants short replies." },
+    ]);
+    expect(await forgetAllMemories(db, accountId, nora.id)).toEqual({ removed: 2 });
+    expect((await agentMemoryPage(db, accountId, nora.id))?.map((fact) => fact.body)).toEqual(["Wants short replies."]);
+    expect((await agentMemoryPage(db, accountId, max.id))?.map((fact) => fact.body)).toEqual(["Max's rule.", "Wants short replies."]);
   });
 
   it("lists an agent's running and recently ended jobs", async () => {

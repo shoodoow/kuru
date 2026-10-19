@@ -90,3 +90,20 @@ export async function forgetMemory(db: Db, accountId: string, agentId: string, m
     return { removed: removed.length };
   });
 }
+
+/**
+ * Removes everything one agent keeps for itself, with every older version.
+ * Why: an agent whose memory filled with rules from directions the person
+ * dropped needs a clean start; a reflection fixes only a few lines a run.
+ * Shared facts about the person stay: other agents read them too.
+ * Input: db, account id, agent id. Output: how many rows went, or null when the agent is not on the account.
+ */
+export async function forgetAllMemories(db: Db, accountId: string, agentId: string): Promise<{ removed: number } | null> {
+  const [agent] = await db.select({ id: agents.id }).from(agents).where(and(eq(agents.id, agentId), eq(agents.accountId, accountId)));
+  if (!agent) return null;
+  const removed = await db
+    .delete(memories)
+    .where(and(eq(memories.accountId, accountId), eq(memories.scope, "agent"), eq(memories.agentId, agentId)))
+    .returning({ id: memories.id });
+  return { removed: removed.length };
+}

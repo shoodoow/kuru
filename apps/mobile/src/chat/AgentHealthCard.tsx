@@ -48,11 +48,11 @@ export function AgentHealthCard({
   onUndo,
 }: {
   agentId?: string;
-  onLoad: () => Promise<{ health: AgentHealth; reflections: AgentReflection[]; reflecting?: boolean }>;
+  onLoad: () => Promise<{ health: AgentHealth; reflections: AgentReflection[]; reflecting?: boolean; lastRun?: { status: string; note: string } | null }>;
   onFix: () => Promise<unknown>;
   onUndo: (reflectionId: string) => Promise<unknown>;
 }) {
-  const [data, setData] = useState<{ health: AgentHealth; reflections: AgentReflection[]; reflecting?: boolean } | null>(null);
+  const [data, setData] = useState<{ health: AgentHealth; reflections: AgentReflection[]; reflecting?: boolean; lastRun?: { status: string; note: string } | null } | null>(null);
   const [busy, setBusy] = useState<"fix" | "undo" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -165,7 +165,11 @@ export function AgentHealthCard({
       ) : (
         <Text style={styles.note}>It has not reflected yet. Its first reflection runs after it has worked with you.</Text>
       )}
-      {notice ? <Text style={styles.note}>{notice}</Text> : null}
+      {isFixing ? (
+        <Text style={styles.note}>Reflecting on the last few days. This takes a minute or two; you can leave this page.</Text>
+      ) : data.lastRun?.note || notice ? (
+        <Text style={styles.note}>{data.lastRun?.note ?? notice}</Text>
+      ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={styles.actions}>
         <Pressable

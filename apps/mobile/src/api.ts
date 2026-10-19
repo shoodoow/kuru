@@ -430,13 +430,19 @@ export type CoreClient = {
   /** `always`: this agent may take this action from now on without asking. */
   approveTool: (accountId: string, approvalId: string, always?: boolean) => Promise<ToolApproval[]>;
   listAllowances: (accountId: string) => Promise<ToolAllowance[]>;
-  agentHealth: (accountId: string, agentId: string) => Promise<{ health: AgentHealth; reflections: AgentReflection[]; reflecting?: boolean }>;
+  agentHealth: (
+    accountId: string,
+    agentId: string,
+  ) => Promise<{ health: AgentHealth; reflections: AgentReflection[]; reflecting?: boolean; lastRun?: { status: string; note: string; finishedAt: string } | null }>;
   /** Reflects now and saves what passes the checks; it takes about half a minute. */
-  reflectNow: (accountId: string, agentId: string) => Promise<AgentReflection & { health: AgentHealth }>;
+  /** Starts a reflection; it runs in the background, and health reports `reflecting` and then `lastRun`. */
+  reflectNow: (accountId: string, agentId: string) => Promise<{ status: "running"; note: string }>;
   undoReflection: (accountId: string, agentId: string, reflectionId: string) => Promise<{ undone: boolean }>;
   agentMemories: (accountId: string, agentId: string) => Promise<AgentMemoryFact[]>;
   /** Removes one fact for good, with the older versions it replaced. */
   forgetMemory: (accountId: string, agentId: string, memoryId: string) => Promise<{ removed: number }>;
+  /** Clears everything the agent keeps for itself; shared facts stay. */
+  forgetAllMemories: (accountId: string, agentId: string) => Promise<{ removed: number }>;
   agentRunning: (accountId: string, agentId: string) => Promise<AgentRunningWork>;
   stopAgentJob: (accountId: string, agentId: string, workerId: string) => Promise<{ stopped: boolean }>;
   removeAllowance: (accountId: string, allowanceId: string) => Promise<ToolAllowance[]>;
@@ -566,6 +572,8 @@ function buildCore(baseUrl: string, fetchImpl: typeof fetch): CoreClient {
     agentMemories: (accountId, agentId) => readJson(fetchImpl, `${baseUrl}/agents/${agentId}/memories?accountId=${accountId}`),
     forgetMemory: (accountId, agentId, memoryId) =>
       readJson(fetchImpl, `${baseUrl}/agents/${agentId}/memories/${memoryId}?accountId=${accountId}`, { method: "DELETE" }),
+    forgetAllMemories: (accountId, agentId) =>
+      readJson(fetchImpl, `${baseUrl}/agents/${agentId}/memories?accountId=${accountId}`, { method: "DELETE" }),
     agentRunning: (accountId, agentId) => readJson(fetchImpl, `${baseUrl}/agents/${agentId}/running?accountId=${accountId}`),
     stopAgentJob: (accountId, agentId, workerId) =>
       readJson(fetchImpl, `${baseUrl}/agents/${agentId}/workers/${workerId}/stop?accountId=${accountId}`, { method: "POST" }),

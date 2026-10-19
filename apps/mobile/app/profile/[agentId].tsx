@@ -47,6 +47,7 @@ export default function ProfileRoute() {
         stop: (workerId) => core.stopAgentJob(session.accountId.trim(), profile.id, workerId),
         memories: () => core.agentMemories(session.accountId.trim(), profile.id),
         forget: (memoryId) => core.forgetMemory(session.accountId.trim(), profile.id, memoryId),
+        forgetAll: () => core.forgetAllMemories(session.accountId.trim(), profile.id),
       }}
     />
     <Toast />

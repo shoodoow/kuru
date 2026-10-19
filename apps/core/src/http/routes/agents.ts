@@ -6,7 +6,7 @@ import { buildInstructions } from "../../prompt/build-instructions.js";
 import { RoomCapacityError } from "../../rooms/rooms.js";
 import { hireSubagent, listTeam, stopWorker } from "../../rooms/subagents.js";
 import { runningWork } from "../../rooms/running-work.js";
-import { agentMemoryPage, forgetMemory } from "../../memory/agent-memory-page.js";
+import { agentMemoryPage, forgetAllMemories, forgetMemory } from "../../memory/agent-memory-page.js";
 import { getAgent, updateAgentFlags } from "../../roster/roster.js";
 import {
   createOwnRoutine,
@@ -31,33 +31,45 @@ export function agentsRoutes(ctx: AppContext, guard: Guard): Router {
     }
     res.json(updated);
   });
-  // Health: measured by code; "Fix now" reflects at once; each reflection can be undone.
+  // Health: measured by code; "Reflect now" starts a reflection; each one can be undone.
+  // A reflection reads days of chat and takes minutes, longer than a phone or the
+  // tunnel waits on one request; it runs in the background and the card polls health.
   const activeReflections = new Set<string>();
+  const lastRuns = new Map<string, { status: string; note: string; finishedAt: string }>();
   agents.get("/:agentId/health", guard, async (req, res) => {
     const accountId = queryAccountId(req);
     const agentId = pathParam(req, "agentId");
     const [health, reflections] = await Promise.all([measureHealth(ctx.db, accountId, agentId), recentReflections(ctx.db, accountId, agentId, 5)]);
-    const reflecting = activeReflections.has(`${accountId}:${agentId}`);
-    res.json({ health, reflections, reflecting });
+    const key = `${accountId}:${agentId}`;
+    res.json({ health, reflections, reflecting: activeReflections.has(key), lastRun: lastRuns.get(key) ?? null });
   });
   agents.post("/:agentId/reflect", guard, async (req, res) => {
     const accountId = queryAccountId(req);
     const agentId = pathParam(req, "agentId");
     const key = `${accountId}:${agentId}`;
+    if (!(await getAgent(ctx.db, accountId, agentId))) {
+      res.status(404).json({ error: "Agent not found." });
+      return;
+    }
     if (activeReflections.has(key)) {
-      res.status(409).json({ error: "A reflection is already running for this agent.", status: "running" });
+      res.status(202).json({ status: "running", note: "A reflection is already running for this agent." });
       return;
     }
     activeReflections.add(key);
-    try {
-      // Asked for by the person: read at least the last 3 days, not only what came after the last run.
-      const result = await reflectAgent(ctx.db, accountId, agentId, { dryRun: (req.body ?? {}).dryRun === true, lookBackMs: 3 * 24 * 60 * 60 * 1000 });
-      res.json(result);
-    } catch (error) {
-      res.status(502).json({ error: error instanceof Error ? `The reflection could not run: ${error.message.slice(0, 200)}` : "The reflection could not run." });
-    } finally {
-      activeReflections.delete(key);
-    }
+    lastRuns.delete(key);
+    res.status(202).json({ status: "running", note: "Reflecting. This takes a minute or two." });
+    // Asked for by the person: read at least the last 3 days, not only what came after the last run.
+    void reflectAgent(ctx.db, accountId, agentId, { dryRun: (req.body ?? {}).dryRun === true, lookBackMs: 3 * 24 * 60 * 60 * 1000 })
+      .then((result) => lastRuns.set(key, { status: result.status, note: result.note, finishedAt: new Date().toISOString() }))
+      .catch((error: unknown) => {
+        logger.warn({ err: error, accountId, agentId }, "reflection failed");
+        lastRuns.set(key, {
+          status: "failed",
+          note: error instanceof Error ? `The reflection could not run: ${error.message.slice(0, 200)}` : "The reflection could not run.",
+          finishedAt: new Date().toISOString(),
+        });
+      })
+      .finally(() => activeReflections.delete(key));
   });
   agents.post("/:agentId/reflections/:reflectionId/undo", guard, async (req, res) => {
     const undone = await undoReflection(ctx.db, queryAccountId(req), pathParam(req, "reflectionId"));
@@ -75,6 +87,15 @@ export function agentsRoutes(ctx: AppContext, guard: Guard): Router {
       return;
     }
     res.json(facts);
+  });
+  // Clean start: everything the agent keeps for itself; shared facts about the person stay.
+  agents.delete("/:agentId/memories", guard, async (req, res) => {
+    const gone = await forgetAllMemories(ctx.db, queryAccountId(req), pathParam(req, "agentId"));
+    if (!gone) {
+      res.status(404).json({ error: "Agent not found." });
+      return;
+    }
+    res.json(gone);
   });
   agents.delete("/:agentId/memories/:memoryId", guard, async (req, res) => {
     const gone = await forgetMemory(ctx.db, queryAccountId(req), pathParam(req, "agentId"), pathParam(req, "memoryId"));

@@ -257,9 +257,12 @@ function MemoryReaderModal({
 export function AgentMemoryCard({
   onLoad,
   onForget,
+  onForgetAll,
 }: {
   onLoad: () => Promise<AgentMemoryFact[]>;
   onForget: (memoryId: string) => Promise<unknown>;
+  /** Clears everything the agent keeps for itself; shared facts stay. Left out, the button is not shown. */
+  onForgetAll?: () => Promise<unknown>;
 }) {
   const [facts, setFacts] = useState<AgentMemoryFact[] | null>(null);
   const [open, setOpen] = useState(false);
@@ -270,11 +273,14 @@ export function AgentMemoryCard({
   const [readerFact, setReaderFact] = useState<AgentMemoryFact | null>(null);
   const [isSwipingRow, setIsSwipingRow] = useState(false);
 
+  // The screen passes a new loader on every render; a ref keeps this from reloading on every render.
+  const loader = useRef(onLoad);
+  loader.current = onLoad;
   const load = useCallback(() => {
-    void onLoad()
+    void loader.current()
       .then(setFacts)
       .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Memory did not load."));
-  }, [onLoad]);
+  }, []);
 
   useEffect(load, [load]);
 
@@ -308,6 +314,27 @@ export function AgentMemoryCard({
           },
         },
       ]
+    );
+  };
+
+  const forgetAll = () => {
+    if (!onForgetAll) return;
+    const own = facts?.filter((fact) => fact.scope === "agent").length ?? 0;
+    Alert.alert(
+      "Remove all of its memory?",
+      `The agent forgets all ${own} rules and facts it keeps for itself and starts fresh from its instructions. Shared facts about you stay. This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove all",
+          style: "destructive",
+          onPress: () => {
+            void onForgetAll()
+              .then(() => setFacts((rows) => rows?.filter((row) => row.scope === "shared") ?? rows))
+              .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Could not remove."));
+          },
+        },
+      ],
     );
   };
 
@@ -362,6 +389,11 @@ export function AgentMemoryCard({
               <Text style={styles.sheetSub}>
                 {totalCount} memories · Swipe right to remove
               </Text>
+              {onForgetAll && totalCount - sharedCount > 0 ? (
+                <Pressable accessibilityRole="button" onPress={forgetAll} hitSlop={8}>
+                  <Text style={styles.removeAll}>Remove all of its own</Text>
+                </Pressable>
+              ) : null}
             </View>
             <CircleButton label="Close" onPress={() => setOpen(false)}>
               <IconClose />
@@ -490,6 +522,7 @@ function createStyles(theme: ColorPalette) {
     sheetHeaderTitles: { gap: 2 },
     sheetTitle: { color: theme.text, fontSize: 20, fontWeight: "700" },
     sheetSub: { color: theme.muted, fontSize: 13 },
+    removeAll: { color: theme.danger, fontSize: 13, fontWeight: "600", marginTop: 4 },
     searchBar: {
       flexDirection: "row",
       alignItems: "center",

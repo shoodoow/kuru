@@ -96,6 +96,7 @@ export function BotInfoScreen({
     stop: (workerId: string) => Promise<unknown>;
     memories: () => Promise<AgentMemoryFact[]>;
     forget: (memoryId: string) => Promise<unknown>;
+    forgetAll?: () => Promise<unknown>;
   };
   profile: RosterAgent;
   providers: ProviderSetting[];
@@ -286,6 +287,7 @@ function InfoPage({
     stop: (workerId: string) => Promise<unknown>;
     memories: () => Promise<AgentMemoryFact[]>;
     forget: (memoryId: string) => Promise<unknown>;
+    forgetAll?: () => Promise<unknown>;
   };
   profile: RosterAgent;
   providers: ProviderSetting[];
@@ -582,7 +584,7 @@ function InfoPage({
             </Pressable>
             {health ? <AgentHealthCard key={profile.id} agentId={profile.id} onLoad={health.load} onFix={health.fix} onUndo={health.undo} /> : null}
             {work ? <AgentRunningCard key={`run-${profile.id}`} onLoad={work.running} onStop={work.stop} /> : null}
-            {work ? <AgentMemoryCard key={`mem-${profile.id}`} onLoad={work.memories} onForget={work.forget} /> : null}
+            {work ? <AgentMemoryCard key={`mem-${profile.id}`} onLoad={work.memories} onForget={work.forget} onForgetAll={work.forgetAll} /> : null}
             <Text style={styles.section}>Routines</Text>
             <View style={styles.group}>
               {routines.length === 0 ? (
