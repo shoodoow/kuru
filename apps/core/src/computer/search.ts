@@ -1,7 +1,34 @@
 import { exec } from "../linux/linux.js";
 
-export type SearchResult = { title: string; url: string; snippet: string };
+export type SearchResult = { title: string; url: string; snippet: string; date?: string };
 export type SearchProvider = "brave" | "exa" | "duckduckgo";
+
+/** Kinds of page a search can be narrowed to (Exa's categories). */
+export const SEARCH_CATEGORIES = ["news", "github", "tweet", "research paper", "pdf", "personal site"] as const;
+export type SearchCategory = (typeof SEARCH_CATEGORIES)[number];
+
+/**
+ * What narrows a search: how recent, which sites, which kind of page.
+ * Why: without them a worker that needed "posts from the last two days on
+ * reddit.com and upwork.com" opened the sites in the browser one page per
+ * step (74 page visits in one 133-step run) instead of asking search for them.
+ */
+export type SearchFilters = { sinceDays?: number; sites?: string[]; category?: SearchCategory };
+
+/** Brave's freshness window for a number of days. */
+export function braveFreshness(days: number): string {
+  if (days <= 1) return "pd";
+  if (days <= 7) return "pw";
+  if (days <= 31) return "pm";
+  return "py";
+}
+
+/** The query with `site:` terms for engines that take no site list. */
+export function withSites(query: string, sites: string[] | undefined): string {
+  if (!sites || sites.length === 0) return query;
+  const terms = sites.map((site) => `site:${site}`);
+  return `${query} ${terms.length === 1 ? terms[0] : `(${terms.join(" OR ")})`}`;
+}
 
 export type WebSearchOutcome = {
   provider: SearchProvider;
@@ -83,7 +110,7 @@ export async function webSearch(
   accountId: string,
   profile: string,
   query: string,
-  input: { numResults?: number; braveKey?: string | null; exaKey?: string | null } = {},
+  input: { numResults?: number; braveKey?: string | null; exaKey?: string | null; filters?: SearchFilters } = {},
 ): Promise<WebSearchOutcome> {
   const clean = query.trim().slice(0, 500);
   if (!clean) throw new Error("A search query is required.");
@@ -132,10 +159,12 @@ async function runProvider(
   provider: SearchProvider,
   query: string,
   count: number,
-  input: { braveKey?: string | null; exaKey?: string | null },
+  input: { braveKey?: string | null; exaKey?: string | null; filters?: SearchFilters },
 ): Promise<WebSearchOutcome> {
+  const filters = input.filters ?? {};
   if (provider === "brave") {
-    const raw = await keyedRequest(`${BRAVE_URL}?q=${encodeURIComponent(query)}&count=${count}`, {
+    const freshness = filters.sinceDays ? `&freshness=${braveFreshness(filters.sinceDays)}` : "";
+    const raw = await keyedRequest(`${BRAVE_URL}?q=${encodeURIComponent(withSites(query, filters.sites))}&count=${count}${freshness}`, {
       headers: { "X-Subscription-Token": input.braveKey ?? "" },
     });
     const error = parseApiError(raw);
@@ -150,6 +179,9 @@ async function runProvider(
         numResults: count,
         type: "auto",
         livecrawl: "fallback",
+        ...(filters.sinceDays ? { startPublishedDate: new Date(Date.now() - filters.sinceDays * 86_400_000).toISOString() } : {}),
+        ...(filters.sites && filters.sites.length > 0 ? { includeDomains: filters.sites } : {}),
+        ...(filters.category ? { category: filters.category } : {}),
         contents: {
           text: { maxCharacters: 2_500 },
           summary: { query },
@@ -160,7 +192,7 @@ async function runProvider(
     const error = parseApiError(raw);
     return { provider, results: parseExaResponse(raw).slice(0, count), error };
   }
-  const raw = await curlGet(accountId, profile, `${DUCK_URL}?q=${encodeURIComponent(query)}`);
+  const raw = await curlGet(accountId, profile, `${DUCK_URL}?q=${encodeURIComponent(withSites(query, filters.sites))}`);
   const results = parseDuckLite(raw).slice(0, count);
   if (results.length === 0 && isDuckBotCheck(raw)) {
     return { provider, results, error: "DuckDuckGo answered with a bot check", blocked: true };
@@ -212,12 +244,13 @@ export function parseApiError(raw: string): string | undefined {
 
 export function parseBraveResponse(raw: string): SearchResult[] {
   try {
-    const data = JSON.parse(raw) as { web?: { results?: { title?: string; url?: string; description?: string }[] } };
+    const data = JSON.parse(raw) as { web?: { results?: { title?: string; url?: string; description?: string; age?: string }[] } };
     return (data.web?.results ?? [])
       .map((row) => ({
         title: String(row.title ?? "Untitled").slice(0, 200),
         url: String(row.url ?? ""),
         snippet: String(row.description ?? "").slice(0, 500),
+        ...(typeof row.age === "string" && row.age ? { date: row.age.slice(0, 40) } : {}),
       }))
       .filter((row) => row.url.startsWith("http"));
   } catch {
@@ -234,6 +267,7 @@ export function parseExaResponse(raw: string): SearchResult[] {
         text?: string;
         highlights?: string[];
         summary?: string;
+        publishedDate?: string;
       }[];
     };
     return (data.results ?? [])
@@ -261,6 +295,7 @@ export function parseExaResponse(raw: string): SearchResult[] {
           title: String(row.title ?? "Untitled").slice(0, 200),
           url: String(row.url ?? ""),
           snippet,
+          ...(typeof row.publishedDate === "string" && row.publishedDate ? { date: row.publishedDate.slice(0, 10) } : {}),
         };
       })
       .filter((row) => row.url.startsWith("http"));

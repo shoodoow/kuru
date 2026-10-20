@@ -29,7 +29,9 @@ const FILE_COMMANDS = new Set(["cat", "head", "tail", "sed", "less", "more", "nl
  */
 export function sourceKeys(name: string, input: Record<string, unknown>): string[] {
   if (name === "read" && typeof input.path === "string") return [`file:${normalizePath(input.path)}`];
-  if (name === "web_fetch" && typeof input.url === "string") return [`url:${input.url}`];
+  // Opening a page in the browser reads it like a fetch does. Why: one run opened
+  // the same job page 6 times and the same subreddit 4 times in 133 steps.
+  if ((name === "web_fetch" || name === "browser_navigate") && typeof input.url === "string") return [`url:${normalizeUrl(input.url)}`];
   if (name === "bash" && typeof input.command === "string") {
     if (!isReadOnlyShell(input.command)) return [];
     return filesInCommand(input.command).map((path) => `file:${path}`);
@@ -41,6 +43,11 @@ export function sourceKeys(name: string, input: Record<string, unknown>): string
     return [`call:${name}:${JSON.stringify(kept)}`];
   }
   return [];
+}
+
+/** One page under one key: no fragment, no trailing slash. */
+function normalizeUrl(url: string): string {
+  return url.trim().replace(/#.*$/, "").replace(/\/+$/, "").replace(/\/+(\?)/, "$1");
 }
 
 function normalizePath(path: string): string {
@@ -72,8 +79,11 @@ function filesInCommand(command: string): string[] {
  */
 export class ReadCounter {
   private readonly counts = new Map<string, number>();
+  /** The page the browser last opened, so acting on it can clear its count. */
+  private page: string | null = null;
 
-  record(keys: string[]): { action: "run" } | { action: "remind" | "refuse"; source: string; times: number } {
+  record(keys: string[], tool?: string): { action: "run" } | { action: "remind" | "refuse"; source: string; times: number } {
+    if (tool === "browser_navigate" && keys[0]) this.page = keys[0];
     let worst: { source: string; times: number } | null = null;
     for (const key of keys) {
       const times = (this.counts.get(key) ?? 0) + 1;
@@ -87,6 +97,14 @@ export class ReadCounter {
   /** A file the worker just changed may be read again freely. */
   changed(paths: string[]): void {
     for (const path of paths) this.counts.delete(`file:${normalizePath(path)}`);
+  }
+
+  /**
+   * The worker clicked or typed on the open page, so the page is not what it read before.
+   * Why: posting a comment and opening the thread again to see it is not a re-read.
+   */
+  actedOnPage(): void {
+    if (this.page) this.counts.delete(this.page);
   }
 }
 

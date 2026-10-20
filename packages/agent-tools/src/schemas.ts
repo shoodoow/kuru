@@ -504,6 +504,11 @@ export const computerMemoryInputSchema = z.object({
 export const webSearchInputSchema = z.object({
   query: z.string().min(1),
   numResults: z.number().int().min(1).max(20).optional(),
+  /** Only pages published in the last N days. */
+  sinceDays: z.number().int().min(1).max(365).optional(),
+  /** Only these sites, as bare domains ("reddit.com"). */
+  sites: z.array(z.string().min(3).max(100)).max(10).optional(),
+  category: z.enum(["news", "github", "tweet", "research paper", "pdf", "personal site"]).optional(),
 });
 
 export const globInputSchema = z.object({
@@ -666,7 +671,7 @@ export const browserScreenshotInputSchema = z.object({
 });
 
 /** The browser actions one batch step may take. */
-export const browserBatchActions = ["click", "fill", "type", "select", "check", "set_value", "press_key", "scroll", "hover", "wait_for"] as const;
+export const browserBatchActions = ["click", "click_at", "fill", "type", "select", "check", "set_value", "press_key", "scroll", "hover", "wait_for"] as const;
 
 export const browserBatchInputSchema = z.object({
   /** Up to twelve actions, run in order; the batch stops at the first that fails. */
@@ -684,6 +689,8 @@ export const browserBatchInputSchema = z.object({
         direction: z.enum(["up", "down", "left", "right"]).optional(),
         pixels: z.number().int().min(50).max(20000).optional(),
         gone: z.string().max(200).optional(),
+        x: z.number().int().min(0).max(10000).optional(),
+        y: z.number().int().min(0).max(10000).optional(),
       }),
     )
     .min(1)

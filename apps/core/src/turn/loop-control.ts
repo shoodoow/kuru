@@ -169,8 +169,11 @@ export function asksInPlainText(text: string): boolean {
   return tail.includes("?") || /[:：]\s*$/.test(tail);
 }
 
-/** Tool-call markup that some models write as plain text: <arg_key>, <tool_call>, <|tool_call_begin|>, <function=…>, [TOOL_CALLS]. */
-const TOOL_MARKUP = /<\/?(?:arg_key|arg_value|tool_call|tool_calls|function_call|invoke|parameter)\b|<\|[a-z_]*tool[a-z_]*\|>|<function=|\[TOOL_CALLS\]/i;
+/**
+ * Tool-call markup that some models write as plain text: <arg_key>, <tool_call>, <|tool_call_begin|>, <function=…>, [TOOL_CALLS],
+ * and DeepSeek's own with full-width bars: <｜DSML｜ calls>, <｜tool▁calls▁begin｜>.
+ */
+const TOOL_MARKUP = /<\/?(?:arg_key|arg_value|tool_call|tool_calls|function_call|invoke|parameter)\b|<\|[a-z_]*tool[a-z_]*\|>|<function=|\[TOOL_CALLS\]|<\/?[｜|]\s*(?:DSML|tool)/i;
 /** A tool name in snake_case followed, within a few words, by JSON arguments: `spawn_worker {"task": …`. */
 const TOOL_WITH_ARGS = /(^|[\s.!?:;,)])([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b[^\n{]{0,40}\{\s*"/;
 

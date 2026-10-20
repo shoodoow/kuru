@@ -30,3 +30,15 @@ describe("deferredToolsBlock", () => {
     expect(deferredToolsBlock(gates, loaders, new Set(["family:browser", "plugin:resend"]))).toBe("");
   });
 });
+
+describe("deferredToolsBlock for a big plugin", () => {
+  it("lists its names on one line with the shared prefix said once", () => {
+    const names = Array.from({ length: 30 }, (_, index) => `resend_tool-${index}`);
+    const gates = new Map(names.map((name) => [name, "plugin:resend"]));
+    const loaders = new Map([["resend_load_tools", "plugin:resend"]]);
+    const block = deferredToolsBlock(gates, loaders, new Set());
+    expect(block).toContain("each name below starts with resend_");
+    expect(block).toContain("tool-0, tool-1, tool-2");
+    expect(block).not.toContain("\nresend_tool-0\n");
+  });
+});

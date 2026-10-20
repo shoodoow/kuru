@@ -10,6 +10,9 @@ import { exec } from "../../linux/linux.js";
 import { writeFile } from "../../computer/computer.js";
 import { RESULT_INLINE_CHARS, ReadCounter, cutResult, resultText, sourceKeys, writtenPaths } from "./result-guard.js";
 
+/** Browser tools that change the open page. */
+const PAGE_ACTIONS = /^browser_(click|click_at|fill|type|select|press_key|upload|drag|batch|set_value)$/;
+
 /** Same tool + byte-identical input this many times in a row = a loop, not work. */
 export const DOOM_LOOP_THRESHOLD = 3;
 /**
@@ -108,7 +111,7 @@ export function wrapToolExecute(
     }
     // A worker that keeps reading the same file or listing has lost track; told once, then not run.
     if (mode === "worker") {
-      const reread = (ctx.readCounter ??= new ReadCounter()).record(sourceKeys(name, input ?? {}));
+      const reread = (ctx.readCounter ??= new ReadCounter()).record(sourceKeys(name, input ?? {}), name);
       if (reread.action === "refuse") {
         const note = prompt("worker-rules", "reread-refuse", { source: reread.source, times: reread.times - 1 });
         await ctx.traceSession?.emit({ type: "tool.call.finish", toolCallId, name, input, outputPreview: tracePreview(note), durationMs: 0, error: "reread" });
@@ -208,6 +211,7 @@ export function wrapToolExecute(
         durationMs,
       });
       if (mode === "worker") ctx.readCounter?.changed(writtenPaths(name, input ?? {}));
+      if (mode === "worker" && PAGE_ACTIONS.test(name) && !failedResult) ctx.readCounter?.actedOnPage();
       if (mode === "worker" && !failedResult) result = await keepSmall(ctx, toolCallId, result);
       if (rereadNote) return typeof result === "string" ? `${rereadNote}\n\n${result}` : { note: rereadNote, result };
       return result;

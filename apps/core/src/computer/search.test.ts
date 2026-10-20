@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  braveFreshness,
+  withSites,
   clearSearchOutage,
   isDuckBotCheck,
   noteSearchOutage,
@@ -79,5 +81,25 @@ describe("web search providers", () => {
     expect(isSearchResultsPage("https://www.mojeek.com/search?q=x")).toBe(true);
     expect(isSearchResultsPage("https://www.google.com/maps/place/x")).toBe(false);
     expect(isSearchResultsPage("https://magnaflow.com/pages/about?ref=1")).toBe(false);
+  });
+});
+
+describe("search filters", () => {
+  it("adds site terms for engines without a site list", () => {
+    expect(withSites("configurator", ["reddit.com"])).toBe("configurator site:reddit.com");
+    expect(withSites("configurator", ["reddit.com", "upwork.com"])).toBe("configurator (site:reddit.com OR site:upwork.com)");
+    expect(withSites("configurator", undefined)).toBe("configurator");
+  });
+
+  it("maps days to Brave's freshness windows", () => {
+    expect(braveFreshness(1)).toBe("pd");
+    expect(braveFreshness(2)).toBe("pw");
+    expect(braveFreshness(30)).toBe("pm");
+    expect(braveFreshness(200)).toBe("py");
+  });
+
+  it("keeps Exa's publish date", () => {
+    const rows = parseExaResponse(JSON.stringify({ results: [{ title: "T", url: "https://a.com", text: "body", publishedDate: "2026-10-19T08:00:00.000Z" }] }));
+    expect(rows[0]?.date).toBe("2026-10-19");
   });
 });

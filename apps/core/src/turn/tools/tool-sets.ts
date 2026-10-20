@@ -90,6 +90,17 @@ export function activeWorkerTools(
 
 /** Most tool names one deferred-tools block lists, so a huge plugin cannot flood the prompt. */
 const DEFERRED_NAMES_MAX = 300;
+/** A plugin with more deferred tools than this is listed on one line, its shared prefix said once. */
+const COMPACT_NAMES_FROM = 20;
+
+/** The start every name shares up to and including its last `_`, or "" when they share none. */
+function sharedPrefix(names: string[]): string {
+  if (names.length === 0) return "";
+  let prefix = names[0] ?? "";
+  for (const name of names) while (!name.startsWith(prefix)) prefix = prefix.slice(0, -1);
+  const cut = prefix.lastIndexOf("_");
+  return cut > 0 ? prefix.slice(0, cut + 1) : "";
+}
 
 /**
  * The names of a worker's tools that are not loaded yet, grouped by the tool that loads them.
@@ -123,7 +134,15 @@ export function deferredToolsBlock(
     }
     const shown = names.slice(0, Math.max(0, budget));
     budget -= shown.length;
-    lines.push(`${set.replace(/^plugin:/, "")}: load with ${loader} {"tools": [exact names]}`, ...shown);
+    const prefix = sharedPrefix(shown);
+    if (shown.length > COMPACT_NAMES_FROM && prefix) {
+      // One line, the shared prefix said once. Why: a Reddit job carried the 140
+      // names of the email plugin, one per line, on each of its 125 steps.
+      lines.push(`${set.replace(/^plugin:/, "")}: load with ${loader} {"tools": [exact names]}; each name below starts with ${prefix}`);
+      lines.push(shown.map((name) => name.slice(prefix.length)).join(", "));
+    } else {
+      lines.push(`${set.replace(/^plugin:/, "")}: load with ${loader} {"tools": [exact names]}`, ...shown);
+    }
     if (shown.length < names.length) lines.push(`(${names.length - shown.length} more; ${loader} with "search" finds them)`);
   }
   return prompt("worker-rules", "deferred-tools", { list: lines.join("\n") });

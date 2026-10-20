@@ -74,3 +74,20 @@ describe("cutResult", () => {
     expect(cut).not.toContain("MIDDLE");
   });
 });
+
+describe("page visits", () => {
+  it("counts opening a page in the browser like fetching it, one key per page", () => {
+    const a = sourceKeys("browser_navigate", { url: "https://www.upwork.com/jobs/abc/#top" });
+    expect(a).toEqual(sourceKeys("web_fetch", { url: "https://www.upwork.com/jobs/abc" }));
+  });
+
+  it("forgets a page's visits once the worker acted on it", () => {
+    const counter = new ReadCounter();
+    const keys = sourceKeys("browser_navigate", { url: "https://www.reddit.com/r/selfhosted/comments/1" });
+    counter.record(keys, "browser_navigate");
+    counter.record(keys, "browser_navigate");
+    expect(counter.record(keys, "browser_navigate").action).toBe("remind");
+    counter.actedOnPage();
+    expect(counter.record(keys, "browser_navigate").action).toBe("run");
+  });
+});

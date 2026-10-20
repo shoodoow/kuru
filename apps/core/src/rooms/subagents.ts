@@ -10,6 +10,7 @@ import {
 import { workerToolNames as agentWorkerToolNames } from "@kuru/agent-tools";
 import { generateText, isStepCount, NoSuchToolError, type ModelMessage } from "ai";
 import { activeWorkerTools, deferredToolsBlock, pluginToolKey } from "../turn/tools/tool-sets.js";
+import { stripLeakedToolCall } from "../turn/loop-control.js";
 import { gateToolFamilies, startNamedPlugins, startingFamilies } from "./worker-tool-families.js";
 import { isNoImageInputError, learnCapability, modelCapabilities } from "../model/capabilities.js";
 import { imageDescriber, type ImageDescriber } from "../turn/describe-image.js";
@@ -41,6 +42,8 @@ import { repairToolInput } from "../turn/tools/repair-input.js";
 import {
   LOOK_ONLY_NUDGE_AFTER,
   LOOK_ONLY_NUDGES_BEFORE_STOP,
+  SINGLE_CALL_NUDGE_AFTER,
+  SINGLE_CALL_NUDGES_MAX,
   WORKER_SEGMENT_STEPS,
   WORKER_STEP_CEILING,
   WORKER_WALL_MS,
@@ -62,6 +65,7 @@ import {
   estimateTokens,
   StuckWatch,
   isLookOnlyStep,
+  isSingleSmallCallStep,
   resumableTranscript,
   transcriptForStorage,
   splitForSummary,
@@ -1501,6 +1505,8 @@ export async function runWorker(
     let recentToolResults: unknown[] = [];
     let lookOnlyStreak = 0;
     let lookNudges = 0;
+    let singleCallStreak = 0;
+    let singleCallNudges = 0;
     let lastInputTokens = 0;
     let lastToolCallSignature = "";
     let duplicateCallCount = 0;
@@ -1636,6 +1642,7 @@ export async function runWorker(
               duplicateCallCount = 0;
             }
             if (currentCalls.length > 0) lookOnlyStreak = isLookOnlyStep(currentCalls) ? lookOnlyStreak + 1 : 0;
+            if (currentCalls.length > 0) singleCallStreak = isSingleSmallCallStep(currentCalls) ? singleCallStreak + 1 : 0;
             stepLog.push({
               text: step.text,
               reasoningText: (step as { reasoningText?: string }).reasoningText,
@@ -1817,6 +1824,11 @@ export async function runWorker(
           }
           lookOnlyStreak = 0;
         }
+        if (singleCallStreak >= SINGLE_CALL_NUDGE_AFTER && singleCallNudges < SINGLE_CALL_NUDGES_MAX) {
+          singleCallNudges += 1;
+          say(prompt("worker-rules", "combine-steps", { steps: singleCallStreak, tokens: Math.max(1, Math.round(lastInputTokens / 1000)) }));
+          singleCallStreak = 0;
+        }
         if (!warnedWrapUp && WORKER_STEP_CEILING - totalSteps <= WRAP_UP_WARNING_STEPS) {
           warnedWrapUp = true;
           say(prompt("worker-rules", "wrap-up", { steps: WORKER_STEP_CEILING - totalSteps }));
@@ -1849,6 +1861,10 @@ export async function runWorker(
         .catch(noted("Saving a stopped worker's usage"));
       throw error;
     }
+    // A last step can write its tool call as text (the closing step has no tools);
+    // that markup is no report. Why: one stopped run handed its agent nothing but
+    // "<｜DSML｜ calls> <｜DSML｜ invoke name="bash">…" as its result.
+    finalText = stripLeakedToolCall(finalText);
     await workerTrace.emit({
       type: "run.finish",
       text: finalText,

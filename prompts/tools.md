@@ -77,7 +77,7 @@ Replace your worklist with pending, in_progress and completed items. Use it on m
 Read your saved worklist.
 
 # web_search
-Search the public web. Returns title, URL and a snippet, which is often enough to answer. After one empty result, fetch the closest URL you have or report what you found; rewording the same query rarely helps.
+Search the public web. Returns title, URL, date when known, and a snippet with the page's main text, which is often enough to answer without opening the page. Narrow it instead of browsing: `sinceDays` for recent pages only, `sites` for chosen sites (["reddit.com", "upwork.com"]), `category` for news, github, tweet, research paper, pdf or personal site. Several searches can go in one step. After one empty result, fetch the closest URL you have or report what you found; rewording the same query rarely helps.
 
 # web_fetch
 Read one public page as text when you have its URL. Returns title, text and links. Long pages are cut; a worker can read the whole thing.
@@ -250,7 +250,7 @@ Accept or dismiss a JavaScript alert, confirm or prompt.
 Look at the page as a picture. Use it only when the tree does not tell you what you need: a chart, an image, a layout that looks wrong, a canvas. It costs far more than a snapshot. `annotate: true` numbers every control on the picture with its ref ([12] is `e12`), so you can click what you see by ref instead of guessing a position.
 
 # browser_batch
-Several page actions in one call, run in order, stopping at the first that fails. Use it for fields you can already see, not to click through a menu you have not opened yet: fill a whole form and submit it, or open a dropdown and pick an option. Each step is `{ action, ... }` with the same fields as the single tool: `click` (uid), `fill` (uid, value), `type` (uid, text, enter), `select` (uid, value), `check` (uid, checked), `set_value` (field, value), `press_key` (key), `scroll` (direction, pixels), `hover` (uid), `wait_for` (text or gone). Use refs from your latest snapshot; take a snapshot afterwards to check the result. One batch saves the steps that one call per field would cost.
+Several page actions in one call, run in order, stopping at the first that fails. Use it for fields you can already see, not to click through a menu you have not opened yet: fill a whole form and submit it, or open a dropdown and pick an option. Each step is `{ action, ... }` with the same fields as the single tool: `click` (uid), `fill` (uid, value), `type` (uid, text, enter), `select` (uid, value), `check` (uid, checked), `set_value` (field, value), `press_key` (key), `scroll` (direction, pixels), `hover` (uid), `wait_for` (text or gone). `click_at` (x, y) clicks a spot on the page. Use refs from your latest snapshot. The result ends with what changed on the page, so you need no snapshot afterwards to check it. One batch saves the steps that one call per field would cost: open a box, type, submit and see the result in one or two calls.
 
 # set_team_brief
 Write or replace your team's brief: the goal, each teammate's part, the order work moves in (and who sends it back to whom), where files are kept, what "done" means. Every teammate sees it on every turn, so this is how the whole team stays on the same page.

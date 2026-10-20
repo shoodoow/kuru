@@ -22,6 +22,17 @@ export const LOOK_ONLY_NUDGE_AFTER = 8;
  * the report it writes instead can be continued, so no work is lost.
  */
 export const LOOK_ONLY_NUDGES_BEFORE_STOP = 2;
+/**
+ * Steps in a row that each made one small call before the worker is told to combine them.
+ * Why: every step resends the whole conversation (40-60k tokens), and one
+ * Reddit job spent 125 steps at one click, fill or check each, 5.8M tokens for
+ * four comments. The same work fits in a quarter of the steps when known
+ * sequences go in one browser_batch and independent calls share a step.
+ */
+export const SINGLE_CALL_NUDGE_AFTER = 4;
+/** Most times one run is told to combine its steps; past that, telling again only adds text. */
+export const SINGLE_CALL_NUDGES_MAX = 3;
+
 /** How much of what a collapsed step returned stays in view. */
 const COLLAPSED_RESULT_CHARS = 160;
 /** Steps left when the worker is warned the ceiling is near. */
@@ -157,6 +168,17 @@ export function isReadOnlyShell(command: string): boolean {
  * True when one finished step only looked at things.
  * Input: the step's tool calls. Output: false for a step that wrote, ran, or clicked.
  */
+/**
+ * A step that made one small call: one page action, one page read, one fetch or search.
+ * A shell command is never small here: one command can do a whole job.
+ */
+export function isSingleSmallCallStep(calls: { name: string }[]): boolean {
+  if (calls.length !== 1) return false;
+  const name = calls[0]?.name ?? "";
+  if (name === "browser_batch") return false;
+  return name.startsWith("browser_") || name === "web_fetch" || name === "web_search" || name === "read" || name === "glob" || name === "grep";
+}
+
 export function isLookOnlyStep(calls: { name: string; input: unknown }[]): boolean {
   if (calls.length === 0) return false;
   return calls.every((call) => {

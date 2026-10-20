@@ -13,7 +13,7 @@ import {
   writeFile,
 } from "./computer.js";
 import { expandHome, globFiles, grepFiles } from "./find.js";
-import { webSearch } from "./search.js";
+import { SEARCH_CATEGORIES, webSearch, type SearchFilters } from "./search.js";
 import { webFetch } from "./web.js";
 import { openOnScreen, runBrowserTool } from "./browser-bridge.js";
 import { memoryStatus, releaseMemory, requestMemory } from "../linux/linux.js";
@@ -125,7 +125,9 @@ export function linuxToolExecutes(
     web_search: async (input) => {
       const query = String(input.query);
       const numResults = typeof input.numResults === "number" ? input.numResults : undefined;
-      const fingerprint = query.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 200);
+      // The same words narrowed another way (other sites, another window) are a new search.
+      const narrowed = JSON.stringify([input.sinceDays ?? null, input.sites ?? null, input.category ?? null]);
+      const fingerprint = `${query.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 200)} ${narrowed}`;
       const repeats = (seenQueries.get(fingerprint) ?? 0) + 1;
       seenQueries.set(fingerprint, repeats);
       if (repeats >= 3) {
@@ -139,7 +141,17 @@ export function linuxToolExecutes(
         toolKeyFor(db, accountId, "brave").catch(() => null),
         toolKeyFor(db, accountId, "exa").catch(() => null),
       ]);
-      const searched = await webSearch(accountId, profile, query, { numResults, braveKey, exaKey });
+      const sites = Array.isArray(input.sites)
+        ? input.sites.map((site) => String(site).trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "").toLowerCase()).filter(Boolean)
+        : undefined;
+      const filters: SearchFilters = {
+        ...(typeof input.sinceDays === "number" ? { sinceDays: input.sinceDays } : {}),
+        ...(sites && sites.length > 0 ? { sites } : {}),
+        ...(typeof input.category === "string" && (SEARCH_CATEGORIES as readonly string[]).includes(input.category)
+          ? { category: input.category as SearchFilters["category"] }
+          : {}),
+      };
+      const searched = await webSearch(accountId, profile, query, { numResults, braveKey, exaKey, filters });
       if (searched.results.length === 0) {
         consecutiveEmpty += 1;
         const via = searched.fallbackFrom ? `${searched.fallbackFrom} then ${searched.provider}` : searched.provider;
@@ -158,7 +170,7 @@ export function linuxToolExecutes(
           : searched.provider;
       return [
         `Search via ${via}:`,
-        ...searched.results.map((row, index) => `${index + 1}. ${row.title}\n   ${row.url}\n   ${row.snippet}`),
+        ...searched.results.map((row, index) => `${index + 1}. ${row.title}${row.date ? ` (${row.date})` : ""}\n   ${row.url}\n   ${row.snippet}`),
       ].join("\n");
     },
     glob: async (input) => {
@@ -244,6 +256,12 @@ export function linuxToolExecutes(
           break;
         }
       }
+      // What the page looks like now, so checking the batch's result costs no extra step.
+      // Why: workers followed every batch or click with a snapshot step of its own.
+      if (steps.length > 0) {
+        const after = await actions.browser_snapshot({}).catch(() => "");
+        if (after) lines.push("", "Page now (what changed since your last view):", String(after));
+      }
       return lines.join("\n");
     },
   };
@@ -269,7 +287,7 @@ const BROWSER_SCRIPT_REFUSAL =
   "✗ Not run: this drives the browser around the browser tools (its debugging port or CDP). Use the browser_* tools: browser_snapshot to see the page, browser_click (it clicks a covered element with the mouse by itself; holdMs for press and hold), browser_type or browser_batch for fields and pickers, browser_press_key for Escape. A popup, chat bubble or newsletter box over the page is something to close (its ×, or Escape), not a captcha.";
 
 /** The actions browser_batch may run, matching the schema's list. */
-const BATCH_ACTIONS = new Set(["click", "fill", "type", "select", "check", "set_value", "press_key", "scroll", "hover", "wait_for"]);
+const BATCH_ACTIONS = new Set(["click", "click_at", "fill", "type", "select", "check", "set_value", "press_key", "scroll", "hover", "wait_for"]);
 
 /**
  * Bounds one raw text result before it becomes multi-step model history.

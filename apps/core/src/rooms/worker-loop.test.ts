@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage } from "ai";
-import { collapseOldSteps, compactTranscript, compactionThreshold, dropStaleViews, isLookOnlyStep, isReadOnlyShell, resumableTranscript, transcriptForStorage, StuckWatch, callTargets, stepFailed, splitForSummary, withStateSummary, cutKind } from "./worker-loop.js";
+import { collapseOldSteps, compactTranscript, compactionThreshold, dropStaleViews, isLookOnlyStep, isReadOnlyShell, isSingleSmallCallStep, resumableTranscript, transcriptForStorage, StuckWatch, callTargets, stepFailed, splitForSummary, withStateSummary, cutKind } from "./worker-loop.js";
 
 const call = (id: string, toolName: string, input: unknown): ModelMessage =>
   ({ role: "assistant", content: [{ type: "tool-call", toolCallId: id, toolName, input }] }) as ModelMessage;
@@ -359,5 +359,18 @@ describe("withCacheMark", () => {
     expect(marked[0]!.providerOptions).toBeUndefined();
     expect(marked[1]!.providerOptions?.anthropic?.cacheControl).toBeUndefined();
     expect(marked[2]!.providerOptions?.anthropic?.cacheControl).toEqual({ type: "ephemeral" });
+  });
+});
+
+describe("isSingleSmallCallStep", () => {
+  it("is a step with one page action, page read, fetch or search", () => {
+    expect(isSingleSmallCallStep([{ name: "browser_click" }])).toBe(true);
+    expect(isSingleSmallCallStep([{ name: "web_fetch" }])).toBe(true);
+  });
+
+  it("is not a batch, a shell command, or several calls", () => {
+    expect(isSingleSmallCallStep([{ name: "browser_batch" }])).toBe(false);
+    expect(isSingleSmallCallStep([{ name: "bash" }])).toBe(false);
+    expect(isSingleSmallCallStep([{ name: "browser_click" }, { name: "web_search" }])).toBe(false);
   });
 });

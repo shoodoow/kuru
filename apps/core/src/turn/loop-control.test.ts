@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { promisesUnstartedWork,
+import { promisesUnstartedWork, stripLeakedToolCall,
   replyOnlyRestriction, shouldEndTurn } from "./loop-control.js";
 
 const base = { handedOff: false, sentMessage: false, hiddenTurn: false };
@@ -211,5 +211,13 @@ describe("promisesUnstartedWork on status lines", () => {
     expect(promisesUnstartedWork({ text: "Full sweep running — all mail, noise out.", handedOff: false, hiddenTurn: false })).toBe(true);
     expect(promisesUnstartedWork({ text: "Starting the full sweep — all 1000+ mails.", handedOff: false, hiddenTurn: false })).toBe(true);
     expect(promisesUnstartedWork({ text: "The cleanup is done: 40 archived.", handedOff: false, hiddenTurn: false })).toBe(false);
+  });
+});
+
+describe("stripLeakedToolCall with DeepSeek markup", () => {
+  it("drops a tool call written with full-width bars", () => {
+    const text = 'Notes saved.\n\n<｜DSML｜ calls>\n<｜DSML｜ invoke name="bash">\n<｜DSML｜ parameter name="command" string="true">cat > notes.md';
+    expect(stripLeakedToolCall(text)).toBe("Notes saved.");
+    expect(stripLeakedToolCall("<｜tool▁calls▁begin｜>bash")).toBe("");
   });
 });
