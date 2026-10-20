@@ -22,6 +22,7 @@ import type { Store } from "../db/client.js";
 import type { getDb } from "../db/client.js";
 import { keyFor } from "../keys/keys.js";
 import { getModel } from "../model/get-model.js";
+import { cachedSystem, openAiCacheOptions, promptCacheKey, stepMessages } from "../model/cache-hints.js";
 import { resolveGatewayContextWindow } from "../model/gateway-models.js";
 import { buildWorkerToolSet } from "../turn/tools/build-tools.js";
 import type { ToolContext } from "../turn/tools/context.js";
@@ -51,7 +52,6 @@ import {
   collapseOldSteps,
   compactTranscript,
   withoutImages,
-  withCacheMark,
   STALE_VIEWS_AT,
   affordableTokens,
   WORKER_RUN_INPUT_TOKENS,
@@ -1442,6 +1442,9 @@ export async function runWorker(
       resolveWorkerEnding,
     } = await import("../turn/worker-report.js");
     const model = getModel(runOn.provider, runOn.modelId, credential.apiKey, credential.baseUrl);
+    // Cache hints, fixed for the whole run so every step and summary reads the same cached prefix.
+    const instructions = [cachedSystem(runOn.provider, workerInstructions)];
+    const providerOptions = openAiCacheOptions(runOn.provider, credential.baseUrl, promptCacheKey(input.accountId, input.childId));
     const compactAt = compactionThreshold(runOn.contextWindow);
     /**
      * Replaces the older steps with a state summary the worker's own model writes.
@@ -1455,11 +1458,8 @@ export async function runWorker(
       const reply = await generateText({
         model,
         abortSignal: controller.signal,
-        instructions: [
-          runOn.provider === "anthropic"
-            ? { role: "system" as const, content: workerInstructions, providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } }
-            : { role: "system" as const, content: workerInstructions },
-        ],
+        instructions,
+        providerOptions,
         messages: [...transcript, { role: "user", content: prompt("worker-rules", "state-summary") }],
         tools,
         activeTools: activeWorkerTools(Object.keys(tools), review.enabledToolSets ?? new Set(), {
@@ -1581,11 +1581,8 @@ export async function runWorker(
         const result = await generateText({
           model,
           abortSignal: controller.signal,
-          instructions: [
-            runOn.provider === "anthropic"
-              ? { role: "system" as const, content: workerInstructions, providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } }
-              : { role: "system" as const, content: workerInstructions },
-          ],
+          instructions,
+          providerOptions,
           messages: transcript,
           tools,
           maxOutputTokens: outputCap,
@@ -1596,7 +1593,7 @@ export async function runWorker(
           ],
           // The closing step is for the report: no tools on offer. Otherwise
           // every tool, except plugin tools the worker has not loaded.
-          prepareStep: ({ messages: stepMessages }) => ({
+          prepareStep: ({ messages: pending }) => ({
             activeTools: (closing
               ? []
               : activeWorkerTools(Object.keys(tools), review.enabledToolSets ?? new Set(), {
@@ -1605,7 +1602,7 @@ export async function runWorker(
                 })) as never,
             // Anthropic caches only up to a marked point: mark the newest message, so
             // each step reads everything before it from the cache at a tenth of the price.
-            ...(runOn.provider === "anthropic" ? { messages: withCacheMark(stepMessages) } : {}),
+            messages: stepMessages(runOn.provider, pending),
           }),
           // One free fix for inputs that are wrong in shape but clear in meaning.
           repairToolCall: async ({ toolCall, error }) => {

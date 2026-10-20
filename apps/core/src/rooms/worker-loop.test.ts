@@ -348,20 +348,6 @@ describe("output limit and credit", () => {
   });
 });
 
-describe("withCacheMark", () => {
-  it("marks only the newest message for Anthropic's cache", async () => {
-    const { withCacheMark } = await import("./worker-loop.js");
-    const marked = withCacheMark([
-      { role: "user", content: "brief" },
-      { role: "user", content: "old", providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } },
-      { role: "user", content: "new" },
-    ] as ModelMessage[]) as { providerOptions?: { anthropic?: { cacheControl?: unknown } } }[];
-    expect(marked[0]!.providerOptions).toBeUndefined();
-    expect(marked[1]!.providerOptions?.anthropic?.cacheControl).toBeUndefined();
-    expect(marked[2]!.providerOptions?.anthropic?.cacheControl).toEqual({ type: "ephemeral" });
-  });
-});
-
 describe("isSingleSmallCallStep", () => {
   it("is a step with one page action, page read, fetch or search", () => {
     expect(isSingleSmallCallStep([{ name: "browser_click" }])).toBe(true);

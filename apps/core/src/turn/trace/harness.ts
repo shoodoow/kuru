@@ -5,7 +5,8 @@
  */
 import { repairToolInput } from "../tools/repair-input.js";
 import { generateText, isStepCount, type ModelMessage, type ToolSet } from "ai";
-import { getModel, usesOfficialOpenAiEndpoint } from "../../model/get-model.js";
+import { getModel } from "../../model/get-model.js";
+import { openAiCacheOptions, stepMessages } from "../../model/cache-hints.js";
 import { keyFor } from "../../keys/keys.js";
 import type { getDb } from "../../db/client.js";
 import { toModelPrompt } from "../prompt-model.js";
@@ -150,26 +151,31 @@ export async function runModelHarness(
           maxSteps,
           steps.map((step) => (step.toolCalls ?? []).map((call) => (call as { toolName?: string }).toolName ?? "")),
         );
+        let activeTools: string[] | undefined;
+        let sent = messages;
         if (!restriction) {
-          const offered = input.activeTools?.();
-          return offered ? { activeTools: offered.filter((name) => name in input.tools) as never } : undefined;
+          activeTools = input.activeTools?.()?.filter((name) => name in input.tools);
+        } else {
+          // A closing step never widens what the turn was offered.
+          const offeredNow = input.activeTools?.();
+          activeTools = restriction.activeTools.filter(
+            (name) => name in input.tools && (!offeredNow || offeredNow.includes(name)),
+          );
+          // The note is appended once per distinct text; the override carries forward.
+          if (restriction.note && !restrictedNote.has(restriction.note)) {
+            restrictedNote.add(restriction.note);
+            sent = [...messages, { role: "user" as const, content: restriction.note }];
+          }
         }
-        // A closing step never widens what the turn was offered.
-        const offeredNow = input.activeTools?.();
-        const activeTools = restriction.activeTools.filter(
-          (name) => name in input.tools && (!offeredNow || offeredNow.includes(name)),
-        );
-        // The note is appended once per distinct text; the override carries forward.
-        if (!restriction.note || restrictedNote.has(restriction.note)) return { activeTools: activeTools as never };
-        restrictedNote.add(restriction.note);
+        // Anthropic: mark the newest message so the next step reads this one from cache.
+        // Without it every chat step paid full price for the tail and the turn's tool results.
+        sent = stepMessages(input.provider, sent);
         return {
-          activeTools: activeTools as never,
-          messages: [...messages, { role: "user" as const, content: restriction.note }],
+          ...(activeTools ? { activeTools: activeTools as never } : {}),
+          ...(sent !== messages ? { messages: sent } : {}),
         };
       },
-      providerOptions: usesOfficialOpenAiEndpoint(input.provider, credential.baseUrl)
-        ? { openai: { promptCacheKey: input.promptCacheKey, promptCacheRetention: "24h" } }
-        : undefined,
+      providerOptions: openAiCacheOptions(input.provider, credential.baseUrl, input.promptCacheKey),
       onLanguageModelCallEnd: input.onLeadIn
         ? async (call) => {
             const parts = call.content as ReadonlyArray<{ type: string; text?: string }>;

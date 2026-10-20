@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { promptCacheKey } from "../model/cache-hints.js";
 import { buildAgentIdentity, buildInstructions, type AgentIdentity } from "../prompt/build-instructions.js";
 import { prompt } from "../prompt/prompts.js";
 import { isToolSetName, toolSetGuidance } from "../turn/tools/tool-sets.js";
@@ -403,9 +403,5 @@ function summarySection(summary: { key: string; body: string; messageId?: string
 }
 
 function cacheKey(accountId: string, agentId: string, promptVersion: number): string {
-  const raw = `${accountId}:${agentId}:${promptVersion}`;
-  if (raw.length <= 64) {
-    return raw;
-  }
-  return createHash("sha256").update(raw).digest("hex");
+  return promptCacheKey(accountId, agentId, promptVersion);
 }

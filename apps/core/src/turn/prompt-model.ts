@@ -5,21 +5,14 @@
 import type { ModelMessage, SystemModelMessage } from "ai";
 import type { TurnInput } from "./types.js";
 import type { TurnMessageContent } from "./prompt-media.js";
+import { cachedSystem } from "../model/cache-hints.js";
 
 export function toModelPrompt(input: Pick<TurnInput, "provider" | "prefix" | "tail" | "messages">): {
   instructions: SystemModelMessage[];
   messages: ModelMessage[];
 } {
-  const prefix: SystemModelMessage =
-    input.provider === "anthropic"
-      ? {
-          role: "system",
-          content: input.prefix,
-          providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
-        }
-      : { role: "system", content: input.prefix };
   return {
-    instructions: [prefix, { role: "system", content: input.tail }],
+    instructions: [cachedSystem(input.provider, input.prefix), { role: "system", content: input.tail }],
     messages: input.messages as ModelMessage[],
   };
 }

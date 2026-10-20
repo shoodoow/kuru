@@ -565,25 +565,6 @@ export function withStateSummary(
 /** Below this size (estimated tokens) old page views are left alone, so the cached prefix stays the same. */
 export const STALE_VIEWS_AT = 16_000;
 
-/**
- * The conversation with a cache mark on its newest message (Anthropic).
- * Why: Anthropic caches a prompt only up to a marked point. Without a mark on
- * the messages, every worker step paid full price for the whole conversation.
- * Only the newest message is marked; earlier marks are taken off, since a
- * request may carry only four.
- */
-export function withCacheMark(messages: ModelMessage[]): ModelMessage[] {
-  return messages.map((message, index) => {
-    const options = (message as { providerOptions?: Record<string, Record<string, unknown>> }).providerOptions;
-    if (index === messages.length - 1) {
-      return { ...message, providerOptions: { ...options, anthropic: { ...options?.anthropic, cacheControl: { type: "ephemeral" } } } } as ModelMessage;
-    }
-    if (!options?.anthropic?.cacheControl) return message;
-    const { cacheControl: _dropped, ...rest } = options.anthropic;
-    return { ...message, providerOptions: { ...options, anthropic: rest } } as ModelMessage;
-  });
-}
-
 /** The conversation with every picture replaced by a short note; nothing else changes. */
 export function withoutImages(messages: ModelMessage[]): ModelMessage[] {
   return messages.map((message) => trimMessage(message, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, true));
