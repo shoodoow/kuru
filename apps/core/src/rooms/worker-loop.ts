@@ -24,12 +24,11 @@ export const LOOK_ONLY_NUDGE_AFTER = 8;
 export const LOOK_ONLY_NUDGES_BEFORE_STOP = 2;
 /**
  * Steps in a row that each made one small call before the worker is told to combine them.
- * Why: every step resends the whole conversation (40-60k tokens), and one
- * Reddit job spent 125 steps at one click, fill or check each, 5.8M tokens for
- * four comments. The same work fits in a quarter of the steps when known
- * sequences go in one browser_batch and independent calls share a step.
+ * Why: every step resends the whole conversation (40-60k tokens). Batching independent
+ * calls in one step and using sequences like browser_batch finishes tasks in a fraction
+ * of the steps and avoids runaway token usage.
  */
-export const SINGLE_CALL_NUDGE_AFTER = 4;
+export const SINGLE_CALL_NUDGE_AFTER = 2;
 /** Most times one run is told to combine its steps; past that, telling again only adds text. */
 export const SINGLE_CALL_NUDGES_MAX = 3;
 
