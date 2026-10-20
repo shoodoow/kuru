@@ -24,13 +24,21 @@ export const LOOK_ONLY_NUDGE_AFTER = 8;
 export const LOOK_ONLY_NUDGES_BEFORE_STOP = 2;
 /**
  * Steps in a row that each made one small call before the worker is told to combine them.
- * Why: every step resends the whole conversation (40-60k tokens). Batching independent
- * calls in one step and using sequences like browser_batch finishes tasks in a fraction
- * of the steps and avoids runaway token usage.
+ * Why: every step resends the whole conversation (40-60k tokens), and one
+ * Reddit job spent 125 steps at one click, fill or check each, 5.8M tokens for
+ * four comments. Batching independent calls in one step and known sequences in
+ * one browser_batch finishes the same work in a fraction of the steps.
  */
 export const SINGLE_CALL_NUDGE_AFTER = 2;
 /** Most times one run is told to combine its steps; past that, telling again only adds text. */
 export const SINGLE_CALL_NUDGES_MAX = 3;
+/**
+ * Fewest steps between two such reminders.
+ * Why: with a streak of 2, the opening steps of almost any job (open a page, read
+ * it) used up every reminder in the first ~18 steps, and none was left for the
+ * long wasteful stretch later (that Reddit job spent steps 76-120 re-checking one comment).
+ */
+export const SINGLE_CALL_NUDGE_GAP = 15;
 
 /** How much of what a collapsed step returned stays in view. */
 const COLLAPSED_RESULT_CHARS = 160;

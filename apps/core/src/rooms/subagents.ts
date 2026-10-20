@@ -45,6 +45,7 @@ import {
   LOOK_ONLY_NUDGES_BEFORE_STOP,
   SINGLE_CALL_NUDGE_AFTER,
   SINGLE_CALL_NUDGES_MAX,
+  SINGLE_CALL_NUDGE_GAP,
   WORKER_SEGMENT_STEPS,
   WORKER_STEP_CEILING,
   WORKER_WALL_MS,
@@ -1507,6 +1508,7 @@ export async function runWorker(
     let lookNudges = 0;
     let singleCallStreak = 0;
     let singleCallNudges = 0;
+    let lastSingleCallNudgeAt = -SINGLE_CALL_NUDGE_GAP;
     let lastInputTokens = 0;
     let lastToolCallSignature = "";
     let duplicateCallCount = 0;
@@ -1821,8 +1823,13 @@ export async function runWorker(
           }
           lookOnlyStreak = 0;
         }
-        if (singleCallStreak >= SINGLE_CALL_NUDGE_AFTER && singleCallNudges < SINGLE_CALL_NUDGES_MAX) {
+        if (
+          singleCallStreak >= SINGLE_CALL_NUDGE_AFTER &&
+          singleCallNudges < SINGLE_CALL_NUDGES_MAX &&
+          totalSteps - lastSingleCallNudgeAt >= SINGLE_CALL_NUDGE_GAP
+        ) {
           singleCallNudges += 1;
+          lastSingleCallNudgeAt = totalSteps;
           say(prompt("worker-rules", "combine-steps", { steps: singleCallStreak, tokens: Math.max(1, Math.round(lastInputTokens / 1000)) }));
           singleCallStreak = 0;
         }
