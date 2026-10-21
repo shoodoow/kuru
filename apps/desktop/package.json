@@ -51,6 +51,14 @@
       "oneClick": true,
       "perMachine": false
     },
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "protocols": [
+      {
+        "name": "Kuru sign-in",
+        "schemes": [
+          "kuru-desktop"
+        ]
+      }
+    ]
   }
 }

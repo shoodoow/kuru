@@ -6,5 +6,6 @@ contextBridge.exposeInMainWorld("kuruDesktop", {
   platform: process.platform,
   setBadge: (count) => ipcRenderer.send("badge", Number(count) || 0),
   focus: () => ipcRenderer.send("focus"),
+  signIn: () => ipcRenderer.invoke("sign-in"),
   setServer: (url) => ipcRenderer.invoke("server:set", String(url)),
 });

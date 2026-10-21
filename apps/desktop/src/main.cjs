@@ -3,11 +3,13 @@
 // Serving it from the server keeps sign-in a plain same-site cookie, and the
 // desktop app is always as new as the server. This file adds what a browser
 // tab lacks: a window and menu, a Dock/taskbar badge, right-click menus,
-// links that open in the real browser, and a page to pick the server.
+// links that open in the real browser, Google sign-in through the browser
+// (sign-in.cjs), and a page to pick the server.
 
 const { app, BrowserWindow, Menu, clipboard, ipcMain, shell } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
+const { SCHEME, finishSignIn, startSignIn } = require("./sign-in.cjs");
 
 const DEFAULT_SERVER = process.env.KURU_SERVER_URL || "https://kuru.octessa.com";
 const SETTINGS_FILE = path.join(app.getPath("userData"), "settings.json");
@@ -106,10 +108,9 @@ function createWindow() {
     if (status >= 400 && isAppAddress(url)) openServerPage(`This server has no desktop app yet (error ${status}).`);
   });
 
-  // The window stays on the app. Google sign-in passes through Google's page;
-  // any other link opens in the browser.
+  // The window stays on the app; any other link opens in the browser.
   contents.on("will-navigate", (event, url) => {
-    if (isAppAddress(url) || url.startsWith("file:") || originOf(url) === "https://accounts.google.com") return;
+    if (isAppAddress(url) || url.startsWith("file:")) return;
     event.preventDefault();
     openOutside(url);
   });
@@ -183,6 +184,12 @@ ipcMain.on("focus", () => {
   win.focus();
 });
 
+// "Continue with Google" in the app. Only the app's own page may ask.
+ipcMain.handle("sign-in", (event) => {
+  if (!isAppAddress(event.senderFrame?.url ?? "")) return;
+  return startSignIn(serverUrl());
+});
+
 // Only the local server page may change the server.
 const fromServerPage = (event) => event.senderFrame?.url.startsWith("file:");
 
@@ -195,19 +202,50 @@ ipcMain.handle("server:set", (event, input) => {
   return { ok: true };
 });
 
-// ---- Start.
+// ---- kuru-desktop:// links: the browser hands the sign-in back to the app.
 
-// Google refuses to sign in inside apps that call themselves Electron, so the
-// window presents itself as the Chrome it is built on.
-app.userAgentFallback = app.userAgentFallback.replace(/ (Electron|Kuru|desktop)\/\S+/g, "");
+/** A link that arrived before the window was ready. */
+let pendingLink = null;
+
+async function openLink(link) {
+  if (!link?.startsWith(`${SCHEME}://`)) return;
+  if (!win) {
+    pendingLink = link;
+    return;
+  }
+  if (await finishSignIn(link, serverUrl())) openApp();
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+/** The link among a launch's arguments (Windows passes it this way). */
+const linkIn = (argv) => argv.find((arg) => arg.startsWith(`${SCHEME}://`));
+
+// Running from source, macOS and Windows must start Electron with this folder to open the link.
+if (process.defaultApp) app.setAsDefaultProtocolClient(SCHEME, process.execPath, [path.resolve(process.argv[1])]);
+else app.setAsDefaultProtocolClient(SCHEME);
+
+// macOS delivers the link as an event, possibly before the app is ready.
+app.on("open-url", (event, link) => {
+  event.preventDefault();
+  void openLink(link);
+});
+
+// ---- Start.
 
 if (process.platform === "win32") app.setAppUserModelId("com.kurubot.desktop");
 
-// One copy of the app: opening it again brings the window forward.
+// One copy of the app: opening it again (or a sign-in link on Windows) brings the window forward.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, argv) => {
+    const link = linkIn(argv);
+    if (link) {
+      void openLink(link);
+      return;
+    }
     if (!win) return;
     if (win.isMinimized()) win.restore();
     win.focus();
@@ -215,6 +253,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     buildMenu();
     createWindow();
+    void openLink(pendingLink ?? linkIn(process.argv));
     app.on("activate", () => {
       if (!win) createWindow();
     });

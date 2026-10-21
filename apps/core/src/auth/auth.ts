@@ -68,6 +68,9 @@ export function createAuth(db: Database) {
       "kuru://",
       // Phone builds made before the scheme changed still return through this one.
       "nano-agents://",
+      // The Mac and Windows app (apps/desktop): Google sign-in runs in the
+      // person's browser and returns the session through this link.
+      "kuru-desktop://",
       ...(publicOrigin ? [publicOrigin] : []),
       ...extraOrigins,
       ...(config.isProduction()

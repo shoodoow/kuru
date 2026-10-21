@@ -6,7 +6,8 @@ The app's screens are the same code as the phone app (`apps/mobile`); this folde
 | File | What it does |
 | --- | --- |
 | `src/main.cjs` | The window, the menu, right-click menus, links opening in the browser, the Dock badge, the saved server address |
-| `src/preload.cjs` | The few calls the page can make: `kuruDesktop.setBadge`, `focus`, `setServer` |
+| `src/sign-in.cjs` | Google sign-in in the person's own browser; the session comes back through a `kuru-desktop://` link |
+| `src/preload.cjs` | The few calls the page can make: `kuruDesktop.signIn`, `setBadge`, `focus`, `setServer` |
 | `src/server.html` | The page for choosing the server, shown when it cannot be reached or from **Change Server…** |
 
 Desktop behaviour that lives in the app itself (`apps/mobile`), so it works in a browser too:

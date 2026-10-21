@@ -1,3 +1,5 @@
+import { desktopApp } from "./desktop-app";
+
 /**
  * Desktop notifications for the web app and the desktop app around it.
  * Why: on a phone a push banner says an agent answered. A computer gets no
@@ -5,12 +7,6 @@
  * system's own notification for the same messages the phone is pushed.
  */
 
-/** What the desktop app adds to the page (apps/desktop/src/preload.cjs). Absent in a plain browser. */
-type DesktopBridge = { setBadge?: (count: number) => void; focus?: () => void };
-
-function bridge(): DesktopBridge | undefined {
-  return (globalThis as { kuruDesktop?: DesktopBridge }).kuruDesktop;
-}
 
 /** True in a browser that can show system notifications. */
 function supported(): boolean {
@@ -37,7 +33,7 @@ export function showNotification(input: { title: string; body: string; tag: stri
   if (!supported() || Notification.permission !== "granted") return;
   const note = new Notification(input.title, { body: input.body.slice(0, 240), tag: input.tag });
   note.onclick = () => {
-    bridge()?.focus?.();
+    desktopApp()?.focus?.();
     globalThis.focus?.();
     onOpen();
     note.close();
@@ -46,5 +42,5 @@ export function showNotification(input: { title: string; body: string; tag: stri
 
 /** The unread count on the Dock or taskbar icon (desktop app only). */
 export function setBadge(count: number): void {
-  bridge()?.setBadge?.(count);
+  desktopApp()?.setBadge?.(count);
 }

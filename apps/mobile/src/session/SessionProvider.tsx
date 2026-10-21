@@ -6,6 +6,7 @@ import { authCallbackURL } from "../auth-callback-url";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import { readFileAsDataUrl } from "../chat/file-web";
+import { desktopApp } from "../desk/desktop-app";
 import { appInView, askToNotify, setBadge, showNotification } from "../desk/notify-web";
 import * as ImagePicker from "expo-image-picker";
 import {
@@ -564,6 +565,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           ? error.message
           : `Cannot reach the server at ${base}. Check the server address on this screen.`,
       );
+    }
+    // The desktop app: Google refuses to sign in inside an app window, so the
+    // sign-in runs in the person's own browser and the app reloads signed in.
+    const desktop = desktopApp();
+    if (desktop?.signIn) {
+      await desktop.signIn();
+      return;
     }
     const callbackURL = authCallbackURL();
     try {
