@@ -22,6 +22,8 @@ describe("web app routes", () => {
     mkdirSync(join(dir, "_expo", "static", "js", "web"), { recursive: true });
     writeFileSync(join(dir, "index.html"), "<!doctype html><title>Kuru</title>");
     writeFileSync(join(dir, "_expo", "static", "js", "web", "entry-abc.js"), "console.log(1)");
+    mkdirSync(join(dir, "assets", "__node_modules", ".pnpm", "icons"), { recursive: true });
+    writeFileSync(join(dir, "assets", "__node_modules", ".pnpm", "icons", "Icons.abc.ttf"), "font");
     const app = express();
     app.use(webApp(dir));
     app.use((_req, res) => res.status(404).json({ error: "Not found." }));
@@ -46,6 +48,12 @@ describe("web app routes", () => {
     const response = await fetch(`${baseUrl}/app/_expo/static/js/web/entry-abc.js`);
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("immutable");
+  });
+
+  it("serves icon fonts kept under a folder that starts with a dot", async () => {
+    const response = await fetch(`${baseUrl}/app/assets/__node_modules/.pnpm/icons/Icons.abc.ttf`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("font");
   });
 
   it("answers a missing file with 404, not with the page", async () => {

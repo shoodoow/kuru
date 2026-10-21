@@ -43,7 +43,9 @@ export function webApp(dir: string = webAppDir()): Router {
     WEB_APP_PATH,
     express.static(dir, {
       index: false,
-      dotfiles: "deny",
+      // The build keeps icon fonts under assets/__node_modules/.pnpm/..., so a
+      // folder starting with a dot must be served. The folder is build output only.
+      dotfiles: "allow",
       redirect: false,
       fallthrough: true,
       setHeaders: (res, file) => {

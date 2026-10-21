@@ -13,6 +13,9 @@ import { colors } from "../src/theme/tokens";
 import { OverlayHost } from "../src/ui/overlay";
 import { sheetScreenOptions } from "../src/ui/sheet-screen";
 
+// A screen that fails shows what went wrong and a Retry button, not a blank window.
+export { ErrorBoundary } from "expo-router";
+
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
