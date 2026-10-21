@@ -41,7 +41,7 @@
     "@types/dockerode": "3.3.40",
     "@types/express": "5.0.6",
     "@types/jsdom": "^30.0.0",
-    "@types/node": "24.19.0",
+    "@types/node": "26.6.5",
     "@types/turndown": "^5.0.6",
     "drizzle-kit": "0.31.11",
     "tsx": "4.23.15",
