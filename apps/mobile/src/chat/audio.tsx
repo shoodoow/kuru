@@ -29,6 +29,14 @@ function clock(seconds: number): string {
  * Input: where the sound is and the headers to fetch it with.
  * Output: play/pause, a bar that can be tapped or dragged to seek, and the time.
  */
+/**
+ * Sound in a browser: the browser's own player. The phone's player plays only
+ * through a video on screen in a browser, so sound alone stayed silent there.
+ */
+function BrowserAudio({ uri }: { uri: string }) {
+  return <audio src={uri} controls autoPlay style={{ flex: 1, height: 40 }} />;
+}
+
 function Playing({ uri, headers }: { uri: string; headers?: Record<string, string> }) {
   const player = useVideoPlayer(headers ? { uri, headers } : uri, (created) => {
     created.timeUpdateEventInterval = 0.2;
@@ -159,7 +167,11 @@ export function AudioBlock({ block, fetchBlob }: { block: FileBlock; fetchBlob?:
     <View style={styles.card}>
       <View style={styles.row}>
         {source ? (
-          <Playing uri={source.uri} headers={source.headers} />
+          process.env.EXPO_OS === "web" ? (
+            <BrowserAudio uri={source.uri} />
+          ) : (
+            <Playing uri={source.uri} headers={source.headers} />
+          )
         ) : (
           <>
             <Pressable style={styles.disk} hitSlop={6} onPress={start} accessibilityRole="button" accessibilityLabel={`Play ${block.name}`}>

@@ -35,7 +35,9 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "identity": "-",
+      "hardenedRuntime": false
     },
     "win": {
       "target": [

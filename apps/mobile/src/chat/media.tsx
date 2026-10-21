@@ -962,7 +962,7 @@ function VideoViewer({ block, fetchBlob, onClose }: { block: FileBlock; fetchBlo
     <Modal visible transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={[styles.fill, styles.viewer]}>
         {source ? (
-          <FullVideo source={source} />
+          WEB ? <BrowserVideo uri={source.uri} fill /> : <FullVideo source={source} />
         ) : (
           <View style={[styles.fill, styles.viewerLoading]}>
             {failed ? <Text style={styles.viewerCount}>Could not load this video.</Text> : <ActivityIndicator color="#FFFFFF" />}
@@ -978,6 +978,29 @@ function VideoViewer({ block, fetchBlob, onClose }: { block: FileBlock; fetchBlo
         </View>
       </View>
     </Modal>
+  );
+}
+
+/**
+ * A video in a browser: the browser's own player, with its controls, full
+ * screen, and streaming in parts from the server. The phone's player library
+ * is built for phones, and in the desktop app videos did not play with it.
+ * Input: the address, whether it fills its box (the full-screen viewer), and
+ * an optional report of the video's real size. Output: the player.
+ */
+function BrowserVideo({ uri, fill = false, onShape }: { uri: string; fill?: boolean; onShape?: (width: number, height: number) => void }) {
+  return (
+    <video
+      src={uri}
+      controls
+      autoPlay
+      playsInline
+      onLoadedMetadata={(event) => {
+        const video = event.currentTarget;
+        if (video.videoWidth > 0 && video.videoHeight > 0) onShape?.(video.videoWidth, video.videoHeight);
+      }}
+      style={{ width: "100%", height: "100%", backgroundColor: "#000", objectFit: "contain", display: "block", ...(fill ? { flex: 1 } : null) }}
+    />
   );
 }
 
@@ -1117,13 +1140,22 @@ export function VideoBlock({ block, fetchBlob }: { block: FileBlock; fetchBlob?:
     <View style={styles.mediaWrap}>
       <View style={[styles.video, { height }]}>
         {uri ? (
-          <InlineVideo
-            uri={uri}
-            headers={source?.headers}
-            onShape={(width, tall) =>
-              setHeight(Math.round(Math.min(VIDEO_MAX_HEIGHT, Math.max(VIDEO_HEIGHT, (ALBUM_WIDTH * tall) / width))))
-            }
-          />
+          WEB ? (
+            <BrowserVideo
+              uri={uri}
+              onShape={(width, tall) =>
+                setHeight(Math.round(Math.min(VIDEO_MAX_HEIGHT, Math.max(VIDEO_HEIGHT, (ALBUM_WIDTH * tall) / width))))
+              }
+            />
+          ) : (
+            <InlineVideo
+              uri={uri}
+              headers={source?.headers}
+              onShape={(width, tall) =>
+                setHeight(Math.round(Math.min(VIDEO_MAX_HEIGHT, Math.max(VIDEO_HEIGHT, (ALBUM_WIDTH * tall) / width))))
+              }
+            />
+          )
         ) : (
           <Pressable style={styles.poster} onPress={start} accessibilityRole="button" accessibilityLabel={`Play ${block.name}`}>
             {poster ? <Image source={poster} style={StyleSheet.absoluteFill} contentFit="cover" /> : null}
