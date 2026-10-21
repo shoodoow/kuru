@@ -6,6 +6,22 @@ What changed in each release, newest first. Update your server with
 Each entry says whether it needs anything from the person running the
 server (a new setting, a new app build) under **To update**.
 
+## Unreleased
+
+**New**
+
+- **Kuru for Mac and Windows, and in the browser at `/app` on your server.**
+  It is the phone app laid out for a wide window: agents down the left edge,
+  the chat in the middle, and the agent's details and computer screen in a
+  panel on the right. Drag files onto a chat or paste a picture to attach
+  it, right-click a message for Reply and Copy, and get a system
+  notification when an agent answers. Videos, sound and files play and
+  download. The Mac and Windows apps are in `apps/desktop`.
+
+**To update**
+
+- Rebuild the server image: it now builds the web app the desktop apps load.
+
 ## 0.5.0
 
 **New**
@@ -57,12 +73,6 @@ server (a new setting, a new app build) under **To update**.
 
 **New**
 
-- **A web and desktop version, at `/app` on your server.** It is the phone
-  app laid out for a wide window: agents down the left edge, the chat in the
-  middle, and the agent's details and computer screen in a panel on the
-  right. Open `https://your-server/app` in a browser and sign in. It is a
-  first version: sending and reading messages, profiles and the agent's
-  screen work; opening videos, sound and files in the browser does not yet.
 - **YouTube, Instagram and TikTok plugins.** Agents publish to the person's
   own accounts and manage them, with no service in between. The person signs
   in once under Plugins; the server keeps and renews the sign-in.

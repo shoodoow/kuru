@@ -15,3 +15,6 @@ skills/accounts/*/
 apps/mobile/ios/
 apps/mobile/android/
 apps/mobile/dist-web/
+
+# Desktop app builds
+apps/desktop/dist/

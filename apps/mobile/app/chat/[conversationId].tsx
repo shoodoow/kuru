@@ -4,6 +4,7 @@ import { useLocalSearchParams, useNavigation } from "expo-router";
 import { createCore } from "../../src/api";
 import { ChatScreen } from "../../src/chat/ChatScreen";
 import { AgentPanel } from "../../src/desk/AgentPanel";
+import { FileDrop } from "../../src/desk/FileDrop";
 import { useWideLayout } from "../../src/desk/layout";
 import { useSession } from "../../src/session/SessionProvider";
 import { Avatar } from "../../src/ui/Avatar";
@@ -202,6 +203,7 @@ export default function ChatRoute() {
     />
     {/* Errors already print above the composer. */}
     <Toast tones={["success"]} />
+    {process.env.EXPO_OS === "web" ? <FileDrop onFiles={(files) => void session.stageFiles(files).catch(session.show)} /> : null}
     </View>
     {wide ? <AgentPanel chat={chat} /> : null}
     </View>

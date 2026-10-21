@@ -1,0 +1,56 @@
+{
+  "name": "desktop",
+  "productName": "Kuru",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Kuru for Mac and Windows: a window around the web app the server serves at /app.",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "KURU_SERVER_URL=http://127.0.0.1:3000 electron .",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "com.kurubot.desktop",
+    "productName": "Kuru",
+    "files": [
+      "src/**/*"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+  }
+}

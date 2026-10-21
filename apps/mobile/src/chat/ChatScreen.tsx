@@ -330,6 +330,15 @@ const MessageRow = memo(function MessageRow({
                 ref={(view) => actions.keepView(item.id, view)}
                 onLongPress={() => actions.hold(item)}
                 delayLongPress={350}
+                // A computer: right-click opens the same menu a long press does.
+                {...(process.env.EXPO_OS === "web"
+                  ? {
+                      onContextMenu: (event: { preventDefault: () => void }) => {
+                        event.preventDefault();
+                        actions.hold(item);
+                      },
+                    }
+                  : null)}
                 // Words sit in bubbles; cards, pictures and files stand on their own.
                 style={[styles.stack, item.mine ? styles.stackMine : styles.stackTheirs, highlighted ? styles.stackHighlight : null]}
                 accessibilityLabel={`${item.author}. ${item.body}`}

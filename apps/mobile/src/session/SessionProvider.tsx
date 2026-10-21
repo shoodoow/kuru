@@ -5,6 +5,8 @@ import type { MenuPage, SignedAccount } from "../account/MenuSheet";
 import { authCallbackURL } from "../auth-callback-url";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
+import { readFileAsDataUrl } from "../chat/file-web";
+import { appInView, askToNotify, setBadge, showNotification } from "../desk/notify-web";
 import * as ImagePicker from "expo-image-picker";
 import {
   configureAuthCookie,
@@ -619,6 +621,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!id) return;
     let stopped = false;
     const shown = new Set<string>();
+    const web = process.env.EXPO_OS === "web";
+    if (web && notifications) askToNotify();
     const pull = async (): Promise<void> => {
       const pending = await core.listNotifications(id).catch(() => []);
       if (stopped) return;
@@ -626,8 +630,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       for (const note of pending) {
         if (shown.has(note.id)) continue;
         shown.add(note.id);
-        // The app is open: the chat list's unread counts already show it, so
-        // nothing else appears. The red error line used to carry these.
+        // A computer gets no push, so the web and desktop app show the system
+        // notification instead, unless the person is already reading that chat.
+        // Old ones waiting from before the app opened are not shown.
+        const fresh = Date.now() - Date.parse(note.createdAt) < 2 * 60_000;
+        const watching = appInView() && openRoomRef.current === note.conversationId;
+        if (web && notifications && fresh && !watching) {
+          showNotification({ title: note.title, body: note.body, tag: note.conversationId }, () => setTappedRoom(note.conversationId));
+        }
+        // On a phone the app is open: the chat list's unread counts already show it.
         await core.ackNotification(id, note.id).catch(() => {});
       }
     };
@@ -659,6 +670,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const next = { ...status, rooms: status.rooms.map((room) => (room.id === open ? { ...room, unread: 0 } : room)) };
       // Nothing new since the last poll: keep the old object, so no screen redraws.
       setInbox((current) => (current && JSON.stringify(current) === JSON.stringify(next) ? current : next));
+      // The desktop app shows the unread total on its Dock or taskbar icon.
+      setBadge(next.rooms.reduce((total, room) => total + room.unread, 0));
     };
     void pull();
     refreshInboxRef.current = () => void pull();
@@ -1417,6 +1430,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return;
     }
     const asset = picked.assets[0]!;
+    // A browser has no file system to read from; the picker hands over the file itself.
+    if (process.env.EXPO_OS === "web" && asset.file) {
+      await stageFiles([asset.file]);
+      return;
+    }
     if (asset.size != null && asset.size > MAX_FILE_BYTES) {
       setNote("That file is too large (over 2MB).");
       return;
@@ -1444,6 +1462,43 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       ...current,
       { id: `att-${Date.now()}`, kind: "file", url, name: asset.name, mime },
     ]);
+  }
+
+  /**
+   * Stages files from a browser: dropped on the chat, pasted into it, or picked.
+   * Why: on a computer people drag a file in or paste a screenshot rather than
+   * open a picker. Pictures go as pictures, anything else as a file, with the
+   * same size limits as the phone's pickers.
+   * Input: browser File objects. Output: nothing; the ones that fit are staged.
+   */
+  async function stageFiles(files: File[]): Promise<void> {
+    for (const file of files) {
+      const image = /^image\/(png|jpe?g|gif|webp|heic|heif|bmp|avif)$/i.test(file.type);
+      const limit = image ? MAX_IMAGE_BYTES : MAX_FILE_BYTES;
+      const name = file.name || (image ? "image" : "file");
+      if (file.size > limit) {
+        setNote(`${name} is too large (over ${image ? "5MB" : "2MB"}).`);
+        continue;
+      }
+      let url: string;
+      try {
+        url = await readFileAsDataUrl(file);
+      } catch {
+        setNote(`${name} could not be read.`);
+        continue;
+      }
+      const mime = file.type || "application/octet-stream";
+      try {
+        await core.upload(accountId.trim(), { url, name });
+      } catch (error) {
+        show(error);
+        continue;
+      }
+      setAttachments((current) => [
+        ...current,
+        { id: `att-${Date.now()}-${current.length}`, kind: image ? "image" : "file", url, name, mime },
+      ]);
+    }
   }
 
   /**
@@ -1825,6 +1880,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     pickImage,
     pickCamera,
     pickFile,
+    stageFiles,
     toggleReaction,
     loadOlderMessages,
     loadTeamChat,
@@ -1942,6 +1998,8 @@ type SessionValue = {
   pickImage: () => Promise<void>;
   pickCamera: () => Promise<void>;
   pickFile: () => Promise<void>;
+  /** Stages browser files (drag and drop, paste) as attachments. */
+  stageFiles: (files: File[]) => Promise<void>;
   toggleReaction: (conversationId: string, bubble: Bubble, emoji: string) => Promise<void>;
   loadOlderMessages: () => Promise<void>;
   loadTeamChat: (conversationId: string) => Promise<{ id: string; author: string; time: string; body: string }[]>;

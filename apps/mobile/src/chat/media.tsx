@@ -22,7 +22,11 @@ import type { MessageBlock } from "../api";
 import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { IconCloseLight, IconDownload, IconDownloadLight, IconPlay } from "../ui/icons";
 import { presentOverlay } from "../ui/overlay";
+import { downloadUrl, openInTab, playableUrl } from "./file-web";
 import { innerTouching } from "./MarkdownText";
+
+/** A browser: the web app, or the desktop app around it. Files play and save from memory there. */
+const WEB = process.env.EXPO_OS === "web";
 
 export type FetchBlob = (
   messageId: string,
@@ -663,7 +667,7 @@ function ImageViewer({
                   {index + 1} / {images.length}
                 </Text>
               ) : null}
-              <Pressable style={styles.viewerButton} hitSlop={6} onPress={save} accessibilityRole="button" accessibilityLabel="Save to Photos">
+              <Pressable style={styles.viewerButton} hitSlop={6} onPress={save} accessibilityRole="button" accessibilityLabel={WEB ? "Download" : "Save to Photos"}>
                 <SaveMark state={saving} />
               </Pressable>
             </View>
@@ -733,6 +737,13 @@ export async function materializeFile(
     headers = found.headers;
   }
   if (!url) return null;
+  if (WEB) {
+    // No cache folder: bytes held in the message get an in-memory address, and
+    // a web address plays as it is (the browser sends the session cookie).
+    if (!url.startsWith("data:")) return { uri: url, mime: block.mime, local: false };
+    const key = keep ? (block.blobRef ? `${block.blobRef.messageId}:${block.blobRef.index}` : null) : null;
+    return { uri: playableUrl(url, key), mime: block.mime ?? /^data:([^;,]+)/.exec(url)?.[1], local: true };
+  }
   const data = /^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/.exec(url);
   // A file streamed from the agent's computer needs the session to fetch, so
   // only the player (`keep`) uses its address; everything else gets a copy.
@@ -765,6 +776,10 @@ export async function materializeFile(
 export async function openFileBlock(block: FileBlock, fetchBlob?: FetchBlob): Promise<void> {
   const file = await materializeFile(block, fetchBlob);
   if (!file) return;
+  if (WEB) {
+    openInTab(file.uri);
+    return;
+  }
   if (file.local && (await Sharing.isAvailableAsync())) {
     await Sharing.shareAsync(file.uri, { mimeType: file.mime, dialogTitle: `Open ${block.name}` });
   } else {
@@ -774,6 +789,11 @@ export async function openFileBlock(block: FileBlock, fetchBlob?: FetchBlob): Pr
 
 /** Hands a file to the system share sheet (Save Image/Video, Save to Files, other apps). */
 export async function shareFileBlock(block: FileBlock, fetchBlob?: FetchBlob): Promise<void> {
+  if (WEB) {
+    // A computer has no share sheet; Share and Save both download.
+    await saveFileBlock(block, fetchBlob);
+    return;
+  }
   const file = await materializeFile(block, fetchBlob, false, true);
   if (!file) return;
   if (file.local && (await Sharing.isAvailableAsync())) {
@@ -788,6 +808,12 @@ export async function shareFileBlock(block: FileBlock, fetchBlob?: FetchBlob): P
  * Output: true when written, false when they closed the picker.
  */
 export async function saveFileBlock(block: FileBlock, fetchBlob?: FetchBlob): Promise<boolean> {
+  if (WEB) {
+    const url = await webUrl(block, fetchBlob);
+    if (!url) throw new Error("Nothing to save.");
+    await downloadUrl(url, block.name);
+    return true;
+  }
   const file = await materializeFile(block, fetchBlob, false, true);
   if (!file || !file.local) throw new Error("Nothing to save.");
   let folder: Directory;
@@ -801,6 +827,14 @@ export async function saveFileBlock(block: FileBlock, fetchBlob?: FetchBlob): Pr
   if (target.exists) target.delete();
   source.copy(target);
   return true;
+}
+
+/** The file's own address in a browser: the message's bytes, or where to fetch them. */
+async function webUrl(block: FileBlock, fetchBlob: FetchBlob | undefined): Promise<string | null> {
+  if (block.url) return block.url;
+  if (!block.blobRef || !fetchBlob) return null;
+  const found = await fetchBlob(block.blobRef.messageId, block.blobRef.index);
+  return found.url ?? null;
 }
 
 const MEDIA_EXTENSION: Record<string, string> = {
@@ -819,6 +853,13 @@ const MEDIA_EXTENSION: Record<string, string> = {
  * Asks once for permission to add photos; it never reads the library.
  */
 export async function saveToPhotos(block: FileBlock, fetchBlob?: FetchBlob): Promise<void> {
+  if (WEB) {
+    // No photo library on a computer: the picture or video is downloaded.
+    const extension = MEDIA_EXTENSION[(block.mime ?? "").toLowerCase()];
+    const name = extension && !/\.[a-z0-9]{2,5}$/i.test(block.name) ? `${block.name}${extension}` : block.name;
+    await saveFileBlock({ ...block, name }, fetchBlob);
+    return;
+  }
   // The library picks the kind of item from the extension, so a bare name gets one.
   const extension = MEDIA_EXTENSION[(block.mime ?? "").toLowerCase()];
   const named = extension && !/\.[a-z0-9]{2,5}$/i.test(block.name) ? { ...block, name: `${block.name}${extension}` } : block;
@@ -929,7 +970,7 @@ function VideoViewer({ block, fetchBlob, onClose }: { block: FileBlock; fetchBlo
           <Pressable style={styles.viewerButton} hitSlop={6} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close">
             <IconCloseLight />
           </Pressable>
-          <Pressable style={styles.viewerButton} hitSlop={6} onPress={save} accessibilityRole="button" accessibilityLabel="Save to Photos">
+          <Pressable style={styles.viewerButton} hitSlop={6} onPress={save} accessibilityRole="button" accessibilityLabel={WEB ? "Download" : "Save to Photos"}>
             <SaveMark state={saving} />
           </Pressable>
         </View>
@@ -1092,7 +1133,7 @@ export function VideoBlock({ block, fetchBlob }: { block: FileBlock; fetchBlob?:
         <Text style={[styles.caption, styles.videoName]} numberOfLines={1}>
           {failed ? "Could not load this video. Tap to retry." : block.name}
         </Text>
-        <Pressable style={styles.videoAction} hitSlop={8} accessibilityRole="button" accessibilityLabel="Save to Photos" onPress={save}>
+        <Pressable style={styles.videoAction} hitSlop={8} accessibilityRole="button" accessibilityLabel={WEB ? "Download" : "Save to Photos"} onPress={save}>
           <SaveMark state={saving} light={false} />
         </Pressable>
       </View>

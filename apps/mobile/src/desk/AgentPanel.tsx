@@ -4,7 +4,7 @@ import { BotInfoScreen } from "../chat/BotInfoScreen";
 import { DesktopScreen } from "../desktop/DesktopScreen";
 import { useSession, type ChatTarget } from "../session/SessionProvider";
 import { useResolvedScheme } from "../theme/appearance";
-import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
+import { darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { IconClose } from "../ui/icons";
 
 const core = createCore();
@@ -62,6 +62,18 @@ export function AgentPanel({ chat }: { chat: ChatTarget }) {
           onLoadRoutineRuns={(routineId) => core.listRoutineRuns(session.accountId.trim(), profile.id, routineId)}
           messages={session.profileFeed}
           onFetchBlob={(roomId, messageId, index) => core.blob(session.accountId.trim(), roomId, messageId, index)}
+          health={{
+            load: () => core.agentHealth(session.accountId.trim(), profile.id),
+            fix: () => core.reflectNow(session.accountId.trim(), profile.id),
+            undo: (reflectionId) => core.undoReflection(session.accountId.trim(), profile.id, reflectionId),
+          }}
+          work={{
+            running: () => core.agentRunning(session.accountId.trim(), profile.id),
+            stop: (workerId) => core.stopAgentJob(session.accountId.trim(), profile.id, workerId),
+            memories: () => core.agentMemories(session.accountId.trim(), profile.id),
+            forget: (memoryId) => core.forgetMemory(session.accountId.trim(), profile.id, memoryId),
+            forgetAll: () => core.forgetAllMemories(session.accountId.trim(), profile.id),
+          }}
         />
       ) : (
         <View style={styles.computer}>

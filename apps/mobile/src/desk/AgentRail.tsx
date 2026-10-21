@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { RosterAgent } from "../api";
 import { useSession } from "../session/SessionProvider";
 import { useResolvedScheme } from "../theme/appearance";
-import { colors, darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
+import { darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
 import { Avatar } from "../ui/Avatar";
 import { GroupCluster } from "../ui/GroupCluster";
 import { IconPlus } from "../ui/icons";
