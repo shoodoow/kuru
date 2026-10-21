@@ -10,6 +10,7 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/core/package.json apps/core/
 COPY apps/mobile/package.json apps/mobile/
+COPY apps/desktop/package.json apps/desktop/
 COPY packages/shared/package.json packages/shared/
 COPY packages/agent-tools/package.json packages/agent-tools/
 RUN pnpm install --frozen-lockfile --filter "core..."
@@ -33,6 +34,7 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/core/package.json apps/core/
 COPY apps/mobile/package.json apps/mobile/
+COPY apps/desktop/package.json apps/desktop/
 COPY packages/shared/package.json packages/shared/
 COPY packages/agent-tools/package.json packages/agent-tools/
 RUN pnpm install --frozen-lockfile --filter "mobile..."
