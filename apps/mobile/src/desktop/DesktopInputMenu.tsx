@@ -24,6 +24,9 @@ export function DesktopInputMenu({
 }) {
   return (
     <View style={styles.menu}>
+      {/* A computer has a real mouse, so trackpad mode is a phone thing. */}
+      {process.env.EXPO_OS === "web" ? null : (
+        <>
       <MenuRow
         label="Trackpad mode"
         icon="mouse-pointer"
@@ -42,6 +45,8 @@ export function DesktopInputMenu({
           onClose();
         }}
       />
+        </>
+      )}
       <MenuRow
         label="Reset zoom"
         icon="minimize"

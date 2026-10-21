@@ -57,6 +57,22 @@ const KEEP_AWAKE_TAG = "desktop-screen";
  * Input: the account id, the agent, and navigation plus error handlers.
  * Output: the live screen, take-over, and hand-back controls.
  */
+/** A computer (the web or desktop app): a real keyboard and mouse, and Ctrl+V to paste. */
+const COMPUTER = process.env.EXPO_OS === "web";
+
+/**
+ * Run inside the screen viewer on a computer. Ctrl+V / Cmd+V would reach the
+ * agent's computer as a key press and paste its own clipboard, so it is caught
+ * first and the app pastes the person's clipboard instead.
+ */
+const CATCH_PASTE = `window.addEventListener("keydown", function (event) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    parent.postMessage(JSON.stringify({ kind: "paste" }), "*");
+  }
+}, true); true;`;
+
 export function DesktopScreen({
   accountId,
   agent,
@@ -155,8 +171,8 @@ export function DesktopScreen({
     let cancelled = false;
     void getTrackpadMode().then((enabled) => {
       if (!cancelled) {
-        trackpadRef.current = enabled;
-        setTrackpad(enabled);
+        trackpadRef.current = enabled && !COMPUTER;
+        setTrackpad(enabled && !COMPUTER);
         setPrefsReady(true);
       }
     });
@@ -256,7 +272,12 @@ export function DesktopScreen({
       return;
     }
     if (payload.kind === "clipboard") {
-      if (typeof payload.text === "string") remoteClip.current = payload.text;
+      if (typeof payload.text !== "string") return;
+      remoteClip.current = payload.text;
+      // On a computer, what is copied on the agent's computer is on the person's clipboard too.
+      if (COMPUTER) void Clipboard.setStringAsync(payload.text).catch(() => {});
+    } else if (payload.kind === "paste") {
+      void pasteFromPhone();
     } else if (payload.kind === "connect") {
       setLive(true);
       liveRef.current = true;
@@ -317,7 +338,7 @@ export function DesktopScreen({
   async function pasteFromPhone(): Promise<void> {
     const text = (await Clipboard.getStringAsync().catch(() => "")).slice(0, PASTE_LIMIT);
     if (!text) {
-      setNotice("Nothing is copied on the phone");
+      setNotice(COMPUTER ? "Nothing is copied" : "Nothing is copied on the phone");
       return;
     }
     const keysyms = Array.from(text.replace(/\r\n?/g, "\n"), keysymOf).filter((keysym) => keysym > 0);
@@ -447,6 +468,7 @@ export function DesktopScreen({
             // the document has an origin.
             onLoadEnd={() => {
               webRef.current?.injectJavaScript(injected);
+              if (COMPUTER && !embedded) webRef.current?.injectJavaScript(CATCH_PASTE);
             }}
             onMessage={onMessage}
             onError={() => (wasLive.current ? reconnect() : onError(new Error("The desktop viewer failed to load.")))}
@@ -480,7 +502,8 @@ export function DesktopScreen({
           <Pressable style={StyleSheet.absoluteFill} onPress={onExpand} accessibilityRole="button" accessibilityLabel="Open the screen and take control" />
         ) : null}
       </View>
-      {embedded ? null : (
+      {/* A computer types and pastes with its own keyboard, so the Keyboard and Clipboard buttons are a phone thing. */}
+      {embedded || COMPUTER ? null : (
         <>
       {/* Off-screen so no field shows on screen; the keyboard button focuses it
           to raise the soft keyboard, and each change is forwarded as keysyms. */}

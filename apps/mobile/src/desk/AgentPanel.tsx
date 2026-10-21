@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { createCore } from "../api";
 import { BotInfoScreen } from "../chat/BotInfoScreen";
@@ -22,6 +23,13 @@ export function AgentPanel({ chat }: { chat: ChatTarget }) {
   useResolvedScheme();
   const session = useSession();
   const panel = session.sidePanel;
+  const agentId = chat.kind === "direct" ? chat.agent.id : null;
+  // Another agent picked with the panel open: load its profile, media, links and files.
+  useEffect(() => {
+    if (panel && agentId && session.profile?.id !== agentId && chat.kind === "direct") session.loadProfile(chat.agent);
+    // Runs when the agent or the panel changes, not on every profile edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panel, agentId]);
   if (!panel || chat.kind !== "direct") return null;
   const profile = session.profile?.id === chat.agent.id ? session.profile : chat.agent;
   const hasComputer = Boolean(chat.agent.linuxProfile);

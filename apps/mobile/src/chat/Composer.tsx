@@ -185,6 +185,8 @@ function createStyles(colors: ColorPalette) {
       fontSize: 16,
       lineHeight: LINE_HEIGHT,
       backgroundColor: "transparent",
+      // A browser draws a focus ring around the field; the rounded box already shows where it is.
+      outlineWidth: 0,
     },
     inputWithSide: { paddingRight: 40 },
     reply: {

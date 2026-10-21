@@ -31,6 +31,10 @@ export function IconSearch() {
   return <PlatformIcon sf="magnifyingglass" md="search" size={18} color={colors.label} />;
 }
 
+export function IconSidebar() {
+  return <PlatformIcon sf="sidebar.left" md="view-sidebar" size={18} color={colors.label} />;
+}
+
 export function IconPlus() {
   return <PlatformIcon sf="plus" md="add" size={18} color={colors.label} />;
 }

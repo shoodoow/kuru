@@ -1605,7 +1605,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
    * desktop More menu used to open. Input: the agent. Output: nothing.
    * The profile screen opens on it.
    */
-  function openProfile(agent: RosterAgent): void {
+  /**
+   * Loads an agent's profile: its settings, routines, and the media, links and
+   * files from its chat. The desktop side panel calls it on its own when the
+   * person picks another agent with the panel open.
+   */
+  function loadProfile(agent: RosterAgent): void {
     void core
       .listProviders(accountId.trim())
       .then(setProviders)
@@ -1618,10 +1623,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } else {
       setProfileFeed([]);
     }
+    void loadDirectFeed(agent.id).then(setProfileFeed).catch(show);
+  }
+
+  function openProfile(agent: RosterAgent): void {
+    loadProfile(agent);
+    const chat = lastChatRef.current;
     // In a desktop window the profile opens beside the chat, not over it.
     if (isWideLayout() && chat && chat.kind === "direct" && chat.agent.id === agent.id) setSidePanel("details");
     else router.push(`/profile/${agent.id}`);
-    void loadDirectFeed(agent.id).then(setProfileFeed).catch(show);
   }
 
   /** Opens the room page for a group instead of the owner's profile. */
@@ -1898,6 +1908,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     openApprovals,
     reloadApprovals,
     openProfile,
+    loadProfile,
     openGroupInfo,
     saveProfile,
     pickAvatar,
@@ -2017,6 +2028,8 @@ type SessionValue = {
   openApprovals: () => void;
   reloadApprovals: () => Promise<void>;
   openProfile: (agent: RosterAgent) => void;
+  /** Loads an agent's profile without opening a page (the desktop side panel). */
+  loadProfile: (agent: RosterAgent) => void;
   openGroupInfo: () => Promise<void>;
   saveProfile: (draft?: RosterAgent) => Promise<void>;
   pickAvatar: () => Promise<void>;
