@@ -3,7 +3,6 @@ import { ActivityIndicator, FlatList, Linking, Modal, Pressable, StyleSheet, Tex
 import { useEventListener } from "expo";
 import { Image } from "expo-image";
 import { Directory, File, Paths } from "expo-file-system";
-import { Asset, requestPermissionsAsync } from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import { VideoView, createVideoPlayer, useVideoPlayer, type VideoThumbnail } from "expo-video";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
@@ -865,6 +864,9 @@ export async function saveToPhotos(block: FileBlock, fetchBlob?: FetchBlob): Pro
   const named = extension && !/\.[a-z0-9]{2,5}$/i.test(block.name) ? { ...block, name: `${block.name}${extension}` } : block;
   const file = await materializeFile(named, fetchBlob, false, true);
   if (!file?.local) throw new Error("Nothing to save.");
+  // Loaded here, not at the top: the photo library has no browser version, and
+  // loading it when a chat opened crashed the web and desktop app.
+  const { Asset, requestPermissionsAsync } = await import("expo-media-library");
   const permission = await requestPermissionsAsync(true, ["photo", "video"]);
   if (!permission.granted) throw new Error("Kuru may not add to your photos. Allow it in Settings.");
   await Asset.create(file.uri);
