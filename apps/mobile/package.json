@@ -20,7 +20,7 @@
     "@better-auth/expo": "1.6.23",
     "@expo/vector-icons": "^15.1.1",
     "@kuru/shared": "workspace:*",
-    "better-auth": "1.6.23",
+    "better-auth": "1.7.10",
     "expo": "57.0.25",
     "expo-asset": "~57.0.18",
     "expo-blur": "~57.0.3",
