@@ -93,7 +93,12 @@ export function AgentPanel({ chat }: { chat: ChatTarget }) {
               onBack={() => {}}
               onApprovals={() => {}}
               onError={session.show}
-              onExpand={() => session.openDesktop(chat.agent)}
+              onExpand={() => {
+                // The chat stays open under the full screen; leaving this small
+                // screen live there would stream the same screen twice.
+                session.setSidePanel("details");
+                session.openDesktop(chat.agent);
+              }}
             />
           </View>
           <Text style={styles.caption}>{chat.agent.name}'s screen · click to take control</Text>

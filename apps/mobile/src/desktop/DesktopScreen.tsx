@@ -61,17 +61,32 @@ const KEEP_AWAKE_TAG = "desktop-screen";
 const COMPUTER = process.env.EXPO_OS === "web";
 
 /**
- * Run inside the screen viewer on a computer. Ctrl+V / Cmd+V would reach the
- * agent's computer as a key press and paste its own clipboard, so it is caught
- * first and the app pastes the person's clipboard instead.
+ * Run inside the screen viewer on a computer, so Ctrl+V / Cmd+V pastes the
+ * person's clipboard on the agent's computer.
+ * The V key is kept from the viewer, which would send it on as a key press;
+ * the browser then pastes as usual (on a Mac the Edit menu does it), and the
+ * paste event carries the text, which goes to the app to type.
  */
-const CATCH_PASTE = `window.addEventListener("keydown", function (event) {
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
+const CATCH_PASTE = `(function () {
+  if (window.__kuruPaste) return;
+  window.__kuruPaste = true;
+  window.addEventListener("keydown", function (event) {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") event.stopImmediatePropagation();
+  }, true);
+  window.addEventListener("paste", function (event) {
+    var text = event.clipboardData ? event.clipboardData.getData("text/plain") : "";
+    if (!text) return;
     event.preventDefault();
-    event.stopImmediatePropagation();
-    parent.postMessage(JSON.stringify({ kind: "paste" }), "*");
-  }
-}, true); true;`;
+    parent.postMessage(JSON.stringify({ kind: "paste", text: text }), "*");
+  }, true);
+})(); true;`;
+
+/**
+ * Control, Alt, Meta and Super, left and right. A paste lets them go first:
+ * the Ctrl or Cmd of Ctrl+V already reached the agent's computer, and typing
+ * with it still down would send shortcuts instead of letters.
+ */
+const MODIFIER_KEYSYMS = [0xffe3, 0xffe4, 0xffe9, 0xffea, 0xffe7, 0xffe8, 0xffeb, 0xffec];
 
 export function DesktopScreen({
   accountId,
@@ -275,9 +290,14 @@ export function DesktopScreen({
       if (typeof payload.text !== "string") return;
       remoteClip.current = payload.text;
       // On a computer, what is copied on the agent's computer is on the person's clipboard too.
-      if (COMPUTER) void Clipboard.setStringAsync(payload.text).catch(() => {});
+      // Written from inside the viewer, which is where the focus is.
+      if (COMPUTER) {
+        webRef.current?.injectJavaScript(
+          `navigator.clipboard && navigator.clipboard.writeText(${JSON.stringify(payload.text)}).catch(function () {}); true;`,
+        );
+      }
     } else if (payload.kind === "paste") {
-      void pasteFromPhone();
+      if (typeof payload.text === "string") void pasteFromPhone(payload.text);
     } else if (payload.kind === "connect") {
       setLive(true);
       liveRef.current = true;
@@ -335,8 +355,8 @@ export function DesktopScreen({
    * Why typed: a phone keyboard has no Ctrl+V to paste with, and typing works
    * in every program, a terminal included, in any language.
    */
-  async function pasteFromPhone(): Promise<void> {
-    const text = (await Clipboard.getStringAsync().catch(() => "")).slice(0, PASTE_LIMIT);
+  async function pasteFromPhone(given?: string): Promise<void> {
+    const text = (given ?? (await Clipboard.getStringAsync().catch(() => ""))).slice(0, PASTE_LIMIT);
     if (!text) {
       setNotice(COMPUTER ? "Nothing is copied" : "Nothing is copied on the phone");
       return;
@@ -346,6 +366,7 @@ export function DesktopScreen({
     webRef.current?.injectJavaScript(`(function(){
       var rfb = window.nanoRfb; if (!rfb) return;
       try { rfb.clipboardPasteFrom(${JSON.stringify(text)}); } catch (e) {}
+      ${JSON.stringify(MODIFIER_KEYSYMS)}.forEach(function (key) { rfb.sendKey(key, "", false); });
       var keys = ${JSON.stringify(keysyms)}; var at = 0;
       (function step(){
         var end = Math.min(at + 40, keys.length);

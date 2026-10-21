@@ -706,15 +706,20 @@ function ShareTab({
   messages: { conversationId?: string; body: string; blocks?: MessageBlock[] | null }[];
   onFetchBlob?: (conversationId: string, messageId: string, index: number) => Promise<{ url?: string; previewUrl?: string }>;
 }) {
-  const { width } = useWindowDimensions();
+  // Sized from the space the grid has, not the window: in the desktop side
+  // panel the window is three times wider than the panel.
+  const { width: windowWidth } = useWindowDimensions();
+  const [width, setWidth] = useState(windowWidth - 32);
   const shares = collectShares(messages);
   const count = tab === "links" ? shares.links.length : tab === "media" ? shares.media.length : shares.files.length;
   if (count === 0) return <TabEmpty tab={tab} />;
   if (tab === "media") {
     const gap = 12;
-    const size = Math.floor((width - 32 - gap) / 2);
+    // Two across on a phone; more when there is room, so a tile stays about 200px.
+    const columns = Math.max(2, Math.floor((width + gap) / (200 + gap)));
+    const size = Math.floor((width - gap * (columns - 1)) / columns);
     return (
-      <View style={[styles.mediaGrid, { gap }]}>
+      <View style={[styles.mediaGrid, { gap }]} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
         {shares.media.map((item, index) => {
           const fetchBlob =
             item.file?.conversationId && onFetchBlob
