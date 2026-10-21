@@ -485,13 +485,132 @@ window.nanoResetZoom = () => {
   }
 };
 
+// ---- In the web and desktop app the page is a frame in the app's page.
+// The app cannot run code in here (this page allows only its own scripts),
+// so the clipboard is handled here and the app sends plain messages.
+const inAppFrame = !window.ReactNativeWebView && window.parent !== window;
+const onMac = /Mac/.test(navigator.platform);
+let viewOnly = params.get("viewOnly") !== "0";
+
+/** The key code that types one character; 0 for a character with no key. */
+const keysymOf = (char) => {
+  if (char === "\\n") return 0xff0d;
+  if (char === "\\t") return 0xff09;
+  const point = char.codePointAt(0) || 0;
+  if (point < 0x20) return 0;
+  return point <= 0xff ? point : 0x01000000 + point;
+};
+
+// Control, Alt, Meta and Super, left and right.
+const MODIFIERS = [0xffe3, 0xffe4, 0xffe9, 0xffea, 0xffe7, 0xffe8, 0xffeb, 0xffec];
+
+/**
+ * Types text where the cursor is on the agent's computer, and puts it on its
+ * clipboard too. Typed, because that works in every program. The keys held
+ * for the paste shortcut are let go first, or the letters would be shortcuts.
+ */
+const typeText = (rfb, text) => {
+  for (const key of MODIFIERS) rfb.sendKey(key, "", false);
+  try {
+    rfb.clipboardPasteFrom(text);
+  } catch (error) {
+    // Typing still works without it.
+  }
+  const keys = Array.from(text.replace(/\\r\\n?/g, "\\n"), keysymOf).filter((key) => key > 0);
+  let at = 0;
+  // A few dozen keys at a time, so a long paste does not flood the connection.
+  const step = () => {
+    const end = Math.min(at + 40, keys.length);
+    for (; at < end; at++) rfb.sendKey(keys[at], "");
+    if (at < keys.length) setTimeout(step, 30);
+  };
+  step();
+};
+
+const controlling = () => window.nanoRfb && !window.nanoRfb.viewOnly;
+
+if (inAppFrame) {
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (!controlling()) return;
+      const rfb = window.nanoRfb;
+      // Cmd on a Mac would arrive as the Super key; it is kept back.
+      if (onMac && event.key === "Meta") {
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (!event.ctrlKey && !event.metaKey) return;
+      const key = event.key.toLowerCase();
+      // Paste: the browser pastes as usual and the paste event types the text.
+      if (key === "v") {
+        event.stopImmediatePropagation();
+        return;
+      }
+      // Quit, close, hide and minimise stay the Mac's own; nothing reaches the screen.
+      if (onMac && event.metaKey && "qwhm".includes(key)) {
+        event.stopImmediatePropagation();
+        return;
+      }
+      // A Mac's Cmd+C, Cmd+X, Cmd+A, Cmd+Z are Ctrl+ on the agent's Linux.
+      if (onMac && event.metaKey && key.length === 1) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        rfb.sendKey(0xffe3, "ControlLeft", true);
+        rfb.sendKey(keysymOf(key), "");
+        rfb.sendKey(0xffe3, "ControlLeft", false);
+      }
+    },
+    true,
+  );
+  window.addEventListener(
+    "keyup",
+    (event) => {
+      if (onMac && (event.key === "Meta" || event.metaKey)) event.stopImmediatePropagation();
+    },
+    true,
+  );
+  // The person's clipboard to the agent's computer.
+  window.addEventListener(
+    "paste",
+    (event) => {
+      const text = event.clipboardData ? event.clipboardData.getData("text/plain") : "";
+      if (!controlling() || !text) return;
+      event.preventDefault();
+      typeText(window.nanoRfb, text.slice(0, 20000));
+    },
+    true,
+  );
+  // The app switches the same screen between watching and controlling, so it never reconnects.
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent || event.origin !== window.location.origin) return;
+    let message;
+    try {
+      message = JSON.parse(event.data);
+    } catch (error) {
+      return;
+    }
+    if (message.kind !== "control") return;
+    viewOnly = !message.on;
+    if (window.nanoRfb) {
+      window.nanoRfb.viewOnly = viewOnly;
+      if (message.on) window.nanoRfb.focus();
+    }
+  });
+}
+
+/** The agent's computer to the person's clipboard: what was copied there. */
+const copyOut = (text) => {
+  if (inAppFrame && navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+};
+
 const begin = () => {
   const rfb = new RFB(screen, url, { shared: true });
   window.nanoRfb = rfb;
 
   rfb.scaleViewport = true;
   rfb.clipViewport = false;
-  rfb.viewOnly = params.get("viewOnly") !== "0";
+  rfb.viewOnly = viewOnly;
   rfb.showDotCursor = true;
   rfb.background = "#111";
   rfb.qualityLevel = 7;
@@ -515,7 +634,10 @@ const begin = () => {
     post({ kind: "connect" });
   });
   rfb.addEventListener("disconnect", () => post({ kind: everConnected ? "disconnect" : "auth" }));
-  rfb.addEventListener("clipboard", (event) => post({ kind: "clipboard", text: event.detail.text }));
+  rfb.addEventListener("clipboard", (event) => {
+    post({ kind: "clipboard", text: event.detail.text });
+    copyOut(event.detail.text);
+  });
   rfb.addEventListener("bell", () => post({ kind: "bell" }));
   rfb.addEventListener("securityfailure", (event) => {
     post({ kind: "error", message: event.detail?.reason ?? "The desktop refused the connection." });

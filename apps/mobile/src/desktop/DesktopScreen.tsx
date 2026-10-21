@@ -60,48 +60,26 @@ const KEEP_AWAKE_TAG = "desktop-screen";
 /** A computer (the web or desktop app): a real keyboard and mouse, and Ctrl+V to paste. */
 const COMPUTER = process.env.EXPO_OS === "web";
 
-/**
- * Run inside the screen viewer on a computer, so Ctrl+V / Cmd+V pastes the
- * person's clipboard on the agent's computer.
- * The V key is kept from the viewer, which would send it on as a key press;
- * the browser then pastes as usual (on a Mac the Edit menu does it), and the
- * paste event carries the text, which goes to the app to type.
- */
-const CATCH_PASTE = `(function () {
-  if (window.__kuruPaste) return;
-  window.__kuruPaste = true;
-  window.addEventListener("keydown", function (event) {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") event.stopImmediatePropagation();
-  }, true);
-  window.addEventListener("paste", function (event) {
-    var text = event.clipboardData ? event.clipboardData.getData("text/plain") : "";
-    if (!text) return;
-    event.preventDefault();
-    parent.postMessage(JSON.stringify({ kind: "paste", text: text }), "*");
-  }, true);
-})(); true;`;
-
-/**
- * Control, Alt, Meta and Super, left and right. A paste lets them go first:
- * the Ctrl or Cmd of Ctrl+V already reached the agent's computer, and typing
- * with it still down would send shortcuts instead of letters.
- */
-const MODIFIER_KEYSYMS = [0xffe3, 0xffe4, 0xffe9, 0xffea, 0xffe7, 0xffe8, 0xffeb, 0xffec];
-
 export function DesktopScreen({
   accountId,
   agent,
   onApprovals,
   onError,
   embedded = false,
+  control = !embedded,
   onExpand,
 }: {
   /**
-   * True in the panel beside a chat in the desktop window: the screen is only
-   * watched, so the agent keeps its mouse and keyboard, and there is no header
-   * or row of buttons. `onExpand` opens the full screen, where the person takes over.
+   * True in the panel beside a chat in the desktop window: no header and no
+   * row of buttons. `onExpand` asks for the screen large, to take over.
    */
   embedded?: boolean;
+  /**
+   * True while the person controls the screen; false while they only watch,
+   * so the agent keeps its mouse and keyboard. In the desktop window the same
+   * screen switches between the two without reconnecting.
+   */
+  control?: boolean;
   onExpand?: () => void;
   accountId: string;
   agent: RosterAgent;
@@ -128,6 +106,8 @@ export function DesktopScreen({
   const webRef = useRef<WebFrameHandle>(null);
   const inputRef = useRef<TextInput>(null);
   const trackpadRef = useRef(false);
+  // Whether the person controls the screen, read when the viewer page is built.
+  const controlRef = useRef(control);
   // Reconnecting: a dropped screen comes back on its own, with a fresh token.
   const [attempt, setAttempt] = useState(0);
   const [reconnecting, setReconnecting] = useState(false);
@@ -224,7 +204,7 @@ export function DesktopScreen({
         }
         const viewer = `${core.screenPageUrl(accountId, profile)}?${new URLSearchParams({
           url: core.screenUrl(accountId, profile, token),
-          viewOnly: embedded ? "1" : "0",
+          viewOnly: controlRef.current ? "0" : "1",
           trackpad: trackpadRef.current ? "1" : "0",
           // A browser sends its own session; the page has nothing to wait for.
           ...(process.env.EXPO_OS === "web" ? { ready: "1" } : {}),
@@ -240,7 +220,7 @@ export function DesktopScreen({
     return () => {
       cancelled = true;
     };
-  }, [accountId, profile, onError, prefsReady, attempt, reconnect, embedded]);
+  }, [accountId, profile, onError, prefsReady, attempt, reconnect]);
 
   // The WebView keeps its own cookie jar and the expo client keeps the session
   // in SecureStore, so the cookie has to be copied across before the viewer can
@@ -270,14 +250,21 @@ export function DesktopScreen({
   // Watching is controlling, so the agent's own mouse and keyboard pause while
   // the screen is open and resume on the way out.
   useEffect(() => {
-    if (!profile || embedded) {
+    if (!profile || !control) {
       return;
     }
     void core.takeOver(accountId, profile).catch(() => {});
     return () => {
       void core.handBack(accountId, profile).catch(() => {});
     };
-  }, [accountId, profile, embedded]);
+  }, [accountId, profile, control]);
+
+  // Watching and controlling are one screen: the viewer is told, not reloaded.
+  useEffect(() => {
+    if (controlRef.current === control) return;
+    controlRef.current = control;
+    webRef.current?.postMessage(JSON.stringify({ kind: "control", on: control }));
+  }, [control]);
 
   function onMessage(event: WebFrameMessageEvent): void {
     let payload: { kind?: string; message?: string; text?: string };
@@ -287,17 +274,7 @@ export function DesktopScreen({
       return;
     }
     if (payload.kind === "clipboard") {
-      if (typeof payload.text !== "string") return;
-      remoteClip.current = payload.text;
-      // On a computer, what is copied on the agent's computer is on the person's clipboard too.
-      // Written from inside the viewer, which is where the focus is.
-      if (COMPUTER) {
-        webRef.current?.injectJavaScript(
-          `navigator.clipboard && navigator.clipboard.writeText(${JSON.stringify(payload.text)}).catch(function () {}); true;`,
-        );
-      }
-    } else if (payload.kind === "paste") {
-      if (typeof payload.text === "string") void pasteFromPhone(payload.text);
+      if (typeof payload.text === "string") remoteClip.current = payload.text;
     } else if (payload.kind === "connect") {
       setLive(true);
       liveRef.current = true;
@@ -355,10 +332,10 @@ export function DesktopScreen({
    * Why typed: a phone keyboard has no Ctrl+V to paste with, and typing works
    * in every program, a terminal included, in any language.
    */
-  async function pasteFromPhone(given?: string): Promise<void> {
-    const text = (given ?? (await Clipboard.getStringAsync().catch(() => ""))).slice(0, PASTE_LIMIT);
+  async function pasteFromPhone(): Promise<void> {
+    const text = (await Clipboard.getStringAsync().catch(() => "")).slice(0, PASTE_LIMIT);
     if (!text) {
-      setNotice(COMPUTER ? "Nothing is copied" : "Nothing is copied on the phone");
+      setNotice("Nothing is copied on the phone");
       return;
     }
     const keysyms = Array.from(text.replace(/\r\n?/g, "\n"), keysymOf).filter((keysym) => keysym > 0);
@@ -366,7 +343,6 @@ export function DesktopScreen({
     webRef.current?.injectJavaScript(`(function(){
       var rfb = window.nanoRfb; if (!rfb) return;
       try { rfb.clipboardPasteFrom(${JSON.stringify(text)}); } catch (e) {}
-      ${JSON.stringify(MODIFIER_KEYSYMS)}.forEach(function (key) { rfb.sendKey(key, "", false); });
       var keys = ${JSON.stringify(keysyms)}; var at = 0;
       (function step(){
         var end = Math.min(at + 40, keys.length);
@@ -489,7 +465,6 @@ export function DesktopScreen({
             // the document has an origin.
             onLoadEnd={() => {
               webRef.current?.injectJavaScript(injected);
-              if (COMPUTER && !embedded) webRef.current?.injectJavaScript(CATCH_PASTE);
             }}
             onMessage={onMessage}
             onError={() => (wasLive.current ? reconnect() : onError(new Error("The desktop viewer failed to load.")))}
@@ -518,7 +493,7 @@ export function DesktopScreen({
         <Text style={[styles.status, live ? styles.live : null]} pointerEvents="none" accessibilityLiveRegion="polite">
           {notice ?? (profile ? (live ? "Live" : reconnecting ? "Reconnecting…" : "Connecting") : "No desktop")}
         </Text>
-        {embedded && onExpand && page ? (
+        {!control && onExpand && page ? (
           // Watching only. A click anywhere opens the full screen, where the person takes over.
           <Pressable style={StyleSheet.absoluteFill} onPress={onExpand} accessibilityRole="button" accessibilityLabel="Open the screen and take control" />
         ) : null}

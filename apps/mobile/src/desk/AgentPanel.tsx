@@ -6,7 +6,7 @@ import { DesktopScreen } from "../desktop/DesktopScreen";
 import { useSession, type ChatTarget } from "../session/SessionProvider";
 import { useResolvedScheme } from "../theme/appearance";
 import { darkColors, onPaletteChange, type ColorPalette } from "../theme/tokens";
-import { IconClose } from "../ui/icons";
+import { IconClose, IconCollapse } from "../ui/icons";
 
 const core = createCore();
 
@@ -33,25 +33,28 @@ export function AgentPanel({ chat }: { chat: ChatTarget }) {
   if (!panel || chat.kind !== "direct") return null;
   const profile = session.profile?.id === chat.agent.id ? session.profile : chat.agent;
   const hasComputer = Boolean(chat.agent.linuxProfile);
-  const shown = panel === "computer" && !hasComputer ? "details" : panel;
+  const shown = panel !== "details" && !hasComputer ? "details" : panel;
+  // The screen fills the window; the chat beside it is hidden.
+  const large = shown === "screen";
   return (
-    <View style={styles.panel}>
+    <View style={[styles.panel, large ? styles.panelLarge : null]}>
       <View style={styles.bar}>
         <View style={styles.tabs}>
           <Tab label="Details" on={shown === "details"} onPress={() => session.setSidePanel("details")} />
-          {hasComputer ? <Tab label="Computer" on={shown === "computer"} onPress={() => session.setSidePanel("computer")} /> : null}
+          {hasComputer ? <Tab label="Computer" on={shown !== "details"} onPress={() => session.setSidePanel("computer")} /> : null}
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Close panel"
-          onPress={() => session.setSidePanel(null)}
+          accessibilityLabel={large ? "Back to chat" : "Close panel"}
+          {...({ title: large ? "Back to chat" : "Close panel" } as object)}
+          onPress={() => session.setSidePanel(large ? "computer" : null)}
           style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [
             styles.close,
             hovered ? styles.closeHover : null,
             pressed ? styles.pressed : null,
           ]}
         >
-          <IconClose />
+          {large ? <IconCollapse /> : <IconClose />}
         </Pressable>
       </View>
       {shown === "details" ? (
@@ -84,24 +87,23 @@ export function AgentPanel({ chat }: { chat: ChatTarget }) {
           }}
         />
       ) : (
+        // Small and large are one screen in the same place, so growing it keeps the connection.
         <View style={styles.computer}>
-          <View style={styles.screen}>
+          <View style={[styles.screen, large ? styles.screenLarge : null]}>
             <DesktopScreen
               embedded
+              control={large}
               accountId={session.accountId.trim()}
               agent={chat.agent}
               onBack={() => {}}
               onApprovals={() => {}}
               onError={session.show}
-              onExpand={() => {
-                // The chat stays open under the full screen; leaving this small
-                // screen live there would stream the same screen twice.
-                session.setSidePanel("details");
-                session.openDesktop(chat.agent);
-              }}
+              onExpand={() => session.setSidePanel("screen")}
             />
           </View>
-          <Text style={styles.caption}>{chat.agent.name}'s screen · click to take control</Text>
+          <Text style={styles.caption}>
+            {large ? `You control ${chat.agent.name}'s screen. The agent waits until you go back to the chat.` : `${chat.agent.name}'s screen · click to take control`}
+          </Text>
         </View>
       )}
     </View>
@@ -138,9 +140,11 @@ function createStyles(colors: ColorPalette) {
     close: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: colors.control },
     closeHover: { backgroundColor: colors.pressed },
     pressed: { opacity: 0.7 },
+    panelLarge: { flex: 1, width: "auto", borderLeftWidth: 0 },
     computer: { flex: 1, padding: 14, gap: 10 },
     // The agent's screen is 4:3 or wider; this keeps the frame from collapsing while it connects.
     screen: { aspectRatio: 16 / 10, borderRadius: 14, borderCurve: "continuous", overflow: "hidden", backgroundColor: "#111" },
+    screenLarge: { aspectRatio: undefined, flex: 1 },
     caption: { color: colors.muted, fontSize: 13, textAlign: "center" },
   });
 }

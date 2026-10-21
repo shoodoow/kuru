@@ -149,7 +149,8 @@ export type Attachment = {
 };
 
 /** What the panel beside the chat shows in a desktop window. */
-export type SidePanel = "details" | "computer";
+/** What the panel beside the chat shows in a desktop window; "screen" is the computer filling the window. */
+export type SidePanel = "details" | "computer" | "screen";
 
 export type ChatTarget = {
   agent: RosterAgent;
@@ -1838,7 +1839,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   function openDesktop(agent: RosterAgent): void {
     setDesktopAgent(agent);
     closeSheet();
-    router.push(`/desktop/${agent.id}`);
+    // In a desktop window the open chat's agent gets its screen large in the
+    // side panel: the same live screen, with no new page or connection.
+    const chat = lastChatRef.current;
+    if (isWideLayout() && chat?.kind === "direct" && chat.agent.id === agent.id) setSidePanel("screen");
+    else router.push(`/desktop/${agent.id}`);
   }
 
   function leaveChat(roomId: string): void {

@@ -70,7 +70,18 @@ describe("novnc viewer page", () => {
     // which the phone must report instead of showing "Connecting" forever.
     expect(script).toContain('kind: everConnected ? "disconnect" : "auth"');
     // The phone needs a way to see whether the viewer is merely mirroring.
-    expect(script).toContain("rfb.viewOnly = params.get(\"viewOnly\") !== \"0\"");
+    expect(script).toContain('let viewOnly = params.get("viewOnly") !== "0"');
+    expect(script).toContain("rfb.viewOnly = viewOnly");
+  });
+
+  it("handles the clipboard itself inside the app's frame, and switches control on a message", () => {
+    const script = novncShellScript("/assets/novnc");
+    // The app cannot run code in this page, so paste, copy and control live here.
+    expect(script).toContain('window.addEventListener(\n    "paste"');
+    expect(script).toContain("navigator.clipboard.writeText(text)");
+    expect(script).toContain('message.kind !== "control"');
+    // Only the app's own page may switch control.
+    expect(script).toContain("event.origin !== window.location.origin");
   });
 
   it("waits for the phone to plant the session before connecting", () => {
@@ -188,5 +199,125 @@ describe("desktop gestures", () => {
     touch("end");
     expect(screenStyle.width).toBe("1200px");
     expect(sent.filter((event) => event.mask !== 0)).toEqual([]);
+  });
+});
+
+/**
+ * Runs the viewer as the web and desktop app shows it: in a frame of the
+ * app's page, on a Mac or not. Records keys sent to the screen and text
+ * written to the person's clipboard.
+ */
+function framedViewer({ mac, viewOnly = false }: { mac: boolean; viewOnly?: boolean }) {
+  const keys: { keysym: number; code: string; down?: boolean }[] = [];
+  const copied: string[] = [];
+  const rfbListeners = new Map<string, (event: unknown) => void>();
+  const winListeners = new Map<string, (event: unknown) => void>();
+  const rfb = {
+    _fbWidth: 1280,
+    _fbHeight: 800,
+    _rfbConnectionState: "connected",
+    viewOnly: false,
+    _gestures: { detach: () => {} },
+    _cursor: { move: () => {} },
+    _sendMouse: () => {},
+    sendKey: (keysym: number, code: string, down?: boolean) => keys.push({ keysym, code, down }),
+    clipboardPasteFrom: () => {},
+    addEventListener: (type: string, handler: (event: unknown) => void) => rfbListeners.set(type, handler),
+    focus: () => {},
+  };
+  const parent = { postMessage: () => {} };
+  const win: Record<string, unknown> = {
+    innerWidth: 1200,
+    innerHeight: 800,
+    parent,
+    location: { search: `?url=ws://host/x&viewOnly=${viewOnly ? "1" : "0"}`, host: "host", origin: "https://kuru.test" },
+    __nanoSessionReady: true,
+    addEventListener: (type: string, handler: (event: unknown) => void) => winListeners.set(type, handler),
+  };
+  const doc = { getElementById: () => ({ style: {} }), addEventListener: () => {} };
+  const nav = {
+    platform: mac ? "MacIntel" : "Win32",
+    clipboard: { writeText: async (text: string) => void copied.push(text) },
+  };
+  const body = novncShellScript("/assets/novnc").replace(/^import .*$/m, "");
+  new Function("window", "document", "navigator", "RFB", body)(win, doc, nav, function () {
+    return rfb;
+  });
+  rfbListeners.get("connect")!({});
+  const event = (fields: Record<string, unknown>) => {
+    const flags = { prevented: false, stopped: false };
+    return {
+      ...fields,
+      flags,
+      preventDefault: () => (flags.prevented = true),
+      stopImmediatePropagation: () => (flags.stopped = true),
+    };
+  };
+  const fire = (type: string, fields: Record<string, unknown>) => {
+    const made = event(fields);
+    winListeners.get(type)?.(made);
+    return made.flags;
+  };
+  const paste = (text: string) => fire("paste", { clipboardData: { getData: () => text } });
+  return { rfb, keys, copied, parent, fire, paste, rfbListeners };
+}
+
+describe("clipboard and control in the app's frame", () => {
+  it("types pasted text, letting go of Ctrl, Alt, Cmd and Super first", () => {
+    const { keys, paste } = framedViewer({ mac: false });
+    const flags = paste("Hi\n");
+    expect(flags.prevented).toBe(true);
+    const released = keys.filter((key) => key.down === false).map((key) => key.keysym);
+    expect(released).toEqual(expect.arrayContaining([0xffe3, 0xffe4, 0xffe9, 0xffe7, 0xffeb]));
+    const typed = keys.filter((key) => key.down === undefined).map((key) => key.keysym);
+    expect(typed).toEqual([0x48, 0x69, 0xff0d]);
+  });
+
+  it("keeps Ctrl+V from the screen so the browser pastes instead", () => {
+    const { keys, fire } = framedViewer({ mac: false });
+    const flags = fire("keydown", { key: "v", ctrlKey: true, metaKey: false });
+    expect(flags.stopped).toBe(true);
+    // Not prevented: the browser must still paste, which fires the paste event.
+    expect(flags.prevented).toBe(false);
+    expect(keys).toEqual([]);
+  });
+
+  it("turns a Mac's Cmd+C into Ctrl+C on the agent's Linux, and keeps Cmd itself back", () => {
+    const { keys, fire } = framedViewer({ mac: true });
+    expect(fire("keydown", { key: "Meta", metaKey: true, ctrlKey: false }).stopped).toBe(true);
+    fire("keydown", { key: "c", metaKey: true, ctrlKey: false });
+    expect(keys).toEqual([
+      { keysym: 0xffe3, code: "ControlLeft", down: true },
+      { keysym: 0x63, code: "", down: undefined },
+      { keysym: 0xffe3, code: "ControlLeft", down: false },
+    ]);
+  });
+
+  it("leaves Cmd+Q, Cmd+W, Cmd+H and Cmd+M to the Mac", () => {
+    const { keys, fire } = framedViewer({ mac: true });
+    const flags = fire("keydown", { key: "q", metaKey: true, ctrlKey: false });
+    expect(flags).toEqual({ prevented: false, stopped: true });
+    expect(keys).toEqual([]);
+  });
+
+  it("puts what is copied on the agent's computer on the person's clipboard", () => {
+    const { copied, rfbListeners } = framedViewer({ mac: true });
+    rfbListeners.get("clipboard")!({ detail: { text: "from linux" } });
+    expect(copied).toEqual(["from linux"]);
+  });
+
+  it("switches between watching and controlling on a message from the app's own page", () => {
+    const { rfb, keys, parent, fire, paste } = framedViewer({ mac: false, viewOnly: true });
+    expect(rfb.viewOnly).toBe(true);
+    paste("ignored while watching");
+    expect(keys).toEqual([]);
+    // Another site, or another frame, cannot take control.
+    fire("message", { source: parent, origin: "https://evil.test", data: JSON.stringify({ kind: "control", on: true }) });
+    fire("message", { source: {}, origin: "https://kuru.test", data: JSON.stringify({ kind: "control", on: true }) });
+    expect(rfb.viewOnly).toBe(true);
+    fire("message", { source: parent, origin: "https://kuru.test", data: JSON.stringify({ kind: "control", on: true }) });
+    expect(rfb.viewOnly).toBe(false);
+    fire("message", { source: parent, origin: "https://kuru.test", data: JSON.stringify({ kind: "control", on: false }) });
+    expect(rfb.viewOnly).toBe(true);
   });
 });

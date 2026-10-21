@@ -106,6 +106,9 @@ export default function ChatRoute() {
     );
   }
 
+  // The agent's screen fills the window (desktop only); the chat is hidden meanwhile.
+  const screenLarge = wide && session.sidePanel === "screen" && chat.kind === "direct" && Boolean(chat.agent.linuxProfile);
+
   const openDetails = (): void => {
     if (chat.kind === "group") void session.openGroupInfo().catch(session.show);
     else if (session.sidePanel) session.setSidePanel(null);
@@ -114,7 +117,8 @@ export default function ChatRoute() {
 
   return (
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.bg }}>
-    <View style={{ flex: 1 }}>
+    {/* While the agent's screen fills the window the chat is hidden, not closed. */}
+    <View style={{ flex: 1, display: screenLarge ? "none" : "flex" }}>
     {wide ? (
       <View style={{ height: 56, alignItems: "center", justifyContent: "center" }}>
         <Pressable

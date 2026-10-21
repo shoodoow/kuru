@@ -3,7 +3,11 @@ import { StyleSheet, type StyleProp, type ViewStyle } from "react-native";
 
 /** The message a page sends out, in the shape the phone's WebView reports it. */
 export type WebFrameMessageEvent = { nativeEvent: { data: string } };
-export type WebFrameHandle = { injectJavaScript: (script: string) => void };
+export type WebFrameHandle = {
+  injectJavaScript: (script: string) => void;
+  /** Sends the page a message, as the phone's WebView does. Works for any page, scripts allowed or not. */
+  postMessage: (data: string) => void;
+};
 
 type Props = {
   source: { html: string; baseUrl?: string } | { uri: string; headers?: Record<string, string> };
@@ -73,7 +77,11 @@ export const WebFrame = forwardRef<WebFrameHandle, Props>(function WebFrame(
       // Another site's page, or a frame that is gone: nothing to run it in.
     }
   };
-  useImperativeHandle(ref, () => ({ injectJavaScript: run }));
+  const post = (data: string): void => {
+    // Only to a page from this app's own address.
+    frame.current?.contentWindow?.postMessage(data, globalThis.location.origin);
+  };
+  useImperativeHandle(ref, () => ({ injectJavaScript: run, postMessage: post }));
 
   const flat = (StyleSheet.flatten(style) ?? {}) as CSSProperties;
   return (
