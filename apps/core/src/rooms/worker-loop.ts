@@ -92,6 +92,8 @@ export function affordableTokens(error: unknown): number | null {
  * The job can be continued from its report.
  */
 export const WORKER_RUN_INPUT_TOKENS = 8_000_000;
+/** Share of a run's token budget at which it is told to finish up and report. */
+export const BUDGET_WARN_SHARE = 0.75;
 /** Average input per step above which the person is told something is off. Normal is 30,000 to 50,000. */
 export const STEP_INPUT_ALARM = 90_000;
 /** Steps averaged before the alarm is judged, so one large page does not set it off. */
@@ -401,8 +403,9 @@ export function collapseOldSteps(messages: ModelMessage[], keepRecent = 16): Mod
 }
 
 /** Tools whose result is a view of something that has since changed: the page, the screen. */
-const VIEW_TOOLS = new Set(["browser_navigate", "browser_snapshot", "browser_read", "browser_screenshot", "computer_screenshot"]);
+const VIEW_TOOLS = new Set(["browser_navigate", "browser_snapshot", "browser_batch", "browser_read", "browser_screenshot", "computer_screenshot"]);
 const VIEW_GONE = "[An earlier view of the page was here. The page has moved on since; take a new browser_snapshot to see it as it is now.]";
+const BATCH_VIEW_HEAD = "\n\nPage now (what changed since your last view):\n";
 
 /** A snapshot answer that lists only what changed, or says nothing did: it builds on the full tree before it. */
 function isPageChange(text: string): boolean {
@@ -438,6 +441,8 @@ export function dropStaleViews(messages: ModelMessage[]): ModelMessage[] {
       const name = String(part.toolName ?? "");
       if (part.type !== "tool-result" || !VIEW_TOOLS.has(name)) continue;
       const { text, hadImage } = outputText(part.output);
+      const batchSplit = name === "browser_batch" ? text.indexOf(BATCH_VIEW_HEAD) : -1;
+      const view = batchSplit >= 0 ? text.slice(batchSplit + BATCH_VIEW_HEAD.length) : name === "browser_batch" ? "" : text;
       if (hadImage || name.endsWith("_screenshot")) {
         if (!havePicture) {
           havePicture = true;
@@ -451,14 +456,15 @@ export function dropStaleViews(messages: ModelMessage[]): ModelMessage[] {
       } else if (!haveTree) {
         // Change-only answers stay until the full tree they build on is reached; that tree stays too.
         // A short answer (an error, a click result) is not the tree.
-        if (!isPageChange(text) && text.length > 400) haveTree = true;
+        if (!isPageChange(view) && view.length > 400) haveTree = true;
         continue;
       }
       // A short answer (an error, "the browser did not start") costs nothing to keep and may matter.
-      if (!hadImage && text.length <= 400) continue;
+      if (!hadImage && view.length <= 400) continue;
       // The address and title, on the first lines, say where the job has been.
-      const first = hadImage ? "" : `${text.split("\n").slice(0, 2).join(" ").slice(0, 200)}\n`;
-      next[at] = { ...part, output: { type: "text", value: `${first}${VIEW_GONE}` } };
+      const first = hadImage ? "" : `${view.split("\n").slice(0, 2).join(" ").slice(0, 200)}\n`;
+      const prefix = batchSplit >= 0 ? `${text.slice(0, batchSplit)}\n\n` : "";
+      next[at] = { ...part, output: { type: "text", value: `${prefix}${first}${VIEW_GONE}` } };
       changed = true;
     }
     if (changed) out[index] = { ...message, content: next } as ModelMessage;
@@ -571,6 +577,14 @@ export function withStateSummary(
 
 /** Below this size (estimated tokens) old page views are left alone, so the cached prefix stays the same. */
 export const STALE_VIEWS_AT = 16_000;
+/**
+ * Conversation size (estimated tokens, without the fixed instructions) above
+ * which old tool results are cut short, long before the full state summary.
+ * Why: the full summary waits for 80% of the window, capped at 150,000. With a
+ * large-window model it never ran: a 77-step Reddit job grew from 15,000 to
+ * 90,000 tokens a step and sent 5 million in all.
+ */
+export const MICRO_COMPACT_AT = 24_000;
 
 /** The conversation with every picture replaced by a short note; nothing else changes. */
 export function withoutImages(messages: ModelMessage[]): ModelMessage[] {

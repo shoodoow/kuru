@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { getDb } from "../db/client.js";
-import { createProfile, exec, removeAccountContainers } from "../linux/linux.js";
+import { accountHome, createProfile, exec, removeAccountContainers } from "../linux/linux.js";
 import { createAccount, createAgent } from "../roster/roster.js";
 import { runBrowserTool, siteNotePath } from "./browser-bridge.js";
 
@@ -107,7 +107,7 @@ describe("browser tools", () => {
     expect(tabs.split("\n").filter((row) => row.includes("127.0.0.1:8765"))).toHaveLength(1);
 
     // What the agent writes down about a site is shown the next time it opens it.
-    const note = siteNotePath(url)!;
+    const note = siteNotePath(url, accountHome(account.id, profile))!;
     await exec(account.id, ["sh", "-c", 'mkdir -p "$(dirname "$1")" && echo "The Save button needs a name first." > "$1"', "sh", note], profile);
     expect(await run("browser_navigate", { url })).toContain("The Save button needs a name first.");
 

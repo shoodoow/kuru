@@ -10,7 +10,7 @@ import { publish } from "../rooms/stream.js";
 import { runTurn, type GenerateResult, type TurnInput } from "../rooms/turn.js";
 import type { StreamEvent } from "../rooms/stream.js";
 import { nextCronRun } from "./cron.js";
-import { routineNotesPath, startRoutineWorker } from "./routine-worker.js";
+import { startRoutineWorker } from "./routine-worker.js";
 import { budgetState, warnAboutBudget } from "../turn/usage/budget.js";
 import { creditOutage } from "../model/credit.js";
 import { noted } from "../log/logger.js";
@@ -340,10 +340,6 @@ export async function createOwnRoutine(
     })
     .returning();
   if (!routine) throw new Error("The routine insert returned no row.");
-  if (routine.runsAs === "worker") {
-    routine.notesPath = routineNotesPath(routine);
-    await store.update(routines).set({ notesPath: routine.notesPath }).where(eq(routines.id, routine.id));
-  }
   if (!data.paused) {
     await store.insert(jobs).values({ accountId: input.accountId, routineId: routine.id, status: "pending", runAt });
   }
@@ -485,12 +481,8 @@ export async function updateOwnRoutine(
     workerKind: string | null;
     workerSkills: string[];
     briefPath: string | null;
-    notesPath: string | null;
   }> = {};
-  if (data.runAs !== undefined) {
-    patch.runsAs = data.runAs;
-    if (data.runAs === "worker" && !owned.notesPath) patch.notesPath = routineNotesPath(owned);
-  }
+  if (data.runAs !== undefined) patch.runsAs = data.runAs;
   if (data.kind !== undefined) patch.workerKind = data.kind;
   if (data.skills !== undefined) patch.workerSkills = data.skills;
   if (data.briefFile !== undefined) patch.briefPath = data.briefFile || null;

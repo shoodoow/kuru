@@ -40,8 +40,7 @@ describe("routine workers", () => {
       briefFile: "/shared/briefs/fiverr-inbox.md",
     });
     expect(routine).toMatchObject({ runsAs: "worker", workerKind: "browser", workerSkills: ["chrome-devtools"], briefPath: "/shared/briefs/fiverr-inbox.md" });
-    expect(routine.notesPath).toBe(routineNotesPath(routine));
-    expect(routine.notesPath).toMatch(/^\/shared\/notes\/routines\/fiverr-inbox-sweep-[0-9a-f]{8}\.md$/);
+    expect(routineNotesPath(routine, "/home/ethan")).toMatch(/^\/home\/ethan\/notes\/routines\/fiverr-inbox-sweep-[0-9a-f]{8}\.md$/);
     const cleared = await updateOwnRoutine(db, account.id, ethan.id, { routineId: routine.id, briefFile: "", runAs: "agent" });
     expect(cleared).toMatchObject({ briefPath: null, runsAs: "agent" });
     await expect(

@@ -261,6 +261,22 @@ describe("stale views of a page", () => {
     expect(out).toHaveLength(talk.length);
   });
 
+  it("drops stale page trees appended to browser_batch while keeping its action lines", () => {
+    const batch = (steps: string, after: string) => `${steps}\n\nPage now (what changed since your last view):\n${after}`;
+    const talk: ModelMessage[] = [
+      { role: "user", content: "Reply to threads." },
+      view("browser_batch", batch("1. fill e12: ✓ Done\n2. click e14: ✓ Done", page("thread-1")), "1"),
+      view("browser_batch", batch("1. fill e22: ✓ Done\n2. click e24: ✓ Done", page("thread-2")), "2"),
+    ];
+    const out = dropStaleViews(talk);
+    const text = (index: number): string => ((out[index] as { content: { output: { value: string } }[] }).content[0]!.output.value);
+    expect(text(1)).toContain("1. fill e12: ✓ Done\n2. click e14: ✓ Done");
+    expect(text(1)).toContain("https://shop.example/thread-1");
+    expect(text(1)).toContain("An earlier view of the page was here");
+    expect(text(1).length).toBeLessThan(500);
+    expect(text(2)).toContain(page("thread-2"));
+  });
+
   it("keeps only the newest picture", () => {
     const shot = (id: string): ModelMessage => ({ role: "tool", content: [{ type: "tool-result", toolCallId: id, toolName: "browser_screenshot", output: { type: "content", value: [{ type: "text", text: "Screenshot." }, { type: "media", data: "AAAA", mediaType: "image/png" }] } }] }) as ModelMessage;
     const out = dropStaleViews([{ role: "user", content: "Look." }, shot("1"), view("browser_snapshot", page("a"), "2"), shot("3")]);

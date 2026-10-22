@@ -260,7 +260,7 @@ export function linuxToolExecutes(
       // Why: workers followed every batch or click with a snapshot step of its own.
       if (steps.length > 0) {
         const after = await actions.browser_snapshot({}).catch(() => "");
-        if (after) lines.push("", "Page now (what changed since your last view):", String(after));
+        if (after) lines.push("", "Page now (what changed since your last view):", batchPageView(String(after)));
       }
       return lines.join("\n");
     },
@@ -287,6 +287,22 @@ const BROWSER_SCRIPT_REFUSAL =
   "✗ Not run: this drives the browser around the browser tools (its debugging port or CDP). Use the browser_* tools: browser_snapshot to see the page, browser_click (it clicks a covered element with the mouse by itself; holdMs for press and hold), browser_type or browser_batch for fields and pickers, browser_press_key for Escape. A popup, chat bubble or newsletter box over the page is something to close (its ×, or Escape), not a captcha.";
 
 /** The actions browser_batch may run, matching the schema's list. */
+/** Longest page view a batch adds to its answer, in characters. */
+export const BATCH_VIEW_CHARS = 4_000;
+
+/**
+ * The page view a batch ends with, cut to whole lines.
+ * Why: posting a Reddit comment re-renders the thread, and every batch that
+ * posted one carried a 20,000-character "change" that stayed in all later steps.
+ */
+export function batchPageView(view: string): string {
+  if (view.length <= BATCH_VIEW_CHARS) return view;
+  const cut = view.lastIndexOf("\n", BATCH_VIEW_CHARS);
+  const kept = view.slice(0, cut > 0 ? cut : BATCH_VIEW_CHARS);
+  const left = view.slice(kept.length).split("\n").filter(Boolean).length;
+  return `${kept}\n[... ${left} more lines of the page not shown. Take browser_snapshot to see them all.]`;
+}
+
 const BATCH_ACTIONS = new Set(["click", "click_at", "fill", "type", "select", "check", "set_value", "press_key", "scroll", "hover", "wait_for"]);
 
 /**

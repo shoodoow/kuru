@@ -107,14 +107,20 @@ function sharedPrefix(names: string[]): string {
  * Why: a worker saw only a few plugin tool names and loaded by keyword search,
  * which turned on 12 tools at a time; one run carried 24 email tools on every
  * step and used 3. With exact names it loads only what it needs.
- * Input: gates (tool → set), loaders (loader → set) and the sets that are on.
+ * A big plugin the job does not name gets one line: its names cost every step
+ * and the loader's `search` finds the few a job needs. A Reddit job carried
+ * 3,500 characters of YouTube and email tool names on each of its 77 steps.
+ * Input: gates (tool → set), loaders (loader → set), the sets that are on,
+ * and the job's text (a plugin named in it keeps its full list of names).
  * Output: an `<available-deferred-tools>` block, or "" when nothing is deferred.
  */
 export function deferredToolsBlock(
   gates: ReadonlyMap<string, string>,
   loaders: ReadonlyMap<string, string>,
   enabled: ReadonlySet<string>,
+  jobText?: string,
 ): string {
+  const job = jobText?.toLowerCase();
   const loaderOf = new Map<string, string>();
   for (const [loader, set] of loaders) loaderOf.set(set, loader);
   const groups = new Map<string, string[]>();
@@ -130,6 +136,11 @@ export function deferredToolsBlock(
     if (!loader) continue;
     if (set.startsWith("family:")) {
       lines.push(`${set.slice("family:".length)} (${names.length} tools): call ${loader} to load them all`);
+      continue;
+    }
+    const plugin = set.replace(/^plugin:/, "");
+    if (job !== undefined && names.length > COMPACT_NAMES_FROM && !job.includes(plugin.toLowerCase())) {
+      lines.push(`${plugin} (${names.length} tools): call ${loader} with "search" (what you want to do) to load the ones you need`);
       continue;
     }
     const shown = names.slice(0, Math.max(0, budget));

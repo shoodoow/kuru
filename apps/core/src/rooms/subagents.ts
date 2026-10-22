@@ -54,8 +54,10 @@ import {
   compactTranscript,
   withoutImages,
   STALE_VIEWS_AT,
+  MICRO_COMPACT_AT,
   affordableTokens,
   WORKER_RUN_INPUT_TOKENS,
+  BUDGET_WARN_SHARE,
   STEP_INPUT_ALARM,
   STEP_ALARM_AFTER,
   workerOutputCap,
@@ -369,9 +371,9 @@ export async function addGroupMember(
 
 const WORKER_RESULT_MAX = 20_000;
 /** Cap per preloaded skill body so one long playbook cannot dominate every worker step. */
-const PRELOADED_SKILL_CHARS = 16_000;
+const PRELOADED_SKILL_CHARS = 8_000;
 // All preloaded skills together; every worker step resends them.
-const PRELOADED_SKILLS_TOTAL_CHARS = 40_000;
+const PRELOADED_SKILLS_TOTAL_CHARS = 16_000;
 /**
  * The other installed skills, listed for a worker; smaller than the chat list since a worker resends it every step.
  * A worker is on one job: names with a short line are enough, and `list_skills` finds the rest.
@@ -1084,6 +1086,8 @@ export async function runWorker(
     context?: string;
     /** Stop once with a preview before the costly part. Left out, a named skill can ask for it; false never (scheduled runs). */
     checkpoint?: boolean;
+    /** Most input tokens (cached or not) this run may send before it must report. Left out: WORKER_RUN_INPUT_TOKENS. */
+    tokenBudget?: number;
     generate?: WorkerGenerate;
     onSettled?: (settled: WorkerSettled) => void;
   },
@@ -1390,7 +1394,12 @@ export async function runWorker(
     }
     // The task is sent once, as the user message; the system text is standing method only.
     // Written once, before the first step, so the instructions stay the same (and cached) for the whole run.
-    const deferred = deferredToolsBlock(review.pluginGates ?? new Map(), review.pluginLoaders ?? new Map(), review.enabledToolSets ?? new Set());
+    const deferred = deferredToolsBlock(
+      review.pluginGates ?? new Map(),
+      review.pluginLoaders ?? new Map(),
+      review.enabledToolSets ?? new Set(),
+      [input.task, ...(meta.skills ?? [])].join("\n"),
+    );
     const workerInstructions = [standing, roleLine, ...preloaded, deferred].filter(Boolean).join("\n\n");
     const contextLines = meta.context?.trim() ? `\n${meta.context.trim()}` : "";
     const taskMessage = (
@@ -1527,6 +1536,8 @@ export async function runWorker(
     /** Set when this run's token budget or the account's daily limit is spent: the next step is the report. */
     let spendStop: string | null = null;
     let alarmed = false;
+    let warnedBudget = false;
+    const tokenBudget = input.tokenBudget ?? WORKER_RUN_INPUT_TOKENS;
     let cutShort = false;
     let finalText = "";
     /** Messages of the segment in flight, so a stop mid-segment still saves what was done. */
@@ -1563,7 +1574,13 @@ export async function runWorker(
           urgency: "info",
         }).catch(noted("Raising the step-size alarm"));
       }
-      if (sent >= WORKER_RUN_INPUT_TOKENS) return prompt("worker-rules", "budget-stop", { tokens: Math.round(sent / 1_000_000) });
+      const millions = (tokens: number): string => String(Math.round(tokens / 100_000) / 10);
+      if (sent >= tokenBudget) return prompt("worker-rules", "budget-stop", { tokens: millions(sent) });
+      // A warning first, so the run ends with its work saved and a report instead of mid-action.
+      if (!warnedBudget && sent >= tokenBudget * BUDGET_WARN_SHARE) {
+        warnedBudget = true;
+        say(prompt("worker-rules", "budget-wrap-up", { tokens: millions(sent), budget: millions(tokenBudget) }));
+      }
       const budget = await budgetState(db, input.accountId).catch(() => null);
       if (budget) await warnAboutBudget(db, input.accountId, input.conversationId, budget).catch(noted("Warning about the daily limit"));
       if (budget?.reached) return prompt("worker-rules", "daily-limit-stop");
@@ -1604,7 +1621,10 @@ export async function runWorker(
                 })) as never,
             // Anthropic caches only up to a marked point: mark the newest message, so
             // each step reads everything before it from the cache at a tenth of the price.
-            messages: stepMessages(runOn.provider, pending),
+            messages: stepMessages(
+              runOn.provider,
+              pending.length > transcript.length && estimateTokens(pending) > STALE_VIEWS_AT ? dropStaleViews(pending) : pending,
+            ),
           }),
           // One free fix for inputs that are wrong in shape but clear in meaning.
           repairToolCall: async ({ toolCall, error }) => {
@@ -1840,6 +1860,9 @@ export async function runWorker(
         // Old views of a page are stale and large, but rewriting old messages makes the
         // provider resend everything after them uncached. Drop them only once they weigh something.
         if (estimateTokens(transcript) > STALE_VIEWS_AT) transcript = dropStaleViews(transcript);
+        // Old results are cut once the conversation passes the mark; already-cut ones stay as they are,
+        // so the cached part before them is not rewritten again.
+        if (estimateTokens(transcript) > MICRO_COMPACT_AT) transcript = compactTranscript(transcript);
         if (lastInputTokens > compactAt || estimateTokens(transcript) > compactAt) {
           if (!(await summarizeState())) trimOldSteps();
           lastInputTokens = 0;

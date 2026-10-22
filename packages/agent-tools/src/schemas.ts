@@ -334,7 +334,7 @@ export const spawnWorkerInputSchema = z.object(spawnWorkerFields).superRefine(re
 const briefFileField = z
   .string()
   .trim()
-  .regex(/^(\/shared\/|\/home\/[^/]+\/)[^\0]+$/, "A brief file is a path under /shared or your home.")
+  .regex(/^(\/shared\/|\/home\/[^/]+\/|~\/)[^\0]+$/, "A brief file is a path under your home (~/) or /shared.")
   .refine((path) => !path.includes(".."), "A brief file path cannot go up with ..")
   .optional();
 

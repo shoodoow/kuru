@@ -41,4 +41,14 @@ describe("deferredToolsBlock for a big plugin", () => {
     expect(block).toContain("tool-0, tool-1, tool-2");
     expect(block).not.toContain("\nresend_tool-0\n");
   });
+
+  it("shows a big plugin the job does not name as one line, and lists it when the job names it", () => {
+    const names = Array.from({ length: 30 }, (_, index) => `resend_tool-${index}`);
+    const gates = new Map(names.map((name) => [name, "plugin:resend"]));
+    const loaders = new Map([["resend_load_tools", "plugin:resend"]]);
+    const other = deferredToolsBlock(gates, loaders, new Set(), "Daily Reddit warmup: post 3 comments.");
+    expect(other).toContain('resend (30 tools): call resend_load_tools with "search"');
+    expect(other).not.toContain("tool-0");
+    expect(deferredToolsBlock(gates, loaders, new Set(), "Send the outreach emails with Resend.")).toContain("tool-0, tool-1");
+  });
 });

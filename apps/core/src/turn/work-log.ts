@@ -50,7 +50,7 @@ function mainInput(tool: string, input: Record<string, unknown>): string {
 }
 
 /** Tools whose result is a page's structure tree: useless later, and long. */
-const PAGE_TREE_TOOLS = new Set(["browser_navigate", "browser_snapshot"]);
+const PAGE_TREE_TOOLS = new Set(["browser_navigate", "browser_snapshot", "browser_batch"]);
 
 /**
  * What of a result is worth replaying later.

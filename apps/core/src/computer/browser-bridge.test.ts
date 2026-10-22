@@ -71,7 +71,8 @@ describe("browser bridge", () => {
   });
 
   it("keeps one note per website, named by its host", () => {
-    expect(siteNotePath("https://www.Instagram.com/accounts/login/?next=x")).toBe("/shared/notes/sites/instagram.com.md");
+    expect(siteNotePath("https://www.Instagram.com/accounts/login/?next=x", "/home/max")).toBe("/home/max/notes/sites/instagram.com.md");
+    expect(siteNotePath("https://www.Instagram.com/")).toBe("/shared/notes/sites/instagram.com.md");
     expect(siteNotePath("not a url")).toBeNull();
   });
 

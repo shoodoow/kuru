@@ -1,6 +1,6 @@
 import { resolveSession, type Session } from "../desktop/desktop.js";
 import { sharedDb } from "../db/client.js";
-import { exec } from "../linux/linux.js";
+import { accountHome, exec } from "../linux/linux.js";
 import { browserIdleMs, browserUsed, makeRoomForBrowser } from "./housekeeping.js";
 
 /** The browser tools. Names match the agent tool list. */
@@ -508,11 +508,15 @@ function unquote(text: string): string {
   }
 }
 
-/** Where an agent keeps what it learned about one website: /shared/notes/sites/<host>.md. */
-export function siteNotePath(rawUrl: string): string | null {
+/**
+ * Where an agent keeps what it learned about one website: <home>/notes/sites/<host>.md.
+ * Its own home, since the notes hold its own sign-in and account; `/shared` is for what other agents need.
+ * Left out, `home` gives the old shared place, still read when an agent has no note of its own yet.
+ */
+export function siteNotePath(rawUrl: string, home = "/shared"): string | null {
   try {
     const host = new URL(rawUrl).hostname.toLowerCase().replace(/^www\./, "");
-    return /^[a-z0-9.-]{1,120}$/.test(host) ? `/shared/notes/sites/${host}.md` : null;
+    return /^[a-z0-9.-]{1,120}$/.test(host) ? `${home}/notes/sites/${host}.md` : null;
   } catch {
     return null;
   }
@@ -525,9 +529,11 @@ export function siteNotePath(rawUrl: string): string | null {
  * shown when the site is opened, carries that over.
  */
 async function siteNote(accountId: string, profile: string, rawUrl: string): Promise<string> {
-  const path = siteNotePath(rawUrl);
-  if (!path) return "";
-  const note = await exec(accountId, ["sh", "-c", 'head -c "$2" "$1" 2>/dev/null', "sh", path, String(SITE_NOTE_CHARS)], profile).catch(() => null);
+  const path = siteNotePath(rawUrl, accountHome(accountId, profile));
+  const legacy = siteNotePath(rawUrl);
+  if (!path || !legacy) return "";
+  const read = 'head -c "$3" "$1" 2>/dev/null || head -c "$3" "$2" 2>/dev/null';
+  const note = await exec(accountId, ["sh", "-c", read, "sh", path, legacy, String(SITE_NOTE_CHARS)], profile).catch(() => null);
   const text = note?.stdout.trim() ?? "";
   return text
     ? `\n\n[Your notes on this site from earlier visits (${path}). Keep them right: fix what is wrong, add what you learn.]\n${text}`
