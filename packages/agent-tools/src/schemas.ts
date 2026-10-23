@@ -66,8 +66,27 @@ export const workerRefInputSchema = z.object({
 
 export const workerRedirectInputSchema = z.object({
   workerId: z.string().uuid(),
-  /** What the worker should do now. It keeps its context, so say only what is new. */
-  instruction: z.string().trim().min(8).max(8000),
+  /** Required on its own so a follow-up cannot be just "continue and finish". */
+  next: z
+    .string()
+    .trim()
+    .min(8)
+    .max(4000)
+    .describe(
+      "The next concrete action: the command to run, the file to change, the check to do, with paths. Not \"continue\", \"finish\" or \"keep steps minimal\".",
+    ),
+  done: z
+    .string()
+    .trim()
+    .max(4000)
+    .optional()
+    .describe("When it stopped or finished: what is already done, with paths and the commands that worked, from its report."),
+  instruction: z
+    .string()
+    .trim()
+    .max(8000)
+    .optional()
+    .describe("Anything else it needs: a correction, a changed requirement, or the answer to its question."),
 });
 
 /** check_worker: one worker by id, or every worker of this chat when omitted. */
@@ -343,9 +362,32 @@ const briefFileField = z
  * the worker's label and role are derived, and it always inherits the
  * chatting agent's provider/model.
  */
+/**
+ * The parts of a worker brief besides the goal. Separate fields, because a
+ * model fills in a required field far more reliably than it follows advice
+ * about what a good brief contains. The harness joins them into one brief.
+ */
+const briefPart = (max: number) => z.string().trim().min(1).max(max);
+export const workerBriefFields = {
+  context: briefPart(8_000).describe(
+    "Everything already decided or known that the worker would otherwise guess: the person's choices, facts you verified, what exists already (paths) and must not be redone.",
+  ),
+  rules: briefPart(4_000)
+    .optional()
+    .describe("Must and never: hard limits, things to leave out, actions that need the person's OK."),
+  method: briefPart(6_000).describe(
+    "How to do it: the known way from a skill, your notes or an earlier report, and the first concrete action. If no way is known yet, which one or two things to read first, then start building.",
+  ),
+  checks: briefPart(3_000).describe(
+    "How the worker proves the result is right before reporting: what to open or run, and what it must look like.",
+  ),
+  deliver: briefPart(2_000).describe("Exact output path or action, and what the report must say."),
+};
+
 export const spawnWorkerToolInputSchema = z
   .object({
-    task: spawnWorkerFields.task,
+    task: spawnWorkerFields.task.describe("The goal in one or two sentences: what to produce, for whom, and the quality bar."),
+    ...workerBriefFields,
     kind: z.enum(workerKindNames).optional().default("executor"),
     /** Skill names loaded into the worker's prompt so it does not spend a step reading them. */
     skills: z.array(z.string().trim().min(1).max(100)).max(4).optional(),

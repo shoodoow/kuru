@@ -46,7 +46,7 @@ Worker {{workerId}}, working on "{{task}}", is waiting for your answer:
 
 {{question}}
 {{options}}
-Answer it now with `redirect_worker` (worker id {{workerId}}): one or two plain sentences, decided from what the person said, your memory and the brief. Decide it yourself whenever you reasonably can; the worker's own pick is usually fine, and "go with your pick" is a good answer.
+Answer it now with `redirect_worker` (worker id {{workerId}}), the answer in `next` as one or two plain sentences, decided from what the person said, your memory and the brief. Decide it yourself whenever you reasonably can; the worker's own pick is usually fine, and "go with your pick" is a good answer.
 Only if nobody but the person can know, ask them with a `question` widget in `send_message`, and pass their answer on with `redirect_worker` when they reply. The worker waits a few minutes, then carries on with its pick, and a later answer still reaches it.
 After `redirect_worker`, end the turn with no message: the person does not need to hear that a question was asked and answered.
 

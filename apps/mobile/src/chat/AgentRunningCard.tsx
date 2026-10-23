@@ -6,6 +6,8 @@ import { Sheet } from "../ui/Sheet";
 import { CircleButton } from "../ui/CircleButton";
 import { IconChevron, IconClose } from "../ui/icons";
 import Feather from "@expo/vector-icons/Feather";
+import * as Clipboard from "expo-clipboard";
+import { MONO } from "./MarkdownText";
 
 /** How often running work refreshes while on screen. */
 const REFRESH_MS = 10_000;
@@ -41,6 +43,24 @@ export function AgentRunningCard({
   const [stopping, setStopping] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  /** Jobs whose full brief is unfolded, keyed like the job cards. */
+  const [shownBriefs, setShownBriefs] = useState<Set<string>>(() => new Set());
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const toggleBrief = (key: string) =>
+    setShownBriefs((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const copyBrief = (key: string, brief: string) => {
+    void Clipboard.setStringAsync(brief).then(() => {
+      setCopied(key);
+      setTimeout(() => setCopied((current) => (current === key ? null : current)), 1500);
+    });
+  };
 
   const load = useCallback(() => {
     void onLoad()
@@ -134,8 +154,11 @@ export function AgentRunningCard({
               </View>
             ) : null}
 
-            {work?.running.map((job) => (
-              <View key={job.workerId + job.startedAt} style={styles.jobCard}>
+            {work?.running.map((job) => {
+              const key = job.workerId + job.startedAt;
+              const briefShown = shownBriefs.has(key);
+              return (
+              <View key={key} style={styles.jobCard}>
                 <View style={styles.jobHead}>
                   <View style={styles.badge}>
                     <Text style={styles.badgeText}>{job.source === "routine" ? "Routine" : "Job"}</Text>
@@ -156,6 +179,42 @@ export function AgentRunningCard({
                   </View>
                 ) : null}
 
+                {job.brief ? (
+                  <View style={styles.briefWrap}>
+                    <View style={styles.briefActions}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={briefShown ? "Hide worker brief" : "Show worker brief"}
+                        onPress={() => toggleBrief(key)}
+                        style={({ pressed }) => [styles.briefToggle, pressed ? styles.rowPressed : null]}
+                      >
+                        <Feather name={briefShown ? "chevron-up" : "file-text"} size={14} color={colors.muted} />
+                        <Text style={styles.briefToggleText}>
+                          {briefShown ? "Hide worker brief" : `Show worker brief · ${job.brief.length.toLocaleString()} chars`}
+                        </Text>
+                      </Pressable>
+                      {briefShown ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Copy worker brief"
+                          onPress={() => copyBrief(key, job.brief ?? "")}
+                          style={({ pressed }) => [styles.briefToggle, pressed ? styles.rowPressed : null]}
+                        >
+                          <Feather name={copied === key ? "check" : "copy"} size={14} color={colors.muted} />
+                          <Text style={styles.briefToggleText}>{copied === key ? "Copied" : "Copy"}</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                    {briefShown ? (
+                      <View style={styles.briefBox}>
+                        <Text selectable style={styles.briefText}>
+                          {job.brief}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+
                 <Pressable
                   accessibilityRole="button"
                   disabled={stopping !== null}
@@ -166,7 +225,8 @@ export function AgentRunningCard({
                   <Text style={styles.stopText}>{stopping === job.workerId ? "Stopping…" : "Stop task"}</Text>
                 </Pressable>
               </View>
-            ))}
+              );
+            })}
 
             {!isBusy ? (
               <View style={styles.emptyState}>
@@ -272,6 +332,16 @@ function createStyles(theme: ColorPalette) {
       padding: 10,
     },
     progressText: { color: theme.text, fontSize: 13, lineHeight: 18 },
+    briefWrap: { gap: 8 },
+    briefActions: { flexDirection: "row", alignItems: "center", gap: 16 },
+    briefToggle: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 },
+    briefToggleText: { color: theme.muted, fontSize: 13, fontWeight: "500" },
+    briefBox: {
+      backgroundColor: theme.control,
+      borderRadius: 8,
+      padding: 10,
+    },
+    briefText: { color: theme.text, fontSize: 12, lineHeight: 17, fontFamily: MONO },
     stopButton: {
       flexDirection: "row",
       alignItems: "center",

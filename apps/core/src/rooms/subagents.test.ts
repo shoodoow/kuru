@@ -34,6 +34,14 @@ const db = getDb(databaseUrl);
  * with attribution, lists the team, and hits depth/child caps instead of
  * fork-bombing the 20-member room.
  */
+/** The required parts of a spawn_worker brief, for tests that only care about the goal. */
+const REEL_BRIEF = {
+  context: "The script is in ~/work/reel/script.md.",
+  method: "Render with the project's render script.",
+  checks: "Open three frames of the result.",
+  deliver: "~/work/reel/reel.mp4",
+};
+
 describe("subagents and teams", () => {
   afterAll(async () => {
     await db.$client.end();
@@ -64,7 +72,7 @@ describe("subagents and teams", () => {
     // A turn woken by a worker's result may not start it again.
     const spawn = (await executeSpawnWorker(ctx(true), { task: "Render the video again, properly this time." })) as { error?: string };
     expect(spawn.error).toMatch(/not started again without them/);
-    const redirect = (await executeRedirectWorker(ctx(true), { workerId: worker.id, instruction: "Finish the render." })) as { error?: string };
+    const redirect = (await executeRedirectWorker(ctx(true), { workerId: worker.id, next: "Finish the render." })) as { error?: string };
     expect(redirect.error).toMatch(/not started again without them/);
 
     // The person writing again is a new request.
@@ -658,7 +666,7 @@ describe("subagents and teams", () => {
     };
     const out = (await executeRedirectWorker(ctx as never, {
       workerId: spawned.workerId,
-      instruction: "The user just signed in on the box, so continue past the login wall now.",
+      next: "The user just signed in on the box, so continue past the login wall now.",
     })) as { continued?: boolean; workerId: string; delegationId: string };
     // Marked running with no live run behind it: the stale attempt is closed
     // and the same worker carries on with the note as its instruction.
@@ -703,7 +711,7 @@ describe("subagents and teams", () => {
     };
     const out = (await executeRedirectWorker(ctx as never, {
       workerId: spawned.workerId,
-      instruction: "Also grab the pricing page while you are there please.",
+      next: "Also grab the pricing page while you are there please.",
     })) as { continued?: boolean; workerId?: string; delegationId?: string };
     expect(out.continued).toBe(true);
     expect(out.workerId).toBe(spawned.workerId);
@@ -746,7 +754,7 @@ describe("subagents and teams", () => {
       emit: async () => {},
     });
     const first = await cutOff();
-    const again = (await executeSpawnWorker(ctx() as never, { task: "Build the 60 second reel from scratch in a new project and render it." })) as {
+    const again = (await executeSpawnWorker(ctx() as never, { task: "Build the 60 second reel from scratch in a new project and render it.", ...REEL_BRIEF })) as {
       continued?: boolean;
       workerId?: string;
     };
@@ -755,7 +763,7 @@ describe("subagents and teams", () => {
     await stopWorker(db, account.id, first.workerId);
 
     const second = await cutOff();
-    const fresh = (await executeSpawnWorker(ctx() as never, { task: "Start the reel over: build a new 60 second reel.", fresh: true })) as {
+    const fresh = (await executeSpawnWorker(ctx() as never, { task: "Start the reel over: build a new 60 second reel.", fresh: true, ...REEL_BRIEF })) as {
       continued?: boolean;
       workerId?: string;
       delegationId?: string;

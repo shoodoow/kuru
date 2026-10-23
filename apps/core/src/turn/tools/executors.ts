@@ -89,7 +89,7 @@ import {
 import { emitTurnBus } from "../events/bus.js";
 import { MAX_DELEGATION_DEPTH } from "../constants.js";
 import { normalizeSendMessageInput } from "./normalize-send-message.js";
-import { validateWorkerTask } from "./worker-task.js";
+import { assembleBrief, redirectNote, validateWorkerTask } from "./worker-task.js";
 import type { ToolContext } from "./context.js";
 import { startFirstHello } from "../first-hello.js";
 import { ZodError } from "zod";
@@ -987,6 +987,7 @@ export async function executeSpawnWorker(ctx: ToolContext, input: Record<string,
     }
   }
   const parsed = spawnWorkerToolInputSchema.parse({ ...input, task: valid.task });
+  parsed.task = assembleBrief(parsed);
   // A brief kept in a file goes to the worker with the task, read now, so the worker spends no step opening it.
   if (parsed.briefFile) {
     const text = await readAgentFile(ctx.accountId, ctx.linuxProfile ?? null, parsed.briefFile).catch(() => null);
@@ -1266,6 +1267,7 @@ function launchDetachedWorker(
  */
 export async function executeRedirectWorker(ctx: ToolContext, input: Record<string, unknown>) {
   const parsed = workerRedirectInputSchema.parse(input);
+  const note = redirectNote(parsed);
   const [latest] = await ctx.store
     .select()
     .from(delegations)
@@ -1282,12 +1284,12 @@ export async function executeRedirectWorker(ctx: ToolContext, input: Record<stri
   }
   if (latest.status === "running") {
     // A worker waiting on a question gets this as its answer, at once, instead of as a note before its next step.
-    if (answerWorkerQuestion(latest.id, parsed.instruction)) {
+    if (answerWorkerQuestion(latest.id, note)) {
       // In a turn started by the question itself there is nothing more to say to the person.
       if (ctx.hiddenTurn) ctx.handedOff = true;
       return { workerId: parsed.workerId, delegationId: latest.id, status: "running", delivered: true, note: "The worker has your answer and is carrying on. Its result still arrives on its own." };
     }
-    if (messageRunningWorker(latest.id, parsed.instruction)) {
+    if (messageRunningWorker(latest.id, note)) {
       return {
         workerId: parsed.workerId,
         delegationId: latest.id,
@@ -1316,13 +1318,13 @@ export async function executeRedirectWorker(ctx: ToolContext, input: Record<stri
       conversationId: ctx.conversationId,
       parentAgentId: ctx.agentId,
       workerId: parsed.workerId,
-      task: parsed.instruction,
+      task: note,
     });
   } catch (error) {
     return { error: error instanceof Error ? error.message : "That worker could not be continued." };
   }
-  launchDetachedWorker(ctx, continued, parsed.instruction, undefined, {
-    context: await workerContext(ctx, parsed.instruction),
+  launchDetachedWorker(ctx, continued, note, undefined, {
+    context: await workerContext(ctx, note),
     resumeFrom: continued.resumeFrom ?? undefined,
   });
   return {

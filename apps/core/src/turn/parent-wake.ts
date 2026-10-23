@@ -76,10 +76,15 @@ function workerFailedList(settled: Array<{ workerId: string; task: string; resul
     .join("\n\n");
 }
 
-/** Hidden completion cue: evidence goes to the parent, never straight to chat. */
-function cleanReport(result: string): string {
+/**
+ * Hidden completion cue: evidence goes to the parent, never straight to chat.
+ * A raw dump (shell error, HTML, JSON) is cut short. A report that opens with the
+ * system's own "[This worker was stopped…]" note is not a dump: cutting it left
+ * the agent without the findings it needs to brief the follow-up.
+ */
+export function cleanReport(result: string): string {
   const text = result.replace(/\s+/g, " ").trim();
-  if (/^(bash:|<!DOCTYPE|<html|[{"\[])/i.test(text)) return text.slice(0, 200);
+  if (/^(bash:|<!DOCTYPE|<html|\{|"|\[\s*[{"[\]\d])/i.test(text)) return text.slice(0, 200);
   return text;
 }
 

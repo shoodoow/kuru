@@ -106,6 +106,8 @@ export type AgentMemoryFact = {
 export type AgentRunningJob = {
   workerId: string;
   title: string;
+  /** The whole brief the worker was given for this run. Missing on older servers. */
+  brief?: string;
   source: "routine" | "job";
   status: "running" | "lost" | "done" | "failed";
   progress: string;

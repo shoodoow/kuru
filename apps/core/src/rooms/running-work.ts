@@ -16,6 +16,8 @@ export type RunningJob = {
   /** The worker's id, used to stop it. */
   workerId: string;
   title: string;
+  /** The whole brief the worker was given for this run, exactly as its agent wrote it. */
+  brief: string;
   /** "routine" when a schedule started it, "job" when the agent did. */
   source: "routine" | "job";
   status: "running" | "lost" | "done" | "failed";
@@ -36,6 +38,8 @@ export type RunningWork = {
 
 const ROUTINE_HEAD = "Scheduled job:";
 const RECENT_MS = 24 * 60 * 60 * 1000;
+/** Briefs are rarely over 10K; this only guards the response against a runaway one. */
+const BRIEF_MAX_CHARS = 60_000;
 
 /** First meaningful line of a brief: the routine's name, or the start of the job. */
 function jobTitle(task: string): string {
@@ -69,6 +73,7 @@ export async function runningWork(db: Db, accountId: string, agentId: string): P
     return {
       workerId: row.childAgentId,
       title: jobTitle(row.task),
+      brief: row.task.length > BRIEF_MAX_CHARS ? `${row.task.slice(0, BRIEF_MAX_CHARS)}\n…` : row.task,
       source: row.task.trimStart().startsWith(ROUTINE_HEAD) ? "routine" : "job",
       status: running ? (isWorkerLive(row.id) ? "running" : "lost") : (row.status as "done" | "failed"),
       progress: (row.progress ?? "").replace(/\s+/g, " ").trim().slice(0, 240),
