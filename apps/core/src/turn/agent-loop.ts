@@ -262,10 +262,12 @@ export async function runAgentLoop(
     promisesUnstartedWork({ text: said, handedOff: Boolean(toolCtx.handedOff), hiddenTurn: Boolean(toolCtx.hiddenTurn) })
   ) {
     // The reply stands as written. This step only makes the promise true.
+    // A second step is there only for the agent to fix its own call after a
+    // tool error (a brief missing a required part); a call that worked ends it.
     const follow = await runModelHarness({
       ...harnessInput,
-      maxSteps: 1,
-      shouldStop: () => true,
+      maxSteps: 2,
+      shouldStop: () => Boolean(toolCtx.handedOff),
       restrictStep: () => ({ activeTools: [...FOLLOW_THROUGH_TOOLS], note: "" }),
       messages: [
         ...input.messages,
