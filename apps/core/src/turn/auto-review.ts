@@ -148,6 +148,12 @@ export function classifyRisk(name: string, input: Record<string, unknown>, home?
     if (home && risky.every((pattern) => RM_PATTERNS.includes(pattern)) && deletesOnlyOwnFiles(command, home)) return null;
     return `Destructive shell: ${command.slice(0, 160)}`;
   }
+  if (name === "apply_patch") {
+    // A patch may delete files, like rm: inside the agent's own home that needs no one.
+    const deleted = [...String(input.patch ?? "").matchAll(/^\*\*\* Delete File: (.+)$/gm)].map((match) => match[1]!.trim());
+    const outside = deleted.filter((path) => !path.startsWith("~/") && !(home && path.startsWith(`${home}/`)));
+    return outside.length > 0 ? `Delete files: ${outside.join(", ")}`.slice(0, 180) : null;
+  }
   if (name === "delete_group" && input.confirmed === true) {
     return `Delete group ${String(input.conversationId ?? "")}`.trim();
   }
@@ -228,6 +234,7 @@ export async function allowForGood(db: Db, accountId: string, approval: { agentI
 /** The other actions that can wait for the person, in their words. */
 const OTHER_ACTIONS: Record<string, string> = {
   bash: "Run a command on its computer",
+  apply_patch: "Change files on its computer",
   gmail_send: "Send an email",
   gmail_delete: "Delete emails",
   fire_agent: "Remove an agent",

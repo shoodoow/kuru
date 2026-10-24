@@ -5,7 +5,7 @@ import { toolsForSurface, type ToolDefinition } from "@kuru/agent-tools";
 import type { getDb } from "../../db/client.js";
 import { readHistory } from "../../memory/memory.js";
 import { readSkillForAgent } from "../../skills/agent-skills.js";
-import { linuxToolExecutes, DISPATCHER_FETCH_CHARS } from "../../computer/linux-tool-executes.js";
+import { linuxToolExecutes, DISPATCHER_FETCH_CHARS, DISPATCHER_OUTPUT_CHARS } from "../../computer/linux-tool-executes.js";
 import type { AgentMode } from "../types.js";
 import type { ToolContext } from "./context.js";
 import { dispatcherExecutors, executeDelegate, executeListSkills, executeRefreshSkills } from "./executors.js";
@@ -103,6 +103,14 @@ function workerExecute(
       return rows.map((row) => ({ id: row.id, body: row.body }));
     };
   }
+  if (def.name === "todo_write") {
+    return async (input) => {
+      const todos = Array.isArray(input.todos) ? (input.todos as NonNullable<ToolContext["workerTodos"]>) : [];
+      if (workerCtx.review) workerCtx.review.workerTodos = todos;
+      const open = todos.filter((todo) => todo.status !== "completed").length;
+      return `Saved ${todos.length} items, ${open} still open.`;
+    };
+  }
   if (def.name === "ask_agent") {
     return async (input) => {
       if (!workerCtx.ask) return "There is nobody to ask on this job. Carry on with the most sensible choice and say in your report what you chose.";
@@ -162,6 +170,7 @@ export function buildDispatcherToolSet(mode: AgentMode, ctx: ToolContext): ToolS
   const linux = ctx.linuxProfile
     ? linuxToolExecutes(ctx.db, ctx.accountId, ctx.linuxProfile, {
         fetchChars: DISPATCHER_FETCH_CHARS,
+        outputChars: DISPATCHER_OUTPUT_CHARS,
         // Skill files are the worker's manual. Reading them here burned tens
         // of thousands of tokens per turn and none of it reached the worker.
         skillFilesNote: (path) => prompt("dispatcher", "skill-files", { path }),

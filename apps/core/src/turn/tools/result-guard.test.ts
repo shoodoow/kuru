@@ -45,9 +45,28 @@ describe("ReadCounter", () => {
     counter.changed(writtenPaths("edit", { path: `${home}/send-log.md` }));
     expect(counter.record(key).action).toBe("run");
   });
+
+  it("counts each page of a long file on its own, and every page is fresh after a change or a summary", () => {
+    const counter = new ReadCounter();
+    const path = `${home}/film.js`;
+    const pages = [1, 2001, 4001].map((offset) => sourceKeys("read", { path, offset }));
+    for (const page of pages) expect(counter.record(page).action).toBe("run");
+    for (let i = 0; i < 3; i += 1) counter.record(pages[1]!);
+    expect(counter.record(pages[1]!).action).toBe("refuse");
+    counter.changed([path]);
+    expect(counter.record(pages[1]!).action).toBe("run");
+    for (let i = 0; i < 4; i += 1) counter.record(pages[0]!);
+    counter.reset();
+    expect(counter.record(pages[0]!).action).toBe("run");
+  });
 });
 
 describe("writtenPaths", () => {
+  it("finds every file a patch adds, changes, renames or deletes", () => {
+    const patch = "*** Begin Patch\n*** Add File: /tmp/a.js\n+x\n*** Update File: /tmp/b.js\n*** Move to: /tmp/c.js\n-y\n+z\n*** Delete File: /tmp/d.js\n*** End Patch";
+    expect(writtenPaths("apply_patch", { patch })).toEqual(["/tmp/a.js", "/tmp/b.js", "/tmp/c.js", "/tmp/d.js"]);
+  });
+
   it("finds redirect, tee and sed -i targets", () => {
     expect(writtenPaths("bash", { command: "echo hi > out.md 2>/dev/null; sort a | tee -a log.txt; sed -i 's/a/b/' notes.md" })).toEqual(["out.md", "log.txt", "notes.md"]);
   });

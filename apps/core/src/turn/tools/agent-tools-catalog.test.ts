@@ -6,6 +6,7 @@ describe("agent-tools catalog", () => {
   it("matches dispatcher registration list", () => {
     expect(dispatcherToolNames()).toEqual([
       "add_to_group",
+      "apply_patch",
       "bash",
       "browser_navigate",
       "browser_read",
@@ -20,6 +21,7 @@ describe("agent-tools catalog", () => {
       "delete_group",
       "delete_routine",
       "delete_routines",
+      "edit",
       "enable_tools",
       "fire_agent",
       "glob",
@@ -60,7 +62,7 @@ describe("agent-tools catalog", () => {
   });
 
   it("worker names align with profile tools when Linux exists", () => {
-    expect(workerToolNames(false)).toEqual(["ask_agent", "list_skills", "read_history", "read_skill", "refresh_skills"].sort());
+    expect(workerToolNames(false)).toEqual(["ask_agent", "list_skills", "read_history", "read_skill", "refresh_skills", "todo_write"].sort());
     expect(workerToolNames(true)).toContain("browser_snapshot");
     expect(workerToolNames(true)).toContain("browser_click");
     for (const name of profileToolNames()) {

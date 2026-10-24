@@ -6,13 +6,16 @@ import {
   isImagePath,
   moveMouse,
   pressKeys,
-  readFile,
+  deleteFile,
   readImage,
+  readPath,
+  readWholeFile,
   screenshotImage,
   typeText,
   writeFile,
 } from "./computer.js";
 import { expandHome, globFiles, grepFiles } from "./find.js";
+import { applyEdits, applyPatchChunks, changedSnippet, pageOfFile, parsePatch, type TextEdit } from "./code-files.js";
 import { SEARCH_CATEGORIES, webSearch, type SearchFilters } from "./search.js";
 import { webFetch } from "./web.js";
 import { openOnScreen, runBrowserTool } from "./browser-bridge.js";
@@ -22,6 +25,9 @@ type Database = ReturnType<typeof getDb>;
 
 /** Parent web_fetch budget: enough for a snippet, not a research dump. */
 export const DISPATCHER_FETCH_CHARS = 10_000;
+/** The chat agent's read pages and shell output: enough to check something; real work goes to a worker. */
+export const DISPATCHER_OUTPUT_CHARS = 12_000;
+/** A worker's web_fetch, before the page is cut. */
 const WORKER_OUTPUT_CHARS = 8_000;
 
 export type LinuxToolExecute = (input: Record<string, unknown>) => Promise<unknown>;
@@ -40,6 +46,12 @@ export function linuxToolExecutes(
   profile: string,
   opts?: {
     fetchChars?: number;
+    /**
+     * Most characters one read page or shell output returns (the chat agent).
+     * Left out (workers), a read page is up to 50,000 characters and shell output is
+     * whole until the tool wrapper saves a long one to a file.
+     */
+    outputChars?: number;
     viewImages?: boolean;
     /** Chat agent: skill files are answered with a pointer to hand the skill on. */
     skillFilesNote?: (path: string) => string;
@@ -75,17 +87,63 @@ export function linuxToolExecutes(
         }
         return readImage(accountId, profile, path);
       }
-      return conciseOutput(await readFile(accountId, profile, path));
+      const read = await readPath(accountId, profile, path);
+      if (read.type === "directory") return `${read.path} is a directory:\n${read.listing}`;
+      const page = pageOfFile(read.text, {
+        offset: typeof input.offset === "number" ? input.offset : undefined,
+        limit: typeof input.limit === "number" ? input.limit : undefined,
+        maxChars: opts?.outputChars,
+      });
+      return read.truncated ? `${page}\n\n[Only the first 1 MB of the file was read.]` : page;
     },
     write: async (input) => {
       const append = input.append === true;
       await writeFile(accountId, profile, String(input.path), String(input.body), append);
       return append ? "Added to the end of the file." : "Wrote the file.";
     },
+    edit: async (input) => {
+      const path = String(input.path);
+      const edits: TextEdit[] = Array.isArray(input.edits)
+        ? (input.edits as TextEdit[])
+        : [{ oldString: String(input.oldString ?? ""), newString: String(input.newString ?? ""), replaceAll: input.replaceAll === true }];
+      const before = await readWholeFile(accountId, profile, path);
+      const done = applyEdits(before, edits);
+      await writeFile(accountId, profile, path, done.content);
+      const places = done.replacements === 1 ? "1 place" : `${done.replacements} places`;
+      return `Changed ${places} in ${path}. The file now reads:\n${changedSnippet(done.content, done.changed)}`;
+    },
+    apply_patch: async (input) => {
+      const hunks = parsePatch(String(input.patch));
+      // Every change is worked out before anything is written, so a patch that does not fit changes nothing.
+      const writes: { path: string; text: string }[] = [];
+      const deletes: string[] = [];
+      const lines: string[] = [];
+      for (const hunk of hunks) {
+        if (hunk.type === "add") {
+          writes.push({ path: hunk.path, text: hunk.contents });
+          lines.push(`A ${hunk.path}`);
+        } else if (hunk.type === "delete") {
+          await readWholeFile(accountId, profile, hunk.path);
+          deletes.push(hunk.path);
+          lines.push(`D ${hunk.path}`);
+        } else {
+          const before = await readWholeFile(accountId, profile, hunk.path);
+          const after = hunk.chunks.length > 0 ? applyPatchChunks(hunk.path, hunk.chunks, before) : before;
+          writes.push({ path: hunk.movePath ?? hunk.path, text: after });
+          if (hunk.movePath && hunk.movePath !== hunk.path) deletes.push(hunk.path);
+          lines.push(hunk.movePath ? `R ${hunk.path} -> ${hunk.movePath}` : `M ${hunk.path}`);
+        }
+      }
+      for (const file of writes) await writeFile(accountId, profile, file.path, file.text);
+      for (const path of deletes) await deleteFile(accountId, profile, path);
+      return `Applied. Files changed:\n${lines.join("\n")}`;
+    },
     bash: async (input) => {
       const command = String(input.command);
       if (drivesBrowserDirectly(command)) return BROWSER_SCRIPT_REFUSAL;
-      return conciseOutput(await bash(accountId, profile, command));
+      const output = await bash(accountId, profile, command);
+      // A worker's long output is saved to a file whole when it reaches the conversation (wrap-tool-execute).
+      return opts?.outputChars ? conciseOutput(output, opts.outputChars) : output;
     },
     wait: async (input) => waitUntil(accountId, profile, String(input.until), Number(input.minutes) || 15, input.log ? String(input.log) : undefined),
     computer_screenshot: async () => {
@@ -316,7 +374,7 @@ export function isSkillPath(path: string): boolean {
   return /\/(\.agents|\.claude)\/skills(\/|$|\s)/.test(path) || /^\/shared\/skills(\/|$|\s)/.test(path.trim());
 }
 
-function conciseOutput(text: string, limit = WORKER_OUTPUT_CHARS): string {
+function conciseOutput(text: string, limit: number): string {
   if (text.length <= limit) return text;
   return `${text.slice(0, limit)}\n\n[truncated to ${limit} chars — rerun with a narrower command, range, or filter]`;
 }

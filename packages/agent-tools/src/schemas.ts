@@ -487,6 +487,41 @@ export const pathInputSchema = z.object({
   path: z.string().min(1),
 });
 
+/** read: one file a page at a time, with line numbers; a directory gives its listing. */
+export const readInputSchema = z.object({
+  path: z.string().min(1),
+  /** First line to show, 1-based. */
+  offset: z.number().int().min(1).optional(),
+  /** How many lines, up to 2,000. */
+  limit: z.number().int().min(1).max(2000).optional(),
+});
+
+const textEditSchema = z.object({
+  oldString: z.string(),
+  newString: z.string(),
+  replaceAll: z.boolean().optional(),
+});
+
+/** edit: replace exact text in one file; one change, or several in order with `edits`. */
+export const editInputSchema = z
+  .object({
+    path: z.string().min(1),
+    oldString: z.string().optional(),
+    newString: z.string().optional(),
+    replaceAll: z.boolean().optional(),
+    edits: z.array(textEditSchema).min(1).max(30).optional(),
+  })
+  .refine((input) => (input.edits ? input.oldString === undefined : input.oldString !== undefined && input.newString !== undefined), {
+    message: "Pass oldString and newString for one change, or edits for several, not both.",
+  });
+
+export type EditInput = z.infer<typeof editInputSchema>;
+
+/** apply_patch: add, change, rename and delete files in one call. */
+export const applyPatchInputSchema = z.object({
+  patch: z.string().min(1),
+});
+
 export const readWriteInputSchema = z.object({
   path: z.string().min(1),
   body: z.string(),

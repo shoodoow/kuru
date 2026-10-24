@@ -54,8 +54,6 @@ import {
   compactTranscript,
   withoutImages,
   STALE_VIEWS_AT,
-  MICRO_COMPACT_AT,
-  MICRO_KEEP_TOKENS,
   affordableTokens,
   WORKER_RUN_INPUT_TOKENS,
   BUDGET_WARN_SHARE,
@@ -73,6 +71,7 @@ import {
   resumableTranscript,
   transcriptForStorage,
   splitForSummary,
+  SUMMARY_KEEP_RECENT_TOKENS,
   withStateSummary,
   cutKind,
 } from "./worker-loop.js";
@@ -1491,9 +1490,10 @@ export async function runWorker(
       const summary = reply?.text?.trim() ?? "";
       if (summary.length < 200) return false;
       const before = estimateTokens(transcript);
-      transcript = withStateSummary(parts, summary);
-      // Earlier reads are no longer in view, so "you already loaded this, it is above" would be wrong.
+      transcript = withStateSummary(parts, summary, review.workerTodos);
+      // Earlier reads are no longer in view: reading a file again now is not a loop.
       review.loaded?.clear();
+      review.readCounter?.reset();
       logger.info({ delegationId: input.delegationId, before, after: estimateTokens(transcript) }, "worker conversation summarized");
       return true;
     };
@@ -1505,10 +1505,13 @@ export async function runWorker(
       }
       if (estimateTokens(transcript) > compactAt / 2) transcript = collapseOldSteps(transcript);
       review.loaded?.clear();
+      review.readCounter?.reset();
     };
-    // A continued job starts from its saved conversation, which can be over the threshold.
-    if (prior.length > 0 && estimateTokens(transcript) > compactAt) {
-      if (!(await summarizeState())) trimOldSteps();
+    // A continued job starts from a summary of its saved conversation plus the new note,
+    // not from the whole of it. Why: one video job was continued five times, and each run
+    // began at 53,000 to 92,000 tokens a step with every earlier step still in view.
+    if (prior.length > 0 && estimateTokens(transcript) > SUMMARY_KEEP_RECENT_TOKENS) {
+      if (!(await summarizeState()) && estimateTokens(transcript) > compactAt) trimOldSteps();
     }
     const startedAt = Date.now();
     /** Slim copies of finished steps: enough to write a report from, without holding every screenshot. */
@@ -1861,12 +1864,10 @@ export async function runWorker(
         // Old views of a page are stale and large, but rewriting old messages makes the
         // provider resend everything after them uncached. Drop them only once they weigh something.
         if (estimateTokens(transcript) > STALE_VIEWS_AT) transcript = dropStaleViews(transcript);
-        // Old results are cut once the conversation passes the mark; already-cut ones stay as they are,
-        // so the cached part before them is not rewritten again.
-        if (estimateTokens(transcript) > MICRO_COMPACT_AT) transcript = compactTranscript(transcript, { keepTokens: MICRO_KEEP_TOKENS });
-        if (lastInputTokens > compactAt || estimateTokens(transcript) > compactAt) {
+        // Nothing else old is rewritten between summaries, so every step reads the conversation
+        // so far from the provider's cache. At the threshold the older part becomes one summary.
+        if (estimateTokens(transcript) > compactAt) {
           if (!(await summarizeState())) trimOldSteps();
-          lastInputTokens = 0;
         }
       }
     } catch (error) {

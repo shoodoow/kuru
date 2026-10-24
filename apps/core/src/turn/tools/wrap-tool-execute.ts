@@ -121,8 +121,10 @@ export function wrapToolExecute(
     }
     // A read that already succeeded this turn is still in the transcript above;
     // loading it again only resends the same text on every later step.
+    // Not for workers: a worker changes files, and its older steps are summarized away,
+    // so "it is above" would be stale or untrue. Its re-reads are counted instead (ReadCounter).
     const loadKey = `${name}:${inputJson}`;
-    if (REPEATABLE_READS.has(name) && ctx.loaded?.has(loadKey)) {
+    if (mode !== "worker" && REPEATABLE_READS.has(name) && ctx.loaded?.has(loadKey)) {
       await ctx.traceSession?.emit({
         type: "tool.call.finish",
         toolCallId,
@@ -197,7 +199,7 @@ export function wrapToolExecute(
       }
       if (HANDOFF_TOOLS.has(name) && !isToolError(result)) ctx.handedOff = true;
       const failedResult = isToolError(result);
-      if (REPEATABLE_READS.has(name) && !failedResult) (ctx.loaded ??= new Set()).add(loadKey);
+      if (mode !== "worker" && REPEATABLE_READS.has(name) && !failedResult) (ctx.loaded ??= new Set()).add(loadKey);
       (ctx.workEntries ??= []).push(workEntry(name, input ?? {}, result, failedResult));
       const looked = lookedAt(name, input ?? {});
       if (looked) (ctx.touched ??= new Set()).add(looked);
@@ -212,7 +214,8 @@ export function wrapToolExecute(
       });
       if (mode === "worker") ctx.readCounter?.changed(writtenPaths(name, input ?? {}));
       if (mode === "worker" && PAGE_ACTIONS.test(name) && !failedResult) ctx.readCounter?.actedOnPage();
-      if (mode === "worker" && !failedResult) result = await keepSmall(ctx, toolCallId, result);
+      // A read is already one bounded page that ends with where to read on.
+      if (mode === "worker" && !failedResult && name !== "read") result = await keepSmall(ctx, toolCallId, result);
       if (rereadNote) return typeof result === "string" ? `${rereadNote}\n\n${result}` : { note: rereadNote, result };
       return result;
     } catch (error) {

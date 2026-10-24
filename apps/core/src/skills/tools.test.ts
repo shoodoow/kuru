@@ -8,6 +8,7 @@ describe("dispatcher SDK tools", () => {
     const names = dispatcherToolNames();
     expect(names).toEqual([
       "add_to_group",
+      "apply_patch",
       "bash",
       "browser_navigate",
       "browser_read",
@@ -22,6 +23,7 @@ describe("dispatcher SDK tools", () => {
       "delete_group",
       "delete_routine",
       "delete_routines",
+      "edit",
       "enable_tools",
       "fire_agent",
       "glob",
@@ -70,6 +72,6 @@ describe("dispatcher SDK tools", () => {
       expect.arrayContaining([...profileToolNames(), "read_history", "read_skill", "browser_snapshot", "list_skills"]),
     );
     expect(workerToolNames(true)).toContain("web_search");
-    expect(workerToolNames(false)).toEqual(["ask_agent", "list_skills", "read_history", "read_skill", "refresh_skills"].sort());
+    expect(workerToolNames(false)).toEqual(["ask_agent", "list_skills", "read_history", "read_skill", "refresh_skills", "todo_write"].sort());
   });
 });

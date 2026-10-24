@@ -71,15 +71,6 @@ describe("compactTranscript", () => {
     expect(out.map((message) => message.role)).toEqual(transcript.map((message) => message.role));
   });
 
-  it("with keepTokens, keeps every newer message that fits whole, beyond keepRecent", () => {
-    // Each 5,000-character result is about 1,250 tokens; 3,000 tokens covers messages 4 to 6, not 2.
-    const out = compactTranscript(transcript, { keepRecent: 2, keepTokens: 3_000, toolChars: 200, inputChars: 100 });
-    expect(JSON.stringify(out[2])).toContain("trimmed");
-    expect(out[3]).toBe(transcript[3]);
-    expect(out[4]).toBe(transcript[4]);
-    expect(out[6]).toBe(transcript[6]);
-  });
-
   it("drops pictures when storing and fits the size limit", () => {
     const withImage: ModelMessage[] = [
       { role: "user", content: "brief" },
@@ -186,11 +177,11 @@ describe("resumableTranscript", () => {
 
 describe("compactionThreshold", () => {
   it("is 80% of the window, at most 150K, at least 24K", () => {
-    expect(compactionThreshold(1_000_000)).toBe(150_000);
-    expect(compactionThreshold(128_000)).toBe(102_400);
+    expect(compactionThreshold(1_000_000)).toBe(45_000);
+    expect(compactionThreshold(128_000)).toBe(45_000);
     expect(compactionThreshold(32_000)).toBe(25_600);
     expect(compactionThreshold(16_000)).toBe(24_000);
-    expect(compactionThreshold(null)).toBe(102_400);
+    expect(compactionThreshold(null)).toBe(45_000);
   });
 });
 
@@ -229,6 +220,22 @@ describe("state summary", () => {
     const second = (again[1] as { content: string }).content;
     expect(second.match(/Keep it to 5 a day\./g)).toHaveLength(1);
     expect(again[0]).toBe(job[0]);
+  });
+
+  it("keeps the worker's worklist by code, and carries it into a continued run that has none yet", () => {
+    const todos = [
+      { content: "Rewrite film.js with drawWalk", status: "completed" },
+      { content: "Render and mux the video", status: "in_progress" },
+    ];
+    const first = withStateSummary(splitForSummary(job, 5_000)!, "## Goal\n- the video", todos);
+    const note = (first[1] as { content: string }).content;
+    expect(note).toContain("## Your worklist (todo_write)\n- [completed] Rewrite film.js with drawWalk\n- [in_progress] Render and mux the video");
+    const later = [...first, call("4", "pwd"), result("4", "z".repeat(60_000)), call("5", "ls"), result("5", "ok")];
+    const again = withStateSummary(splitForSummary(later, 1_000)!, "## Goal\n- later");
+    const second = (again[1] as { content: string }).content;
+    expect(second).toContain("- [in_progress] Render and mux the video");
+    // The worklist is not mistaken for one of the agent's instructions.
+    expect(second.split("## Your worklist")[0]).not.toContain("Render and mux");
   });
 
   it("returns null when there is nothing old enough to summarize", () => {

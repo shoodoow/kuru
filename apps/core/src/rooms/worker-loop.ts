@@ -104,6 +104,7 @@ export const TRANSCRIPT_STORE_CHARS = 600_000;
 
 const LOOK_ONLY_TOOLS = new Set([
   "read",
+  "todo_write",
   "glob",
   "grep",
   "web_search",
@@ -292,27 +293,16 @@ function trimMessage(message: ModelMessage, toolChars: number, inputChars: numbe
  * rerun a command to see them. Recent messages stay whole, and so does the
  * first one, which carries the brief. Message count and order never change,
  * so tool calls stay paired with their results.
- * Input: the conversation and how much to keep: at least `keepRecent` messages,
- * and with `keepTokens` also every newer message that fits in that many tokens.
- * Output: a new array.
+ * Input: the conversation and how much to keep. Output: a new array.
  */
 export function compactTranscript(
   messages: ModelMessage[],
-  options?: { keepRecent?: number; keepTokens?: number; toolChars?: number; inputChars?: number },
+  options?: { keepRecent?: number; toolChars?: number; inputChars?: number },
 ): ModelMessage[] {
   const keepRecent = options?.keepRecent ?? 12;
   const toolChars = options?.toolChars ?? 600;
   const inputChars = options?.inputChars ?? 400;
-  let cut = Math.max(0, messages.length - keepRecent);
-  if (options?.keepTokens) {
-    let kept = estimateTokens(messages.slice(cut));
-    while (cut > 1) {
-      const size = estimateTokens([messages[cut - 1]!]);
-      if (kept + size > options.keepTokens) break;
-      kept += size;
-      cut -= 1;
-    }
-  }
+  const cut = Math.max(0, messages.length - keepRecent);
   return messages.map((message, index) => {
     if (index === 0 || index >= cut) return message;
     return trimMessage(message, toolChars, inputChars, false);
@@ -493,18 +483,24 @@ export function estimateTokens(messages: ModelMessage[]): number {
 }
 
 /**
- * Most a worker's conversation may grow to before it is summarized, in tokens.
- * Why: every step resends the whole conversation, and models use a very long
- * one worse. With a state summary at this point nothing the job learned is lost.
+ * Most a worker's conversation may grow to before it is summarized, in tokens,
+ * not counting the instructions and tool definitions sent beside it.
+ * Why: every step resends the whole conversation. At 150,000 the summary
+ * almost never ran, so old results were cut short instead and kept: a video
+ * job carried 196 cut calls (about 43,000 tokens) on every step, sent 60,000
+ * to 90,000 tokens a step and about 29 million in all, and re-read what the
+ * cuts had removed. Summarized here, a step stays near 20,000 to 45,000 plus
+ * the instructions, and what was learned is kept as a summary, not lost to a cut.
  */
-export const WORKER_CONTEXT_CEILING = 150_000;
+export const WORKER_CONTEXT_CEILING = 45_000;
 
 /**
  * When the conversation should be summarized, in tokens: 80% of the window, at most the ceiling.
- * Why: the threshold was 48,000. With ~35,000 of instructions and tool definitions
- * that left a few steps of room, so old results were cut every few steps; workers
- * forgot what they had read and read it again (236 steps for a 9-step job), and
- * each cut also changed old messages, so the provider's cache no longer matched.
+ * Why a summary, not cuts: the threshold was once 48,000 counting ~35,000 of
+ * instructions, and old results were cut every few steps; workers forgot what
+ * they had read and read it again (236 steps for a 9-step job), and each cut
+ * changed old messages, so the provider's cache no longer matched. A summary
+ * keeps what was learned, and between summaries nothing old is rewritten.
  * Input: the model's context window, when known. Output: the threshold.
  */
 export function compactionThreshold(contextWindow?: number | null): number {
@@ -513,11 +509,12 @@ export function compactionThreshold(contextWindow?: number | null): number {
 }
 
 /** Newest part of the conversation kept word for word beside a state summary, in tokens. */
-export const SUMMARY_KEEP_RECENT_TOKENS = 20_000;
+export const SUMMARY_KEEP_RECENT_TOKENS = 15_000;
 /** Opens the message that holds a state summary; also how a later summary finds the earlier one. */
 export const STATE_HEAD = "[Earlier steps of this job were replaced by this state summary.";
 const INSTRUCTIONS_HEAD = "## Instructions from the agent, word for word";
 const SUMMARY_HEAD = "## State of the job";
+const WORKLIST_HEAD = "## Your worklist (todo_write)";
 /** Messages from the agent, as the loop words them (agent-note, continue-message). */
 const AGENT_WORDS = /^(Note from the agent you work for|The agent you work for has more for you)/;
 const INSTRUCTIONS_KEPT = 8;
@@ -556,13 +553,25 @@ export function agentInstructions(older: ModelMessage[]): string[] {
     if (message.role !== "user") continue;
     const text = plainText(message).trim();
     if (text.startsWith(STATE_HEAD)) {
-      const block = text.split(INSTRUCTIONS_HEAD)[1]?.split(SUMMARY_HEAD)[0] ?? "";
+      const block = text.split(INSTRUCTIONS_HEAD)[1]?.split(SUMMARY_HEAD)[0]?.split(WORKLIST_HEAD)[0] ?? "";
       found.push(...block.split("\n\n---\n\n").map((item) => item.trim()).filter((item) => item && item !== "(none)"));
       continue;
     }
     if (AGENT_WORDS.test(text)) found.push(text.slice(0, INSTRUCTION_CHARS));
   }
   return found.slice(-INSTRUCTIONS_KEPT);
+}
+
+/** The worklist lines an earlier state summary in this part of the conversation carried, newest first found. */
+function earlierWorklist(older: ModelMessage[]): string[] {
+  for (const message of [...older].reverse()) {
+    if (message.role !== "user") continue;
+    const text = plainText(message);
+    if (!text.startsWith(STATE_HEAD) || !text.includes(WORKLIST_HEAD)) continue;
+    const block = text.split(WORKLIST_HEAD)[1]?.split(SUMMARY_HEAD)[0] ?? "";
+    return block.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("- ["));
+  }
+  return [];
 }
 
 /**
@@ -572,13 +581,19 @@ export function agentInstructions(older: ModelMessage[]): string[] {
 export function withStateSummary(
   parts: { brief: ModelMessage; older: ModelMessage[]; recent: ModelMessage[] },
   summary: string,
+  todos: readonly { content: string; status: string }[] = [],
 ): ModelMessage[] {
   const instructions = agentInstructions(parts.older);
+  // The worklist is the worker's own, kept by code like the agent's words, so no summary can drop an item.
+  // A continued run has none of its own yet: the one the last summary carried stands.
+  const items = todos.length > 0 ? todos.map((todo) => `- [${todo.status}] ${todo.content}`) : earlierWorklist(parts.older);
+  const worklist = items.length > 0 ? ["", WORKLIST_HEAD, ...items] : [];
   const note = [
     `${STATE_HEAD} Trust it and the files on disk; open a file again only to use a detail that is not here, and never redo anything listed as done.]`,
     "",
     INSTRUCTIONS_HEAD,
     instructions.length > 0 ? instructions.join("\n\n---\n\n") : "(none)",
+    ...worklist,
     "",
     SUMMARY_HEAD,
     summary.trim(),
@@ -588,21 +603,6 @@ export function withStateSummary(
 
 /** Below this size (estimated tokens) old page views are left alone, so the cached prefix stays the same. */
 export const STALE_VIEWS_AT = 16_000;
-/**
- * Conversation size (estimated tokens, without the fixed instructions) above
- * which old tool results are cut short, long before the full state summary.
- * Why: the full summary waits for 80% of the window, capped at 150,000. With a
- * large-window model it never ran: a 77-step Reddit job grew from 15,000 to
- * 90,000 tokens a step and sent 5 million in all.
- */
-export const MICRO_COMPACT_AT = 24_000;
-/**
- * Newest part of the conversation (estimated tokens) that cutting old results leaves whole.
- * Why: keeping only the newest 12 messages left a worker 3 or 4 steps of what
- * it had read. A Reddit job re-read its notes 5 times, was stopped as stuck
- * and never posted; a video job was stopped 8 runs in a row before writing code.
- */
-export const MICRO_KEEP_TOKENS = 15_000;
 
 /** The conversation with every picture replaced by a short note; nothing else changes. */
 export function withoutImages(messages: ModelMessage[]): ModelMessage[] {

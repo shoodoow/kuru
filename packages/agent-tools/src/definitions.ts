@@ -47,7 +47,9 @@ import {
   workerRefInputSchema,
   xyInputSchema,
   computerClickInputSchema,
-  pathInputSchema,
+  readInputSchema,
+  editInputSchema,
+  applyPatchInputSchema,
   readWriteInputSchema,
   browserNavigateInputSchema,
   openOnScreenInputSchema,
@@ -316,7 +318,7 @@ export const allToolDefinitions: ToolDefinition[] = [
   },
   {
     name: "todo_write",
-    surfaces: ["dispatcher"],
+    surfaces: ["dispatcher", "worker"],
     inputSchema: todoWriteInputSchema,
   },
   {
@@ -330,13 +332,25 @@ export const allToolDefinitions: ToolDefinition[] = [
     name: "read",
     surfaces: ["dispatcher", "worker"],
     requiresLinux: true,
-    inputSchema: pathInputSchema,
+    inputSchema: readInputSchema,
   },
   {
     name: "write",
     surfaces: ["dispatcher", "worker"],
     requiresLinux: true,
     inputSchema: readWriteInputSchema,
+  },
+  {
+    name: "edit",
+    surfaces: ["dispatcher", "worker"],
+    requiresLinux: true,
+    inputSchema: editInputSchema,
+  },
+  {
+    name: "apply_patch",
+    surfaces: ["dispatcher", "worker"],
+    requiresLinux: true,
+    inputSchema: applyPatchInputSchema,
   },
   {
     name: "bash",

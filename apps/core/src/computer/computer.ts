@@ -52,22 +52,56 @@ export function assertShellSafe(command: string): void {
  * Output: the file text.
  */
 export async function readFile(accountId: string, profile: string, path: string): Promise<string> {
-  path = expandHome(accountId, profile, path);
+  const read = await readPath(accountId, profile, path);
+  if (read.type === "directory") return `${read.path} is a directory:\n${read.listing}`;
+  if (read.truncated) return `${read.text}\n\n[file cut at ${READ_MAX_BYTES / 1_000_000} MB — read a part of it with head, tail or sed]`;
+  return read.text;
+}
+
+/**
+ * Reads a path as the agent, saying whether it is a file or a directory.
+ * Input: the account id, the Linux username, and a path (`~/` allowed) inside the home, /shared or /tmp.
+ * Output: the file text (cut at 1 MB, and then marked) or the directory listing. Throws when it cannot be read.
+ */
+export async function readPath(
+  accountId: string,
+  profile: string,
+  rawPath: string,
+): Promise<{ type: "file"; path: string; text: string; truncated: boolean } | { type: "directory"; path: string; listing: string }> {
+  const path = expandHome(accountId, profile, rawPath);
   assertPath(accountId, path, profile);
   const result = await exec(accountId, ["cat", "--", path], profile, undefined, { maxBytes: READ_MAX_BYTES });
-  if (result.truncated) {
-    return `${result.stdout}\n\n[file cut at ${READ_MAX_BYTES / 1_000_000} MB — read a part of it with head, tail or sed]`;
-  }
+  if (result.truncated) return { type: "file", path, text: result.stdout, truncated: true };
   if (result.code !== 0) {
     // A directory is a common first guess: answer with its listing instead of
     // an error the model would have to spend another step recovering from.
     if (/is a directory/i.test(result.stdout)) {
       const listing = await exec(accountId, ["ls", "-la", path], profile);
-      if (listing.code === 0) return `${path} is a directory:\n${listing.stdout}`;
+      if (listing.code === 0) return { type: "directory", path, listing: listing.stdout };
     }
     throw new Error(result.stdout || "The file could not be read.");
   }
-  return result.stdout;
+  return { type: "file", path, text: result.stdout, truncated: false };
+}
+
+/**
+ * The whole text of a file that is about to be changed in place.
+ * Why: an edit of a file cut at 1 MB would write the cut copy back.
+ * Output: the text. Throws for a directory, a missing file or one over 1 MB.
+ */
+export async function readWholeFile(accountId: string, profile: string, path: string): Promise<string> {
+  const read = await readPath(accountId, profile, path);
+  if (read.type === "directory") throw new Error(`${read.path} is a directory, not a file.`);
+  if (read.truncated) throw new Error(`${read.path} is over ${READ_MAX_BYTES / 1_000_000} MB; change it with a script instead.`);
+  return read.text;
+}
+
+/** Deletes one file as the agent. Input: a path inside the home, /shared or /tmp. */
+export async function deleteFile(accountId: string, profile: string, rawPath: string): Promise<void> {
+  const path = expandHome(accountId, profile, rawPath);
+  assertPath(accountId, path, profile);
+  const result = await exec(accountId, ["rm", "-f", "--", path], profile);
+  if (result.code !== 0) throw new Error(result.stdout || `${path} could not be deleted.`);
 }
 
 /** Most of one file, or of one command's output, the core will hold in memory. */
@@ -123,7 +157,9 @@ export async function writeFile(accountId: string, profile: string, path: string
   assertPath(accountId, path, profile);
   // The body goes in on stdin: one argument is capped near 128KB by Linux, so a
   // file passed on the command line failed once it grew past that.
-  const result = await execStdin(accountId, ["sh", "-c", append ? 'cat >> "$1"' : 'cat > "$1"', "sh", path], Buffer.from(body), profile);
+  // The folder is made first, so a new file in a new folder is one call, not two.
+  const write = append ? 'cat >> "$1"' : 'cat > "$1"';
+  const result = await execStdin(accountId, ["sh", "-c", `mkdir -p "$(dirname "$1")" && ${write}`, "sh", path], Buffer.from(body), profile);
   if (result.code !== 0) {
     throw new Error(result.stdout.toString("utf8") || "The file could not be written.");
   }

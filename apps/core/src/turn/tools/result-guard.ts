@@ -28,7 +28,11 @@ const FILE_COMMANDS = new Set(["cat", "head", "tail", "sed", "less", "more", "nl
  * Input: tool name and input. Output: keys such as `file:/home/u/notes.md`.
  */
 export function sourceKeys(name: string, input: Record<string, unknown>): string[] {
-  if (name === "read" && typeof input.path === "string") return [`file:${normalizePath(input.path)}`];
+  // Each page of a long file is its own source: reading a file through is not re-reading it.
+  if (name === "read" && typeof input.path === "string") {
+    const page = typeof input.offset === "number" && input.offset > 1 ? `#${input.offset}` : "";
+    return [`file:${normalizePath(input.path)}${page}`];
+  }
   // Opening a page in the browser reads it like a fetch does. Why: one run opened
   // the same job page 6 times and the same subreddit 4 times in 133 steps.
   if ((name === "web_fetch" || name === "browser_navigate") && typeof input.url === "string") return [`url:${normalizeUrl(input.url)}`];
@@ -94,9 +98,18 @@ export class ReadCounter {
     return { action: worst.times >= REREAD_REFUSE_AT ? "refuse" : "remind", ...worst };
   }
 
-  /** A file the worker just changed may be read again freely. */
+  /** A file the worker just changed may be read again freely, every page of it. */
   changed(paths: string[]): void {
-    for (const path of paths) this.counts.delete(`file:${normalizePath(path)}`);
+    for (const path of paths) {
+      const key = `file:${normalizePath(path)}`;
+      for (const counted of [...this.counts.keys()]) if (counted === key || counted.startsWith(`${key}#`)) this.counts.delete(counted);
+    }
+  }
+
+  /** The older steps were summarized: what was read is no longer in view, so reading it again is not a loop. */
+  reset(): void {
+    this.counts.clear();
+    this.page = null;
   }
 
   /**
@@ -114,6 +127,9 @@ export class ReadCounter {
  */
 export function writtenPaths(name: string, input: Record<string, unknown>): string[] {
   if ((name === "write" || name === "edit") && typeof input.path === "string") return [input.path];
+  if (name === "apply_patch" && typeof input.patch === "string") {
+    return [...input.patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$/gm)].map((match) => (match[1] ?? match[2]!).trim());
+  }
   if (name !== "bash" || typeof input.command !== "string") return [];
   const out: string[] = [];
   for (const match of input.command.matchAll(/>>?\s*['"]?([^\s'";|&>]+)/g)) {
@@ -154,7 +170,7 @@ export function resultText(result: unknown): string | null {
 export function cutResult(text: string, savedAt: string | null): string {
   const left = text.length - HEAD_CHARS - TAIL_CHARS;
   const where = savedAt
-    ? `The whole output (${text.length} characters) is saved at ${savedAt}; read the part you need with grep -n or sed -n instead of running this again.`
+    ? `The whole output (${text.length} characters) is saved at ${savedAt}; read it with read (it pages through with offset) or find the part you need with grep, instead of running this again.`
     : `The whole output was ${text.length} characters; narrow the command or send its output to a file and read part of it.`;
   return `${text.slice(0, HEAD_CHARS)}\n\n[... ${left} characters not shown. ${where} ...]\n\n${text.slice(-TAIL_CHARS)}`;
 }

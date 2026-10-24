@@ -49,6 +49,8 @@ export type ToolContext = {
   loaded?: Set<string>;
   /** A worker's reads of each file, page or listing this run (result-guard.ts). */
   readCounter?: import("./result-guard.js").ReadCounter;
+  /** A worker's own worklist for this run (todo_write); carried whole into every state summary. */
+  workerTodos?: { content: string; status: "pending" | "in_progress" | "completed" }[];
   /** Optional tool sets on for this turn (see tool-sets.ts). Mutated by enable_tools. */
   enabledToolSets?: Set<string>;
   /**

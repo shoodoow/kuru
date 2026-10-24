@@ -95,6 +95,9 @@ Replace one saved fact when the person corrects it. Give the old text exactly as
 # todo_write
 Replace your worklist with pending, in_progress and completed items. Use it on multi-step work so a later turn can pick up where this one stopped.
 
+# todo_write.worker
+Replace your worklist for this job with pending, in_progress and completed items. Use it on a job of several parts: keep one item in_progress and mark each completed when it is done. The list is kept whole when older steps of the job are summarized, so it is how you keep your place.
+
 # todo_list
 Read your saved worklist.
 
@@ -105,10 +108,28 @@ Search the public web. Returns title, URL, date when known, and a snippet with t
 Read one public page as text when you have its URL. Returns title, text and links. Long pages are cut; a worker can read the whole thing.
 
 # read
-Read one file by absolute path under your home or `/shared`. A directory path returns its listing.
+Read one file by absolute path under your home or `/shared`. Each line comes with its number (`12: text`); the number is not part of the file. Up to 2,000 lines come back at once; for a longer file the answer ends with the `offset` to read on from. A directory path returns its listing. Read a whole file in one call rather than in slices, and use `grep` to find a part of a big one.
 
 # read.worker
-Read one file by path under your home or `/shared` (`~/...` works). A directory path returns its listing. An image file (png, jpg, webp, gif) is shown to you as a picture, so use this to look at a screenshot, a chart, or a frame you pulled from a video.
+Read one file by path under your home or `/shared` (`~/...` works). Each line comes with its number (`12: text`); the number is not part of the file. Up to 2,000 lines come back at once; for a longer file the answer ends with the `offset` to read on from, and `limit` shows fewer lines. Read a whole source file in one call rather than in slices with sed or awk, and use `grep` to find a part of a big one. A directory path returns its listing. An image file (png, jpg, webp, gif) is shown to you as a picture, so use this to look at a screenshot, a chart, or a frame you pulled from a video.
+
+# edit
+Change part of one file by replacing exact text: `oldString` is copied from the file as it is (without the line-number prefixes a read shows) and `newString` takes its place. It must match once; include a few more lines to make it unique, or set `replaceAll` to change every match. Several changes to one file go in one call as `edits`, applied in order, all or none. The answer shows the changed lines with their numbers, so there is no need to read the file again to check. Use this instead of `sed -i` or rewriting a whole file to change a few lines.
+
+# apply_patch
+Add, change, rename or delete several files in one call. `patch` is the whole patch:
+```
+*** Begin Patch
+*** Add File: /path/new.js
++every line of a new file starts with +
+*** Update File: /path/app.js
+@@ function render(t) {
+-  drawGarden(t);
++  drawWalk(t);
+*** Delete File: /path/old.js
+*** End Patch
+```
+In an update, a line starting with a space stays, `-` is removed and `+` is added; give two or three unchanged lines around each change, and an `@@` line naming the function or line it is in when the same lines occur more than once. `*** Move to: <path>` right after `*** Update File:` renames the file. Paths are absolute or start with `~/`. For one file, `edit` is simpler.
 
 # glob
 List files by name pattern under your home or `/shared`, up to 100 paths. Give a pattern such as `**/*.md` with an optional `path` to search in, or a full path pattern such as `/shared/reports/**/*.pdf`. `node_modules` and `.git` are skipped.
@@ -164,7 +185,7 @@ Write one file by absolute path under your home or `/shared`. With `append: true
 Run one quick shell command on your own Linux computer: check something, run a script you wrote, convert a file, look at a result. You have about 20 seconds per call, and the output is cut if it is long. A job that takes longer, installs programs, builds, renders or needs many commands goes to `spawn_worker`. Never use it to start a browser.
 
 # bash.worker
-Run one shell command on your Linux computer. `DISPLAY` already points at your 1280x800 desktop, so `chromium` and `xterm` open on the screen the person can watch. A command may run up to 30 minutes, so a render, a voice-over or an install can run in the foreground and you get the result in one step. Start a program in the background only when you need to do other work meanwhile, then use `wait`.
+Run one shell command on your Linux computer. `DISPLAY` already points at your 1280x800 desktop, so `chromium` and `xterm` open on the screen the person can watch. A command may run up to 30 minutes, so a render, a voice-over or an install can run in the foreground and you get the result in one step. Start a program in the background only when you need to do other work meanwhile, then use `wait`. Very long output is saved to a file and you get its start, its end and the file's path. To look at or change files, `read`, `edit` and `grep` do it in fewer steps than cat, sed and awk.
 
 # wait
 Wait for something running in the background to finish, in one step instead of many checks. `until` is a shell check that succeeds when it is done, such as `! pgrep -f render.mjs` or `test -s out/voice.wav`; it is tried every 10 seconds. `minutes` is the most to wait (up to 30, 15 if left out). `log` is a file whose last lines you get back. The answer says whether it finished or is still running.

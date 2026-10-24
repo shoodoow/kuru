@@ -24,10 +24,13 @@ export function assertInside(accountId: string, profile: string, path: string): 
   const home = accountHome(accountId, profile);
   const shared = accountShared(accountId);
   const parts = path.split("/");
-  const inside = path === home || path.startsWith(`${home}/`) || path === shared || path.startsWith(`${shared}/`);
+  // /tmp too: the shell reaches it as the same user anyway, and a toolkit cloned there
+  // was otherwise changed only with sed and cat.
+  const inside =
+    path === home || path.startsWith(`${home}/`) || path === shared || path.startsWith(`${shared}/`) || path.startsWith("/tmp/");
   if (!path.startsWith("/") || parts.includes("..") || !inside) {
     throw new Error(
-      `Path is outside the home and /shared. Use an absolute path under ${home} or ${shared}; glob finds a file when you only know its name.`,
+      `Path is outside the home, /shared and /tmp. Use an absolute path under ${home}, ${shared} or /tmp; glob finds a file when you only know its name.`,
     );
   }
 }
