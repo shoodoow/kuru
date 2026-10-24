@@ -69,6 +69,8 @@ test("code tools read a page, edit in place and apply a patch on the computer, /
   await tools.edit!({ path: "/tmp/kuru-code-test/a.js", oldString: "let a = 1;", newString: "let a = 2;" });
   await expect(readFile(account.id, user, "/tmp/kuru-code-test/a.js")).resolves.toBe("let a = 2;\n");
 
+  // A command starts in the agent's home, as a terminal does.
+  await expect(tools.bash!({ command: "pwd" })).resolves.toMatch(new RegExp(`^${home}\n`));
   // A worker's shell output is not cut at a few thousand characters any more.
   expect(String(await tools.bash!({ command: "seq 1 5000" })).length).toBeGreaterThan(20_000);
 });

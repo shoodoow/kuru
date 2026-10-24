@@ -37,6 +37,8 @@ export type ExecOptions = {
   maxBytes?: number;
   /** Stops waiting, and closes the stream, after this long. */
   timeoutMs?: number;
+  /** Folder the command starts in; left out, the container's own (/). */
+  workingDir?: string;
 };
 
 /**
@@ -376,6 +378,7 @@ export async function execBytes(
     Cmd: command,
     User: user,
     Env: env,
+    ...(options?.workingDir ? { WorkingDir: options.workingDir } : {}),
     AttachStdout: true,
     AttachStderr: true,
   });

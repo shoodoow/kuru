@@ -134,3 +134,16 @@ describe("patches", () => {
     expect(parsePatch("cat <<'EOF'\n*** Begin Patch\n*** Delete File: /tmp/a\n*** End Patch\nEOF")).toEqual([{ type: "delete", path: "/tmp/a" }]);
   });
 });
+
+describe("fileToolTip", () => {
+  it("points a worker at read once, and at edit once, then stays quiet", async () => {
+    const { fileToolTip } = await import("./linux-tool-executes.js");
+    const given = new Set<string>();
+    expect(fileToolTip("cd ~/kinetic && sed -n 1,200p reel/reel.js", given)).toMatch(/`read` shows a whole file/);
+    expect(fileToolTip("cat reel/cues.js", given)).toBeNull();
+    expect(fileToolTip("cd ~/kinetic && sed -i 's/a/b/' reel/reel.js", given)).toMatch(/`edit` changes exact text/);
+    expect(fileToolTip("sed -i 's/c/d/' x.js", given)).toBeNull();
+    expect(fileToolTip("node render.mjs --stills=2", new Set())).toBeNull();
+    expect(fileToolTip("ffmpeg -i vo/voice.wav -af volumedetect -f null -", new Set())).toBeNull();
+  });
+});

@@ -182,7 +182,9 @@ export async function bash(accountId: string, profile: string, command: string):
     ["timeout", "--kill-after=10", String(BASH_TIMEOUT_SECONDS), "bash", "-lc", command],
     profile,
     [`DISPLAY=${displayName}`],
-    { maxBytes: BASH_MAX_OUTPUT_BYTES },
+    // In the agent's home, as a terminal opens. Why: commands started in /, so a worker's
+    // `npm install` failed there again and again; one job spent 20 steps on it.
+    { maxBytes: BASH_MAX_OUTPUT_BYTES, workingDir: accountHome(accountId, profile) },
   );
   if (result.truncated) {
     return `${result.stdout}\n\n[output cut at ${BASH_MAX_OUTPUT_BYTES / 1_000_000} MB and the command was stopped — send long output to a file and read part of it]`;

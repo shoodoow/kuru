@@ -20,6 +20,8 @@ import { SEARCH_CATEGORIES, webSearch, type SearchFilters } from "./search.js";
 import { webFetch } from "./web.js";
 import { openOnScreen, runBrowserTool } from "./browser-bridge.js";
 import { memoryStatus, releaseMemory, requestMemory } from "../linux/linux.js";
+import { prompt } from "../prompt/prompts.js";
+import { isReadOnlyShell } from "../rooms/worker-loop.js";
 
 type Database = ReturnType<typeof getDb>;
 
@@ -27,6 +29,8 @@ type Database = ReturnType<typeof getDb>;
 export const DISPATCHER_FETCH_CHARS = 10_000;
 /** The chat agent's read pages and shell output: enough to check something; real work goes to a worker. */
 export const DISPATCHER_OUTPUT_CHARS = 12_000;
+/** What computer_memory asks for when the call names no size, in GB. */
+const DEFAULT_MEMORY_REQUEST_GB = 6;
 /** A worker's web_fetch, before the page is cut. */
 const WORKER_OUTPUT_CHARS = 8_000;
 
@@ -57,6 +61,8 @@ export function linuxToolExecutes(
     skillFilesNote?: (path: string) => string;
   },
 ): Record<string, LinuxToolExecute> {
+  /** File-tool tips already given this run (fileToolTip). */
+  const tipsGiven = new Set<string>();
   // Whether this job has seen the page whole yet; later snapshots are only changes.
   let snapshotted = false;
   /** Pictures this run has looked at. Each one is resent on every later step. */
@@ -74,8 +80,11 @@ export function linuxToolExecutes(
     computer_memory: async (input) => {
       if (input.action === "release") return releaseMemory(accountId);
       if (input.action === "status") return memoryStatus(accountId);
-      if (typeof input.gb !== "number") return { granted: false, note: "Say how much the job needs: gb, a number." };
-      return requestMemory(accountId, input.gb, typeof input.minutes === "number" ? input.minutes : undefined);
+      // Asked without a size, it gets a size that fits most heavy jobs instead of a refusal.
+      // Why: a model that kept leaving gb out asked 7 times, was refused 7 times and was stopped as stuck.
+      const gb = typeof input.gb === "number" ? input.gb : DEFAULT_MEMORY_REQUEST_GB;
+      const answer = await requestMemory(accountId, gb, typeof input.minutes === "number" ? input.minutes : undefined);
+      return typeof input.gb === "number" ? answer : { ...answer, note: `No gb was given, so ${gb} GB was asked for. ${answer.note ?? ""}`.trim() };
     },
     read: async (input) => {
       const path = String(input.path);
@@ -142,8 +151,12 @@ export function linuxToolExecutes(
       const command = String(input.command);
       if (drivesBrowserDirectly(command)) return BROWSER_SCRIPT_REFUSAL;
       const output = await bash(accountId, profile, command);
+      if (opts?.outputChars) return conciseOutput(output, opts.outputChars);
       // A worker's long output is saved to a file whole when it reaches the conversation (wrap-tool-execute).
-      return opts?.outputChars ? conciseOutput(output, opts.outputChars) : output;
+      // Told once per run when the file tools would do it in fewer steps.
+      // Why: after read and edit arrived, a worker still read a 620-line file in three sed slices, twice, and changed it with sed -i.
+      const tip = fileToolTip(command, tipsGiven);
+      return tip ? `${output}\n\n[${tip}]` : output;
     },
     wait: async (input) => waitUntil(accountId, profile, String(input.until), Number(input.minutes) || 15, input.log ? String(input.log) : undefined),
     computer_screenshot: async () => {
@@ -369,6 +382,22 @@ const BATCH_ACTIONS = new Set(["click", "click_at", "fill", "type", "select", "c
  * focused prefix and an explicit narrowing instruction keeps context useful
  * without ending the task or imposing a total-token cutoff.
  */
+/** A shell command that changes a file in place with sed or perl. */
+const SHELL_EDIT = /(^|[\s;&|(])(sed\s+-i|perl\s+-p?i)/;
+/** A shell command that shows a text file, or a slice of one. */
+const SHELL_VIEW = /(^|[\s;&|(])(sed\s+-n|awk\s+['"]?NR|head|tail|cat|nl)\s[^|;&]*\.[a-z]{1,5}\b/i;
+
+/**
+ * The tip for a shell command that a file tool does in fewer steps, at most once each per run; null otherwise.
+ * Input: the command and the tips already given (updated). Output: the tip text, or null.
+ */
+export function fileToolTip(command: string, given: Set<string>): string | null {
+  const kind = SHELL_EDIT.test(command) ? "edit" : SHELL_VIEW.test(command) && isReadOnlyShell(command) ? "read" : null;
+  if (!kind || given.has(kind)) return null;
+  given.add(kind);
+  return prompt("worker-rules", kind === "edit" ? "tip-edit" : "tip-read");
+}
+
 /** True for a path inside an installed skill folder. */
 export function isSkillPath(path: string): boolean {
   return /\/(\.agents|\.claude)\/skills(\/|$|\s)/.test(path) || /^\/shared\/skills(\/|$|\s)/.test(path.trim());

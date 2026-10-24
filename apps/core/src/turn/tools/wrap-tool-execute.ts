@@ -22,8 +22,8 @@ export const DOOM_LOOP_THRESHOLD = 3;
 export const MAX_CALLS_PER_STEP = 20;
 const TOO_MANY_CALLS = `More than ${MAX_CALLS_PER_STEP} calls in one step. The rest were not run. Make one call, read its result, then decide the next.`;
 
-/** Text: prompts/dispatcher.md. */
-export const doomLoopError = (): string => prompt("dispatcher", "doom-loop");
+/** Text: prompts/dispatcher.md, and for a worker (which has no person to reply to) prompts/worker-rules.md. */
+export const doomLoopError = (mode?: AgentMode): string => (mode === "worker" ? prompt("worker-rules", "doom-loop") : prompt("dispatcher", "doom-loop"));
 
 /** Tools that start background work; once one succeeds the dispatcher's turn is over. */
 const HANDOFF_TOOLS = new Set(["spawn_worker", "redirect_worker", "delegate"]);
@@ -103,11 +103,11 @@ export function wrapToolExecute(
         toolCallId,
         name,
         input,
-        outputPreview: tracePreview(doomLoopError()),
+        outputPreview: tracePreview(doomLoopError(mode)),
         durationMs,
         error: "doom_loop",
       });
-      return { error: doomLoopError() };
+      return { error: doomLoopError(mode) };
     }
     // A worker that keeps reading the same file or listing has lost track; told once, then not run.
     if (mode === "worker") {

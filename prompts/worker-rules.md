@@ -243,6 +243,15 @@ Stop here and write a state summary of this job so far. It replaces the older st
 # combine-steps
 Your last {{steps}} steps each made one small call, and every step resends your whole conversation (about {{tokens}}k tokens now). Do more per step from here: put independent calls in one step, run page actions you can already see as one `browser_batch` (its result shows the page afterwards, so no separate check), and use `web_search` with `sinceDays` and `sites` instead of opening pages one by one to find things.
 
+# tip-read
+Tip: `read` shows a whole file with line numbers in one call (up to 2,000 lines, then an offset to read on), so there is no need to view it in slices with sed, head or cat.
+
+# tip-edit
+Tip: `edit` changes exact text in a file (several changes at once with `edits`) and shows the changed lines, so there is no need for sed -i and a second look to check it.
+
+# doom-loop
+Same call 3 times in a row, with the same answer each time; repeating it will not change anything. Read the answer: when it asks for a field, call again with that field filled in. Otherwise take another way to the goal, or write your report saying what blocks you.
+
 # reread-remind
 [You have now read {{source}} {{times}} times in this job. What it said is above or in your state summary: use that, note the facts you need in a file, and move on to doing the job.]
 
