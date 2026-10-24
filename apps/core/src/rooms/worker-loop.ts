@@ -292,16 +292,27 @@ function trimMessage(message: ModelMessage, toolChars: number, inputChars: numbe
  * rerun a command to see them. Recent messages stay whole, and so does the
  * first one, which carries the brief. Message count and order never change,
  * so tool calls stay paired with their results.
- * Input: the conversation and how much to keep. Output: a new array.
+ * Input: the conversation and how much to keep: at least `keepRecent` messages,
+ * and with `keepTokens` also every newer message that fits in that many tokens.
+ * Output: a new array.
  */
 export function compactTranscript(
   messages: ModelMessage[],
-  options?: { keepRecent?: number; toolChars?: number; inputChars?: number },
+  options?: { keepRecent?: number; keepTokens?: number; toolChars?: number; inputChars?: number },
 ): ModelMessage[] {
   const keepRecent = options?.keepRecent ?? 12;
   const toolChars = options?.toolChars ?? 600;
   const inputChars = options?.inputChars ?? 400;
-  const cut = Math.max(0, messages.length - keepRecent);
+  let cut = Math.max(0, messages.length - keepRecent);
+  if (options?.keepTokens) {
+    let kept = estimateTokens(messages.slice(cut));
+    while (cut > 1) {
+      const size = estimateTokens([messages[cut - 1]!]);
+      if (kept + size > options.keepTokens) break;
+      kept += size;
+      cut -= 1;
+    }
+  }
   return messages.map((message, index) => {
     if (index === 0 || index >= cut) return message;
     return trimMessage(message, toolChars, inputChars, false);
@@ -585,6 +596,13 @@ export const STALE_VIEWS_AT = 16_000;
  * 90,000 tokens a step and sent 5 million in all.
  */
 export const MICRO_COMPACT_AT = 24_000;
+/**
+ * Newest part of the conversation (estimated tokens) that cutting old results leaves whole.
+ * Why: keeping only the newest 12 messages left a worker 3 or 4 steps of what
+ * it had read. A Reddit job re-read its notes 5 times, was stopped as stuck
+ * and never posted; a video job was stopped 8 runs in a row before writing code.
+ */
+export const MICRO_KEEP_TOKENS = 15_000;
 
 /** The conversation with every picture replaced by a short note; nothing else changes. */
 export function withoutImages(messages: ModelMessage[]): ModelMessage[] {

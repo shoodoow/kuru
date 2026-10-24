@@ -71,6 +71,15 @@ describe("compactTranscript", () => {
     expect(out.map((message) => message.role)).toEqual(transcript.map((message) => message.role));
   });
 
+  it("with keepTokens, keeps every newer message that fits whole, beyond keepRecent", () => {
+    // Each 5,000-character result is about 1,250 tokens; 3,000 tokens covers messages 4 to 6, not 2.
+    const out = compactTranscript(transcript, { keepRecent: 2, keepTokens: 3_000, toolChars: 200, inputChars: 100 });
+    expect(JSON.stringify(out[2])).toContain("trimmed");
+    expect(out[3]).toBe(transcript[3]);
+    expect(out[4]).toBe(transcript[4]);
+    expect(out[6]).toBe(transcript[6]);
+  });
+
   it("drops pictures when storing and fits the size limit", () => {
     const withImage: ModelMessage[] = [
       { role: "user", content: "brief" },

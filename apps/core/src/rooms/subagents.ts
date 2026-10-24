@@ -55,6 +55,7 @@ import {
   withoutImages,
   STALE_VIEWS_AT,
   MICRO_COMPACT_AT,
+  MICRO_KEEP_TOKENS,
   affordableTokens,
   WORKER_RUN_INPUT_TOKENS,
   BUDGET_WARN_SHARE,
@@ -1862,7 +1863,7 @@ export async function runWorker(
         if (estimateTokens(transcript) > STALE_VIEWS_AT) transcript = dropStaleViews(transcript);
         // Old results are cut once the conversation passes the mark; already-cut ones stay as they are,
         // so the cached part before them is not rewritten again.
-        if (estimateTokens(transcript) > MICRO_COMPACT_AT) transcript = compactTranscript(transcript);
+        if (estimateTokens(transcript) > MICRO_COMPACT_AT) transcript = compactTranscript(transcript, { keepTokens: MICRO_KEEP_TOKENS });
         if (lastInputTokens > compactAt || estimateTokens(transcript) > compactAt) {
           if (!(await summarizeState())) trimOldSteps();
           lastInputTokens = 0;
