@@ -391,4 +391,11 @@ describe("isSingleSmallCallStep", () => {
     expect(isSingleSmallCallStep([{ name: "bash" }])).toBe(false);
     expect(isSingleSmallCallStep([{ name: "browser_click" }, { name: "web_search" }])).toBe(false);
   });
+
+  it("counts a read-only shell command that printed little, not one that works or prints a lot", () => {
+    const look = [{ name: "bash", input: { command: "cd ~/scene && grep -n drawWalk film.js" } }];
+    expect(isSingleSmallCallStep(look, 300)).toBe(true);
+    expect(isSingleSmallCallStep(look, 9_000)).toBe(false);
+    expect(isSingleSmallCallStep([{ name: "bash", input: { command: "node render.js --size 1080x1920" } }], 50)).toBe(false);
+  });
 });

@@ -241,7 +241,7 @@ Stop here and write a state summary of this job so far. It replaces the older st
 - The single next action, quoting the end of your last step so the job carries on exactly where it was.
 
 # combine-steps
-Your last {{steps}} steps each made one small call, and every step resends your whole conversation (about {{tokens}}k tokens now). Do more per step from here: put independent calls in one step, run page actions you can already see as one `browser_batch` (its result shows the page afterwards, so no separate check), and use `web_search` with `sinceDays` and `sites` instead of opening pages one by one to find things.
+Your last {{steps}} steps each made one small call, and every step resends your whole conversation (about {{tokens}}k tokens now). Do more per step from here: put independent calls in one step, look at several things with one `bash` (several files, greps and listings, separated by `echo ---`) or one `read` of the whole file instead of slice after slice, run page actions you can already see as one `browser_batch` (its result shows the page afterwards, so no separate check), and use `web_search` with `sinceDays` and `sites` instead of opening pages one by one to find things.
 
 # tip-read
 Tip: `read` shows a whole file with line numbers in one call (up to 2,000 lines, then an offset to read on), so there is no need to view it in slices with sed, head or cat.

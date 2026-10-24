@@ -174,21 +174,33 @@ export function isReadOnlyShell(command: string): boolean {
   return true;
 }
 
+/** A read-only shell command that printed less than this counts as one small look. */
+export const SMALL_LOOK_CHARS = 2_000;
+
+/**
+ * A step that made one small call: one page action, one page read, one fetch or search,
+ * or one read-only shell command that printed little (a `cat`, `grep` or `ls`).
+ * Why: shell looks were left out, yet they were most of the waste. Over three days
+ * two thirds of worker calls only looked, nearly all one small `bash` per step, and
+ * each such step resent 20,000 to 70,000 tokens to read a few hundred characters.
+ * A command that does work, or prints a lot, is never small: one command can do a whole job.
+ * Input: the step's calls, and how many characters its results held.
+ */
+export function isSingleSmallCallStep(calls: { name: string; input?: unknown }[], outputChars = 0): boolean {
+  if (calls.length !== 1) return false;
+  const name = calls[0]?.name ?? "";
+  if (name === "browser_batch") return false;
+  if (name === "bash") {
+    const command = (calls[0]?.input as { command?: unknown } | null)?.command;
+    return typeof command === "string" && isReadOnlyShell(command) && outputChars < SMALL_LOOK_CHARS;
+  }
+  return name.startsWith("browser_") || name === "web_fetch" || name === "web_search" || name === "read" || name === "glob" || name === "grep";
+}
+
 /**
  * True when one finished step only looked at things.
  * Input: the step's tool calls. Output: false for a step that wrote, ran, or clicked.
  */
-/**
- * A step that made one small call: one page action, one page read, one fetch or search.
- * A shell command is never small here: one command can do a whole job.
- */
-export function isSingleSmallCallStep(calls: { name: string }[]): boolean {
-  if (calls.length !== 1) return false;
-  const name = calls[0]?.name ?? "";
-  if (name === "browser_batch") return false;
-  return name.startsWith("browser_") || name === "web_fetch" || name === "web_search" || name === "read" || name === "glob" || name === "grep";
-}
-
 export function isLookOnlyStep(calls: { name: string; input: unknown }[]): boolean {
   if (calls.length === 0) return false;
   return calls.every((call) => {

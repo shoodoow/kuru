@@ -1665,7 +1665,6 @@ export async function runWorker(
               duplicateCallCount = 0;
             }
             if (currentCalls.length > 0) lookOnlyStreak = isLookOnlyStep(currentCalls) ? lookOnlyStreak + 1 : 0;
-            if (currentCalls.length > 0) singleCallStreak = isSingleSmallCallStep(currentCalls) ? singleCallStreak + 1 : 0;
             stepLog.push({
               text: step.text,
               reasoningText: (step as { reasoningText?: string }).reasoningText,
@@ -1674,6 +1673,10 @@ export async function runWorker(
             // The next step's calls are counted from zero.
             review.stepCalls = 0;
             const results = (step as { toolResults?: unknown[] }).toolResults ?? [];
+            if (currentCalls.length > 0) {
+              const printed = results.reduce<number>((sum, result) => sum + JSON.stringify((result as { output?: unknown }).output ?? result ?? "").length, 0);
+              singleCallStreak = isSingleSmallCallStep(currentCalls, printed) ? singleCallStreak + 1 : 0;
+            }
             if (results.length > 0) recentToolResults = [...recentToolResults, ...results].slice(-5);
             const stuck = stuckWatch.record(currentCalls, results);
             if (stuck && !stuckReason) {
