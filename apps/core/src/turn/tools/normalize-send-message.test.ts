@@ -103,3 +103,13 @@ describe("file blocks in the shapes models send", () => {
     expect(sendMessageInputSchema.safeParse(normalizeSendMessageInput({ blocks: [{ kind: "file", path: "/shared/out/report.pdf" }] })).success).toBe(true);
   });
 });
+
+describe("approval cards an agent copies into send_message", () => {
+  it("drops a card that names a real approval, since the system already posted it", () => {
+    const card = { kind: "widget", widget: "approval", props: { message: "Remove Nova", approvalId: "9a2016f0" } };
+    expect(normalizeSendMessageInput({ blocks: [card] })).toMatchObject({ blocks: [], droppedApprovalCards: 1 });
+    const withText = normalizeSendMessageInput({ blocks: [{ kind: "text", markdown: "Tap yes to remove Nova." }, card] });
+    expect(withText.blocks).toEqual([{ kind: "text", markdown: "Tap yes to remove Nova." }]);
+  });
+});
+

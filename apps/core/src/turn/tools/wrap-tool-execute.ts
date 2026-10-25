@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentMode } from "../types.js";
-import { dispatcherToolBudgetError, dispatcherToolBudgetMs } from "./dispatcher-tool-budget.js";
+import { dispatcherToolBudgetError, dispatcherToolBudgetMs, workerOnlyInChat } from "./dispatcher-tool-budget.js";
 import { tracePreview } from "../trace/sinks/jsonl.js";
 import { reviewToolCall, waitForApproval } from "../auto-review.js";
 import type { ToolContext } from "./context.js";
@@ -13,7 +13,13 @@ import { RESULT_INLINE_CHARS, ReadCounter, cutResult, resultText, sourceKeys, wr
 /** Browser tools that change the open page. */
 const PAGE_ACTIONS = /^browser_(click|click_at|fill|type|select|press_key|upload|drag|batch|set_value)$/;
 
-/** Same tool + byte-identical input this many times in a row = a loop, not work. */
+/**
+ * Same tool + byte-identical input this many times in a row, with the same answer each time = a loop, not work.
+ * Why the answer counts too: a worker watching a long render ran the same
+ * `sleep 800; count frames` check every 14 minutes. The count rose each time,
+ * yet the third check was refused as a loop and the run ended, so one render
+ * was watched by four jobs in a row.
+ */
 export const DOOM_LOOP_THRESHOLD = 3;
 /**
  * The most tool calls one model step may make. A real step makes one to four, and filling a
@@ -21,6 +27,8 @@ export const DOOM_LOOP_THRESHOLD = 3;
  */
 export const MAX_CALLS_PER_STEP = 20;
 const TOO_MANY_CALLS = `More than ${MAX_CALLS_PER_STEP} calls in one step. The rest were not run. Make one call, read its result, then decide the next.`;
+
+const SAME_STEP_COPY = "Not run: the same call with the same input is already in this step, and it runs once. Its answer is the one to use.";
 
 /** Text: prompts/dispatcher.md, and for a worker (which has no person to reply to) prompts/worker-rules.md. */
 export const doomLoopError = (mode?: AgentMode): string => (mode === "worker" ? prompt("worker-rules", "doom-loop") : prompt("dispatcher", "doom-loop"));
@@ -61,6 +69,15 @@ async function keepSmall(ctx: ToolContext, toolCallId: string, result: unknown):
   return cutResult(text, savedAt);
 }
 
+/** A call's answer as text, to tell whether repeating the call returned anything new. */
+function answerKey(result: unknown): string {
+  try {
+    return typeof result === "string" ? result : JSON.stringify(result) ?? "";
+  } catch {
+    return String(result);
+  }
+}
+
 function isToolError(result: unknown): boolean {
   return typeof result === "object" && result !== null && "error" in result;
 }
@@ -86,13 +103,27 @@ export function wrapToolExecute(
       ctx.stuck = true;
       return { error: ctx.stepCalls === MAX_CALLS_PER_STEP + 1 ? TOO_MANY_CALLS : "Ignored." };
     }
+    // The same call twice in one step is one intention sent twice: run it once.
+    // Why: an agent sent one YouTube delete twice in a step, and the person got two
+    // approval cards for one video. Screen actions are left alone: pressing Tab
+    // twice in one step is two presses.
+    if (!/^(browser|computer)_/.test(name)) {
+      const stepKeys = (ctx.stepCallKeys ??= new Set());
+      const key = `${name}:${inputJson}`;
+      if (stepKeys.has(key)) return { error: SAME_STEP_COPY };
+      stepKeys.add(key);
+    }
     const recent = (ctx.recentCalls ??= []);
-    recent.push({ name, input: inputJson });
+    const earlier = recent.slice(-(DOOM_LOOP_THRESHOLD - 1));
+    const thisCall: { name: string; input: string; answer?: string } = { name, input: inputJson };
+    recent.push(thisCall);
     if (recent.length > DOOM_LOOP_THRESHOLD) recent.shift();
     if (
-      recent.length === DOOM_LOOP_THRESHOLD &&
-      recent.every((call) => call.name === name && call.input === inputJson)
+      earlier.length === DOOM_LOOP_THRESHOLD - 1 &&
+      earlier.every((call) => call.name === name && call.input === inputJson && call.answer !== undefined && call.answer === earlier[0]!.answer)
     ) {
+      // A refused repeat counts as the same answer again, so the next copy is refused too.
+      thisCall.answer = earlier[0]!.answer;
       const durationMs = Math.round(performance.now() - started);
       // Said once in full. Every repeat after that answers in two words and leaves no trace line.
       const first = !ctx.stuck;
@@ -135,6 +166,12 @@ export function wrapToolExecute(
         error: "already_loaded",
       });
       return alreadyLoaded();
+    }
+    // Sent before any approval card, so the worker asks for approval itself and runs it once.
+    if ((mode === "dispatcher" || mode === "delegate") && workerOnlyInChat(name)) {
+      const note = prompt("dispatcher", "upload-in-worker", { tool: name });
+      await ctx.traceSession?.emit({ type: "tool.call.finish", toolCallId, name, input, outputPreview: tracePreview(note), durationMs: 0, error: "worker_only" });
+      return { error: note };
     }
     await ctx.traceSession?.emit({ type: "tool.call.start", toolCallId, name, input });
     try {
@@ -197,6 +234,7 @@ export function wrapToolExecute(
       } else {
         result = await execute(input);
       }
+      thisCall.answer = answerKey(result);
       if (HANDOFF_TOOLS.has(name) && !isToolError(result)) ctx.handedOff = true;
       const failedResult = isToolError(result);
       if (mode !== "worker" && REPEATABLE_READS.has(name) && !failedResult) (ctx.loaded ??= new Set()).add(loadKey);
@@ -221,6 +259,7 @@ export function wrapToolExecute(
     } catch (error) {
       const durationMs = Math.round(performance.now() - started);
       const message = error instanceof Error ? error.message : "Tool failed.";
+      thisCall.answer = `error:${message}`;
       (ctx.workEntries ??= []).push(workEntry(name, input ?? {}, message, true));
       await ctx.traceSession?.emit({
         type: "tool.call.finish",

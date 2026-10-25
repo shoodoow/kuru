@@ -211,6 +211,20 @@ export function isLookOnlyStep(calls: { name: string; input: unknown }[]): boole
   });
 }
 
+/**
+ * One step's calls and what they answered, as one string, to notice the same step repeated.
+ * Why the answers: comparing calls alone stopped a worker that checked a long
+ * render every 14 minutes with the same command, though each check showed new progress.
+ */
+export function stepSignature(calls: { name: string; input: unknown }[], results: unknown[]): string {
+  const answers = results.map((result) => (result as { output?: unknown } | null)?.output ?? result);
+  try {
+    return JSON.stringify({ calls, answers });
+  } catch {
+    return JSON.stringify(calls);
+  }
+}
+
 type Part = Record<string, unknown>;
 
 function isImagePart(part: Part): boolean {
@@ -522,6 +536,12 @@ export function compactionThreshold(contextWindow?: number | null): number {
 
 /** Newest part of the conversation kept word for word beside a state summary, in tokens. */
 export const SUMMARY_KEEP_RECENT_TOKENS = 15_000;
+/**
+ * Size above which a continued job starts from a summary instead of its whole saved conversation.
+ * Why not just above the part kept whole: a 16,900-token conversation was summarized
+ * to 16,800, an extra model call that saved nothing. Below this, little is old enough to summarize.
+ */
+export const RESUME_SUMMARY_AT = SUMMARY_KEEP_RECENT_TOKENS + 10_000;
 /** Opens the message that holds a state summary; also how a later summary finds the earlier one. */
 export const STATE_HEAD = "[Earlier steps of this job were replaced by this state summary.";
 const INSTRUCTIONS_HEAD = "## Instructions from the agent, word for word";

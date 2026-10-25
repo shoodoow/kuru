@@ -63,4 +63,49 @@ describe("a model that floods a step or repeats a call", () => {
     expect(results.slice(3)).toEqual([{ error: "Ignored: repeated call." }, { error: "Ignored: repeated call." }, { error: "Ignored: repeated call." }]);
     expect(ctx.stuck).toBe(true);
   });
+
+  it("keeps running a repeated check whose answer changes, like a render's frame count", async () => {
+    const ctx = {} as ToolContext;
+    let frames = 600;
+    const call = wrapToolExecute(ctx, "worker", "bash", async () => `frames: ${(frames += 30)}`);
+    const results: unknown[] = [];
+    for (let index = 0; index < 5; index += 1) {
+      ctx.stepCalls = 0;
+      ctx.stepCallKeys?.clear();
+      results.push(await call({ command: "sleep 800; ls out/frames | wc -l" }));
+    }
+    expect(results).toEqual(["frames: 630", "frames: 660", "frames: 690", "frames: 720", "frames: 750"]);
+    expect(ctx.stuck).toBeFalsy();
+  });
+
+  it("runs an exact copy of a call in the same step once, but two key presses twice", async () => {
+    const ctx = {} as ToolContext;
+    let ran = 0;
+    const del = wrapToolExecute(ctx, "dispatcher", "bash", async () => {
+      ran += 1;
+      return "deleted";
+    });
+    expect(await del({ command: "rm ~/old.mp4" })).toBe("deleted");
+    expect(JSON.stringify(await del({ command: "rm ~/old.mp4" }))).toContain("already in this step");
+    expect(ran).toBe(1);
+    let presses = 0;
+    const press = wrapToolExecute(ctx, "worker", "browser_press_key", async () => {
+      presses += 1;
+      return "ok";
+    });
+    await press({ key: "Tab" });
+    await press({ key: "Tab" });
+    expect(presses).toBe(2);
+  });
+
+  it("hands a video upload in a chat turn to a worker before anything is sent", async () => {
+    const ctx = {} as ToolContext;
+    let sent = false;
+    const upload = wrapToolExecute(ctx, "dispatcher", "youtube_upload_video", async () => {
+      sent = true;
+      return { id: "x" };
+    });
+    expect(JSON.stringify(await upload({ path: "~/final.mp4", title: "Castle" }))).toContain("spawn_worker");
+    expect(sent).toBe(false);
+  });
 });

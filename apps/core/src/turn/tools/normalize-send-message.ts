@@ -5,8 +5,15 @@
  */
 import { expandWidgetMarkupBlocks } from "@kuru/shared";
 
-export function normalizeSendMessageInput(input: Record<string, unknown>): { blocks: unknown; replyTo?: unknown } {
+/**
+ * Output: the blocks to send, the reply target, and how many approval cards the model
+ * copied were dropped. Why drop them: the system already posts the card when it asks for
+ * approval. The Chief of Staff resent that card through send_message with the same
+ * approvalId, and the person saw one approval twice.
+ */
+export function normalizeSendMessageInput(input: Record<string, unknown>): { blocks: unknown; replyTo?: unknown; droppedApprovalCards: number } {
   let blocks = input.blocks;
+  let droppedApprovalCards = 0;
   let replyTo = input.replyTo;
 
   if (blocks === undefined && typeof input.kind === "string") {
@@ -54,12 +61,16 @@ export function normalizeSendMessageInput(input: Record<string, unknown>): { blo
               : "";
         return { kind: "text", markdown: detail ? `**${title}**\n${detail}` : `**${title}**` };
       }
+      if (row.kind === "widget" && row.widget === "approval") {
+        droppedApprovalCards += 1;
+        return null;
+      }
       return block;
     });
-    blocks = dropRepeatedQuestion(blocks as unknown[]);
+    blocks = dropRepeatedQuestion((blocks as unknown[]).filter((block) => block !== null));
   }
 
-  return { blocks, replyTo: replyTo ?? null };
+  return { blocks, replyTo: replyTo ?? null, droppedApprovalCards };
 }
 
 /** Keys a model uses for a file's location instead of `url`. */

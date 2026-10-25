@@ -136,14 +136,18 @@ describe("patches", () => {
 });
 
 describe("fileToolTip", () => {
-  it("points a worker at read once, and at edit once, then stays quiet", async () => {
+  it("points a worker at read and at edit, then stays quiet until a later reminder", async () => {
     const { fileToolTip } = await import("./linux-tool-executes.js");
-    const given = new Set<string>();
+    const given = new Map<string, number>();
     expect(fileToolTip("cd ~/kinetic && sed -n 1,200p reel/reel.js", given)).toMatch(/`read` shows a whole file/);
     expect(fileToolTip("cat reel/cues.js", given)).toBeNull();
     expect(fileToolTip("cd ~/kinetic && sed -i 's/a/b/' reel/reel.js", given)).toMatch(/`edit` changes exact text/);
     expect(fileToolTip("sed -i 's/c/d/' x.js", given)).toBeNull();
-    expect(fileToolTip("node render.mjs --stills=2", new Set())).toBeNull();
-    expect(fileToolTip("ffmpeg -i vo/voice.wav -af volumedetect -f null -", new Set())).toBeNull();
+    expect(fileToolTip("node render.mjs --stills=2", new Map())).toBeNull();
+    expect(fileToolTip("ffmpeg -i vo/voice.wav -af volumedetect -f null -", new Map())).toBeNull();
+    // Reminded again later in the job, spaced out: the 6th edit gets it, the 3rd does not.
+    const later = new Map<string, number>();
+    const tips = Array.from({ length: 6 }, () => fileToolTip("sed -i 's/a/b/' x.js", later));
+    expect(tips.map((tip) => tip !== null)).toEqual([true, false, false, false, false, true]);
   });
 });

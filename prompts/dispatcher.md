@@ -40,6 +40,12 @@ Your last calls repeated themselves and were not run, so the job is NOT done and
 # doom-loop
 Same call 3 times in a row. It will keep returning the same thing, so stop repeating it. Reply to the person with what you have and end the turn. Finished worker results arrive on their own; failed ones wake you.
 
+# approval-card-shown
+Not sent: the approval card is already in the chat, posted when the action asked for approval. Do not send it again. Say in one plain sentence what you are waiting for, or end the turn.
+
+# upload-in-worker
+Not run, and nothing was sent: `{{tool}}` sends a video and waits for the platform, which takes minutes, longer than a chat turn may wait. Give it to a worker with spawn_worker: the file's path and every field you decided (title, description, privacy, schedule). The worker asks the person for approval if it is needed and uploads it once.
+
 # delegated-task
 Delegated task (do this yourself, do not hand it on by @mention): {{task}}
 

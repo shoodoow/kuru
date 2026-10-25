@@ -1021,7 +1021,7 @@ async function repairBaseToolchain(accountId: string): Promise<void> {
   const ready = await exec(accountId, [
     "sh",
     "-c",
-    `command -v npm >/dev/null && command -v python3 >/dev/null && python3 -m pip --version >/dev/null 2>&1 && ${AGENT_BROWSER_IS_CURRENT} && ${NODE_IS_CURRENT}`,
+    `command -v npm >/dev/null && command -v python3 >/dev/null && python3 -m pip --version >/dev/null 2>&1 && ${AGENT_BROWSER_IS_CURRENT} && ${NODE_IS_CURRENT} && ${PDF_TOOLS_PRESENT}`,
   ]);
   if (ready.code === 0) return;
   const base = await exec(accountId, ["sh", "-c", "command -v python3 >/dev/null && python3 -m pip --version >/dev/null 2>&1 && command -v git >/dev/null && command -v curl >/dev/null"]);
@@ -1059,15 +1059,28 @@ async function repairBaseToolchain(accountId: string): Promise<void> {
     complete = false;
     logger.warn({ accountId, output: browser.stdout.slice(-400) }, "The browser tools could not be installed on this computer. It is tried again in an hour.");
   }
+  // Reading a PDF someone uploads; a computer from an older image has neither tool.
+  const pdf = await exec(accountId, [
+    "sh",
+    "-c",
+    `${PDF_TOOLS_PRESENT} || { apt-get update >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends poppler-utils python3-pypdf >/tmp/pdf-tools-install.log 2>&1 && rm -rf /var/lib/apt/lists/*; } || { tail -c 400 /tmp/pdf-tools-install.log; exit 1; }`,
+  ]);
+  if (pdf.code !== 0) {
+    complete = false;
+    logger.warn({ accountId, output: pdf.stdout.slice(-400) }, "The PDF tools could not be installed on this computer. It is tried again in an hour.");
+  }
   if (complete) upgradeTried.delete(accountId);
 }
+
+/** pdftotext and Python's pypdf, which apps/core/linux/Dockerfile installs. */
+const PDF_TOOLS_PRESENT = `command -v pdftotext >/dev/null && python3 -c "import pypdf" >/dev/null 2>&1`;
 
 /**
  * The agent-browser release every computer runs. Keep it the same as apps/core/linux/Dockerfile.
  * Why fixed: left open, npm chooses by the Node version and installed a release a year
  * older on Node 22, whose clicks missed on a scrolled page and whose waits took 25 seconds.
  */
-const AGENT_BROWSER_VERSION = "0.38.1";
+const AGENT_BROWSER_VERSION = "0.39.1";
 const AGENT_BROWSER_IS_CURRENT = `[ "$(agent-browser --version 2>/dev/null)" = "agent-browser ${AGENT_BROWSER_VERSION}" ]`;
 
 /** The Node release line account computers run. Keep it the same as apps/core/linux/Dockerfile. */

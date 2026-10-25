@@ -188,6 +188,9 @@ function deliverableFileUrl(url: string, home?: string): boolean {
 export async function executeSendMessage(ctx: ToolContext, input: Record<string, unknown>) {
   let parsed: ReturnType<typeof sendMessageInputSchema.parse>;
   const normalized = normalizeSendMessageInput(input);
+  if (normalized.droppedApprovalCards > 0 && Array.isArray(normalized.blocks) && normalized.blocks.length === 0) {
+    return { sent: false, note: prompt("dispatcher", "approval-card-shown") };
+  }
   try {
     parsed = sendMessageInputSchema.parse({
       blocks: normalized.blocks,

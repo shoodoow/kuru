@@ -68,10 +68,12 @@ import {
   StuckWatch,
   isLookOnlyStep,
   isSingleSmallCallStep,
+  stepSignature,
   resumableTranscript,
   transcriptForStorage,
   splitForSummary,
   SUMMARY_KEEP_RECENT_TOKENS,
+  RESUME_SUMMARY_AT,
   withStateSummary,
   cutKind,
 } from "./worker-loop.js";
@@ -1510,7 +1512,7 @@ export async function runWorker(
     // A continued job starts from a summary of its saved conversation plus the new note,
     // not from the whole of it. Why: one video job was continued five times, and each run
     // began at 53,000 to 92,000 tokens a step with every earlier step still in view.
-    if (prior.length > 0 && estimateTokens(transcript) > SUMMARY_KEEP_RECENT_TOKENS) {
+    if (prior.length > 0 && estimateTokens(transcript) > RESUME_SUMMARY_AT) {
       if (!(await summarizeState()) && estimateTokens(transcript) > compactAt) trimOldSteps();
     }
     const startedAt = Date.now();
@@ -1655,15 +1657,6 @@ export async function runWorker(
             }));
             const stepMessages = (step as { response?: { messages?: unknown } }).response?.messages;
             if (Array.isArray(stepMessages)) inFlight = stepMessages as ModelMessage[];
-            // The same call three times in a row returns the same thing three times.
-            const callSig = JSON.stringify(currentCalls);
-            if (callSig.length > 2 && callSig === lastToolCallSignature) {
-              duplicateCallCount += 1;
-              if (duplicateCallCount >= 2) loopFlag = true;
-            } else {
-              lastToolCallSignature = callSig;
-              duplicateCallCount = 0;
-            }
             if (currentCalls.length > 0) lookOnlyStreak = isLookOnlyStep(currentCalls) ? lookOnlyStreak + 1 : 0;
             stepLog.push({
               text: step.text,
@@ -1672,7 +1665,18 @@ export async function runWorker(
             });
             // The next step's calls are counted from zero.
             review.stepCalls = 0;
+            review.stepCallKeys?.clear();
             const results = (step as { toolResults?: unknown[] }).toolResults ?? [];
+            // The same calls three times in a row with the same answers is a loop. The answers
+            // count too: a render check repeated every 14 minutes returns a new frame count each time.
+            const callSig = currentCalls.length > 0 ? stepSignature(currentCalls, results) : "";
+            if (callSig && callSig === lastToolCallSignature) {
+              duplicateCallCount += 1;
+              if (duplicateCallCount >= 2) loopFlag = true;
+            } else {
+              lastToolCallSignature = callSig;
+              duplicateCallCount = 0;
+            }
             if (currentCalls.length > 0) {
               const printed = results.reduce<number>((sum, result) => sum + JSON.stringify((result as { output?: unknown }).output ?? result ?? "").length, 0);
               singleCallStreak = isSingleSmallCallStep(currentCalls, printed) ? singleCallStreak + 1 : 0;

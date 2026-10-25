@@ -61,8 +61,8 @@ export function linuxToolExecutes(
     skillFilesNote?: (path: string) => string;
   },
 ): Record<string, LinuxToolExecute> {
-  /** File-tool tips already given this run (fileToolTip). */
-  const tipsGiven = new Set<string>();
+  /** How many shell views and in-place edits this run made, for fileToolTip. */
+  const tipsGiven = new Map<string, number>();
   // Whether this job has seen the page whole yet; later snapshots are only changes.
   let snapshotted = false;
   /** Pictures this run has looked at. Each one is resent on every later step. */
@@ -388,13 +388,22 @@ const SHELL_EDIT = /(^|[\s;&|(])(sed\s+-i|perl\s+-p?i)/;
 const SHELL_VIEW = /(^|[\s;&|(])(sed\s+-n|awk\s+['"]?NR|head|tail|cat|nl)\s[^|;&]*\.[a-z]{1,5}\b/i;
 
 /**
- * The tip for a shell command that a file tool does in fewer steps, at most once each per run; null otherwise.
- * Input: the command and the tips already given (updated). Output: the tip text, or null.
+ * Which shell views or edits of a kind get the tip: the 1st, 6th and 16th.
+ * Why not once: told once, a worker went back to sed slices and `sed -i` later in
+ * the same job and broke a line twice. A few reminders, spaced out, cost little text.
  */
-export function fileToolTip(command: string, given: Set<string>): string | null {
+const TIP_AT = new Set([1, 6, 16]);
+
+/**
+ * The tip for a shell command that a file tool does in fewer steps, or null.
+ * Input: the command and the counts so far this run (updated). Output: the tip text, or null.
+ */
+export function fileToolTip(command: string, given: Map<string, number>): string | null {
   const kind = SHELL_EDIT.test(command) ? "edit" : SHELL_VIEW.test(command) && isReadOnlyShell(command) ? "read" : null;
-  if (!kind || given.has(kind)) return null;
-  given.add(kind);
+  if (!kind) return null;
+  const seen = (given.get(kind) ?? 0) + 1;
+  given.set(kind, seen);
+  if (!TIP_AT.has(seen)) return null;
   return prompt("worker-rules", kind === "edit" ? "tip-edit" : "tip-read");
 }
 

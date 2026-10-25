@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage } from "ai";
-import { collapseOldSteps, compactTranscript, compactionThreshold, dropStaleViews, isLookOnlyStep, isReadOnlyShell, isSingleSmallCallStep, resumableTranscript, transcriptForStorage, StuckWatch, callTargets, stepFailed, splitForSummary, withStateSummary, cutKind } from "./worker-loop.js";
+import { collapseOldSteps, compactTranscript, compactionThreshold, dropStaleViews, isLookOnlyStep, isReadOnlyShell, isSingleSmallCallStep, stepSignature, resumableTranscript, transcriptForStorage, StuckWatch, callTargets, stepFailed, splitForSummary, withStateSummary, cutKind } from "./worker-loop.js";
 
 const call = (id: string, toolName: string, input: unknown): ModelMessage =>
   ({ role: "assistant", content: [{ type: "tool-call", toolCallId: id, toolName, input }] }) as ModelMessage;
@@ -399,3 +399,13 @@ describe("isSingleSmallCallStep", () => {
     expect(isSingleSmallCallStep([{ name: "bash", input: { command: "node render.js --size 1080x1920" } }], 50)).toBe(false);
   });
 });
+
+describe("stepSignature", () => {
+  it("differs when the same call answers differently, and matches when nothing changed", () => {
+    const calls = [{ name: "bash", input: { command: "ls out/frames | wc -l" } }];
+    const at = (count: string) => stepSignature(calls, [{ toolCallId: Math.random().toString(), output: { type: "text", value: count } }]);
+    expect(at("640")).not.toBe(at("671"));
+    expect(at("671")).toBe(at("671"));
+  });
+});
+

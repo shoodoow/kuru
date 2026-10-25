@@ -3,6 +3,8 @@ FROM node:22-bookworm-slim AS node
 
 FROM debian:bookworm-slim
 
+# poppler-utils (pdftotext, pdftoppm) and python3-pypdf: agents read PDFs people upload;
+# without them a payslip upload failed on a missing module and pip refused to install one.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     adduser \
@@ -32,6 +34,8 @@ RUN apt-get update \
     socat \
     netcat-openbsd \
     iptables \
+    poppler-utils \
+    python3-pypdf \
   && rm -rf /var/lib/apt/lists/*
 
 # node, npm and npx. Yarn's files are left behind: nothing here uses it.

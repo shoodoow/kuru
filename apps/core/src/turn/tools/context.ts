@@ -30,13 +30,15 @@ export type ToolContext = {
   /** Per-turn spawn guard: mutated by executors. Caps retry-burn. */
   spawnCount?: number;
   /**
-   * Recent tool calls this turn (name + JSON input), mutated by the registry
-   * wrapper. Powers the generic doom-loop detector: 3 identical calls in a
-   * row never execute — the model gets a stop error instead.
+   * Recent tool calls this turn (name, JSON input, and what each answered), mutated
+   * by the registry wrapper. Powers the generic doom-loop detector: a third identical
+   * call after two identical answers never executes; the model gets a stop error instead.
    */
-  recentCalls?: { name: string; input: string }[];
+  recentCalls?: { name: string; input: string; answer?: string }[];
   /** Tool calls made in the model step now running; reset when a step starts. */
   stepCalls?: number;
+  /** Name and input of each call in the step now running, so an exact copy in the same step is not run twice. */
+  stepCallKeys?: Set<string>;
   /** The model repeated a call or flooded a step with calls: the turn may only close now. */
   stuck?: boolean;
   /** Linux username for cheap parent tools (read/search/fetch). */

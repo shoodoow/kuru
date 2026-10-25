@@ -152,6 +152,7 @@ export async function runAgentLoop(
         ? (finishedSteps: number, _hardCap: number, stepToolNames: string[][]) => {
             // A new step starts: its calls are counted from zero.
             toolCtx.stepCalls = 0;
+            toolCtx.stepCallKeys?.clear();
             return replyOnlyRestriction({
               stuck: Boolean(toolCtx.stuck),
               finishedSteps,

@@ -39,6 +39,27 @@ export function dispatcherToolBudgetMs(toolName: string): number | null {
   return DISPATCHER_TOOL_BUDGET_DEFAULT_MS;
 }
 
+/**
+ * Tools that send a video and wait for the platform to take it: minutes, not seconds.
+ * Why: in a chat turn they hit the time cap, but the upload kept running in the
+ * background and held the account's upload slot. The agent then retried and sent
+ * a worker, and one 270 MB video was started three times. A chat turn refuses
+ * them before anything is sent; a worker runs them with no cap.
+ */
+const WORKER_ONLY_UPLOADS = new Set([
+  "youtube_upload_video",
+  "tiktok_post_video",
+  "tiktok_upload_draft",
+  "instagram_publish_reel",
+  "instagram_publish_story",
+  "instagram_publish_carousel",
+]);
+
+/** True when a chat turn must hand this tool to a worker instead of running it. */
+export function workerOnlyInChat(toolName: string): boolean {
+  return WORKER_ONLY_UPLOADS.has(toolName);
+}
+
 export function dispatcherToolBudgetError(budgetMs: number): string {
   const seconds = Math.round(budgetMs / 1000);
   return `Tool exceeded ${seconds}s — use spawn_worker for long work.`;
