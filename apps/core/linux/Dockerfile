@@ -1,5 +1,5 @@
 # Node comes from the official image: Debian's own package is version 18, and current tools need 22.
-FROM node:22-bookworm-slim AS node
+FROM node:26-bookworm-slim AS node
 
 FROM debian:bookworm-slim
 
